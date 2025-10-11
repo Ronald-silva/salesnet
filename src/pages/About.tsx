@@ -12,7 +12,7 @@ const About = () => {
       <section className="bg-gradient-hero py-20">
         <div className="container mx-auto px-4 text-center">
           <h1 className="text-5xl font-heading font-bold text-foreground mb-4">Sobre a SALESNET</h1>
-          <p className="text-xl text-muted-foreground">Conectando Vila Velha com tecnologia e qualidade</p>
+          <p className="text-xl text-muted-foreground">Conectando Fortaleza com tecnologia e qualidade</p>
         </div>
       </section>
 
@@ -25,7 +25,7 @@ const About = () => {
               </div>
               <h3 className="text-2xl font-heading font-bold text-center text-card-foreground mb-4">MISSÃO</h3>
               <p className="text-muted-foreground text-center">
-                Fornecer internet FTTH de qualidade em Vila Velha/ES com suporte inteligente 24h,
+                Fornecer internet FTTH de qualidade em Fortaleza/CE com suporte inteligente 24h,
                 garantindo conectividade estável para residências e negócios.
               </p>
             </div>
@@ -36,7 +36,7 @@ const About = () => {
               </div>
               <h3 className="text-2xl font-heading font-bold text-center text-card-foreground mb-4">VISÃO</h3>
               <p className="text-muted-foreground text-center">
-                Ser referência em internet fibra ótica em Vila Velha, com mais de 1000 clientes ativos
+                Ser referência em internet fibra ótica em Fortaleza, com mais de 1000 clientes ativos
                 e expansão contínua para novos bairros.
               </p>
             </div>

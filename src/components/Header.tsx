@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Wifi, Code } from "lucide-react";
+import { Menu, X, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Header = () => {
@@ -29,7 +29,7 @@ const Header = () => {
             SALESNET
           </span>
         </Link>
-        
+
         {/* Desktop Navigation */}
         <nav className="hidden lg:flex items-center space-x-1">
           {navItems.map((item) => (
@@ -44,16 +44,14 @@ const Header = () => {
             </Link>
           ))}
         </nav>
-        
-        {/* Ronald Digital Branding */}
-        <div className="hidden xl:flex items-center gap-2 text-xs text-muted-foreground">
-          <Code className="h-4 w-4 text-accent" />
-          <span>Desenvolvido por <span className="text-accent font-semibold">Ronald Digital</span></span>
-        </div>
 
         {/* CTA Button */}
         <div className="hidden md:block">
-          <a href="https://wa.me/5527999999999" target="_blank" rel="noopener noreferrer">
+          <a
+            href="https://wa.me/5527999999999"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             <Button variant="cta" size="sm">
               Fale no WhatsApp
             </Button>

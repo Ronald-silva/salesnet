@@ -67,7 +67,7 @@ const Contact = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">Endereço</h3>
-                      <p className="text-muted-foreground">Vila Velha, ES</p>
+                      <p className="text-muted-foreground">Fortaleza, CE</p>
                     </div>
                   </div>
 

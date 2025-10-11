@@ -116,9 +116,10 @@ const Hotspots = () => {
                   <select className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground">
                     <option value="">Selecione</option>
                     <option value="jardim-guanabara">Jardim Guanabara</option>
-                    <option value="iracema">Iracema</option>
+                    <option value="jardim-iracema">Jardim Iracema</option>
                     <option value="quintino-cunha">Quintino Cunha</option>
-                    <option value="vila-velha-nova-assuncao">Vila Velha Nova Assunção</option>
+                    <option value="vila-velha">Vila Velha</option>
+                    <option value="nova-assuncao">Nova Assunção</option>
                   </select>
                 </div>
 

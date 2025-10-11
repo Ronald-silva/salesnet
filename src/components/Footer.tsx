@@ -13,7 +13,7 @@ const Footer = () => {
               <h3 className="text-lg font-heading font-bold">SALESNET</h3>
             </div>
             <p className="text-sm text-muted-foreground">
-              Internet via Fibra Óptica de qualidade em Vila Velha/ES. Suporte IA 24h.
+              Internet via Fibra Óptica de qualidade em Fortaleza/CE. Suporte IA 24h.
             </p>
           </div>
 
@@ -37,7 +37,7 @@ const Footer = () => {
             <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start space-x-2">
                 <MapPin className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
-                <span>Vila Velha, Espírito Santo</span>
+                <span>Fortaleza, Ceará</span>
               </li>
               <li className="flex items-start space-x-2">
                 <Phone className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
@@ -80,14 +80,14 @@ const Footer = () => {
         {/* Map Section */}
         <div className="mt-8 pt-8 border-t border-border">
           <h4 className="text-sm font-heading font-bold mb-4 text-center">Área de Cobertura</h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm text-muted-foreground">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center text-sm text-muted-foreground">
             <div className="flex items-center justify-center gap-2">
               <MapPin className="h-4 w-4 text-accent" />
               <span>Jardim Guanabara</span>
             </div>
             <div className="flex items-center justify-center gap-2">
               <MapPin className="h-4 w-4 text-accent" />
-              <span>Iracema</span>
+              <span>Jardim Iracema</span>
             </div>
             <div className="flex items-center justify-center gap-2">
               <MapPin className="h-4 w-4 text-accent" />
@@ -95,30 +95,25 @@ const Footer = () => {
             </div>
             <div className="flex items-center justify-center gap-2">
               <MapPin className="h-4 w-4 text-accent" />
-              <span>Vila Velha Nova Assunção</span>
+              <span>Vila Velha</span>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <MapPin className="h-4 w-4 text-accent" />
+              <span>Nova Assunção</span>
             </div>
           </div>
         </div>
 
-        {/* Ronald Digital Branding & Copyright */}
+        {/* Copyright */}
         <div className="mt-8 pt-8 border-t border-border text-center">
-          <div className="mb-4">
-            <p className="text-sm text-muted-foreground mb-2">
-              Desenvolvido por <span className="text-accent font-semibold">Ronald Digital</span>
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Soluções em IA e Web | Contato:{" "}
-              <a href="mailto:ronald@ronalddigital.com" className="text-accent hover:underline">
-                ronald@ronalddigital.com
-              </a>
-            </p>
-          </div>
-          
           <p className="text-xs text-muted-foreground">
             © {new Date().getFullYear()} SalesNet Telecom. Todos os direitos reservados.
           </p>
           <p className="text-xs text-muted-foreground mt-2">
             Empresa autorizada pela ANATEL
+          </p>
+          <p className="text-xs text-muted-foreground mt-2 opacity-60">
+            by Ronald Digital
           </p>
         </div>
       </div>

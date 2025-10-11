@@ -10,9 +10,10 @@ const Cobertura = () => {
 
   const neighborhoods = [
     { name: "Jardim Guanabara", coverage: 95 },
-    { name: "Iracema", coverage: 90 },
+    { name: "Jardim Iracema", coverage: 90 },
     { name: "Quintino Cunha", coverage: 85 },
-    { name: "Vila Velha Nova Assunção", coverage: 92 },
+    { name: "Vila Velha", coverage: 88 },
+    { name: "Nova Assunção", coverage: 92 },
   ];
 
   return (
@@ -25,7 +26,7 @@ const Cobertura = () => {
         <div className="container mx-auto px-4 text-center">
           <MapPin className="h-16 w-16 text-accent mx-auto mb-4" />
           <h1 className="text-4xl md:text-5xl font-heading font-bold mb-4 animate-fade-in">
-            Cobertura em Vila Velha
+            Cobertura em Fortaleza
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto animate-fade-in">
             Verifique se atendemos seu endereço
@@ -84,7 +85,7 @@ const Cobertura = () => {
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"
-              title="Mapa de Cobertura Vila Velha"
+              title="Mapa de Cobertura Fortaleza"
             ></iframe>
           </div>
         </div>

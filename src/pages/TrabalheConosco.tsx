@@ -91,7 +91,7 @@ const TrabalheConosco = () => {
               </p>
               <div className="flex flex-wrap gap-2">
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Técnico</span>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Vila Velha/ES</span>
+                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Fortaleza/CE</span>
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">CLT</span>
               </div>
             </div>
@@ -119,7 +119,7 @@ const TrabalheConosco = () => {
               </p>
               <div className="flex flex-wrap gap-2">
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Vendas</span>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Vila Velha/ES</span>
+                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Fortaleza/CE</span>
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full">Comissão</span>
               </div>
             </div>

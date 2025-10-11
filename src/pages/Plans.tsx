@@ -34,8 +34,16 @@ const Plans = () => {
 
       <section className="bg-gradient-hero py-20">
         <div className="container mx-auto px-4 text-center">
-          <h1 className="text-5xl font-heading font-bold text-foreground mb-4">Nossos Planos</h1>
-          <p className="text-xl text-muted-foreground">Escolha o ideal para você em Vila Velha</p>
+          <h1 className="text-5xl font-heading font-bold text-foreground mb-4">Internet Rápida e Confiável</h1>
+          <p className="text-xl text-muted-foreground mb-6">de Fortaleza</p>
+          <div className="flex flex-wrap justify-center gap-4 mt-6">
+            {['Jardim Guanabara', 'Jardim Iracema', 'Quintino Cunha', 'Vila Velha', 'Nova Assunção'].map((location, i) => (
+              <div key={i} className="flex items-center gap-2 bg-accent/10 px-4 py-2 rounded-full">
+                <Wifi className="h-4 w-4 text-accent" />
+                <span className="text-sm font-medium">{location}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 

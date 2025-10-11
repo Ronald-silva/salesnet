@@ -3,7 +3,7 @@ import Footer from "@/components/Footer";
 import AIBotWidget from "@/components/AIBotWidget";
 import { Button } from "@/components/ui/button";
 import { Wifi, Shield, Bot, Zap, MapPin, Star } from "lucide-react";
-import heroImage from "@/assets/hero-vilavelha.jpg";
+import heroImage from "@/assets/hero-network.jpg";
 
 const Home = () => {
   return (
@@ -24,10 +24,10 @@ const Home = () => {
             Internet Rápida e Confiável
           </h1>
           <h2 className="text-3xl md:text-4xl text-accent mb-4 animate-fade-in font-bold">
-            para Vila Velha
+            para Fortaleza
           </h2>
           <p className="text-xl text-muted-foreground mb-8 animate-fade-in max-w-3xl mx-auto">
-            Cobertura em Jardim Guanabara, Iracema, Quintino Cunha e Vila Velha Nova Assunção. Suporte IA 24h.
+            Cobertura em Jardim Guanabara, Jardim Iracema, Quintino Cunha, Vila Velha e Nova Assunção. Suporte IA 24h.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-fade-in">
@@ -71,7 +71,7 @@ const Home = () => {
                 Cobertura Local
               </h3>
               <p className="text-sm text-muted-foreground">
-                Atendemos os principais bairros de Vila Velha
+                Atendemos os principais bairros de Fortaleza
               </p>
             </div>
 
@@ -162,7 +162,7 @@ const Home = () => {
               <div className="flex mb-3">
                 {[1,2,3,4,5].map(i => <Star key={i} className="h-4 w-4 text-accent fill-accent" />)}
               </div>
-              <p className="text-muted-foreground mb-4">"Internet estável em Iracema! Melhor que as concorrentes."</p>
+              <p className="text-muted-foreground mb-4">"Internet estável em Jardim Iracema! Melhor que as concorrentes."</p>
               <p className="text-sm font-semibold text-foreground">- João Silva</p>
             </div>
 

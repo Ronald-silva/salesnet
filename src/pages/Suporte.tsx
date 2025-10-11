@@ -118,7 +118,7 @@ const Suporte = () => {
             Status da Rede
           </h2>
 
-          <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div className="bg-card rounded-lg p-6 border border-accent/20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-heading font-bold text-card-foreground">
@@ -136,7 +136,7 @@ const Suporte = () => {
             <div className="bg-card rounded-lg p-6 border border-accent/20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Iracema
+                  Jardim Iracema
                 </h3>
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
                   Operacional
@@ -164,7 +164,21 @@ const Suporte = () => {
             <div className="bg-card rounded-lg p-6 border border-accent/20">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Vila Velha Nova Assunção
+                  Vila Velha
+                </h3>
+                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
+                  Operacional
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Velocidade média: 96.5 Mbps | Latência: 10ms
+              </p>
+            </div>
+
+            <div className="bg-card rounded-lg p-6 border border-accent/20">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-heading font-bold text-card-foreground">
+                  Nova Assunção
                 </h3>
                 <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
                   Operacional
