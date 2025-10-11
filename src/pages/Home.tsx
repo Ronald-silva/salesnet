@@ -1,99 +1,15 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import FloatingWhatsApp from "@/components/FloatingWhatsApp";
-import PlanCard from "@/components/PlanCard";
-import ValueCard from "@/components/ValueCard";
+import AIBotWidget from "@/components/AIBotWidget";
 import { Button } from "@/components/ui/button";
-import { Wifi, Shield, Headphones, Zap, Radio, CheckCircle } from "lucide-react";
-import heroImage from "@/assets/hero-network.jpg";
+import { Wifi, Shield, Bot, Zap, MapPin, Star } from "lucide-react";
+import heroImage from "@/assets/hero-vilavelha.jpg";
 
 const Home = () => {
-  const plans = [
-    {
-      name: "Plano Básico",
-      speed: "20",
-      price: "60,00",
-      discountPrice: "50,00",
-      features: [
-        "Internet via Fibra Óptica",
-        "Wi-Fi incluso",
-        "Suporte técnico",
-        "Instalação grátis",
-        "Sem fidelidade"
-      ],
-    },
-    {
-      name: "Plano Intermediário",
-      speed: "30",
-      price: "70,00",
-      discountPrice: "60,00",
-      features: [
-        "Internet via Fibra Óptica",
-        "Wi-Fi de alta performance",
-        "Suporte técnico prioritário",
-        "Instalação grátis",
-        "Sem fidelidade"
-      ],
-    },
-    {
-      name: "Plano Popular",
-      speed: "50",
-      price: "80,00",
-      discountPrice: "70,00",
-      features: [
-        "Internet via Fibra Óptica",
-        "Wi-Fi de alta performance",
-        "Suporte técnico prioritário",
-        "Instalação grátis",
-        "Sem fidelidade",
-        "Ideal para streaming"
-      ],
-      isPopular: true,
-    },
-    {
-      name: "Plano Premium",
-      speed: "100",
-      price: "100,00",
-      discountPrice: "90,00",
-      features: [
-        "Internet via Fibra Óptica",
-        "Wi-Fi de ultra performance",
-        "Suporte técnico VIP",
-        "Instalação grátis",
-        "Sem fidelidade",
-        "Ideal para home office",
-        "Melhor para jogos online"
-      ],
-    },
-  ];
-
-  const steps = [
-    {
-      number: "01",
-      title: "Verificar Cobertura",
-      description: "Confirme se atendemos sua região"
-    },
-    {
-      number: "02",
-      title: "Escolher Plano",
-      description: "Selecione o melhor para você"
-    },
-    {
-      number: "03",
-      title: "Agendar Instalação",
-      description: "Instalamos rapidamente"
-    },
-    {
-      number: "04",
-      title: "Aproveitar Conexão",
-      description: "Internet de qualidade na sua casa"
-    }
-  ];
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <FloatingWhatsApp />
+      <AIBotWidget />
 
       {/* Hero Section */}
       <section className="relative h-[600px] flex items-center justify-center overflow-hidden">
@@ -101,237 +17,186 @@ const Home = () => {
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${heroImage})` }}
         />
-        <div className="absolute inset-0 bg-primary/80" />
+        <div className="absolute inset-0 bg-primary/85" />
         
         <div className="relative z-10 container mx-auto px-4 text-center">
-          <h1 className="text-5xl md:text-6xl lg:text-7xl font-heading font-bold text-primary-foreground mb-4 animate-fade-in">
-            SALESNET
+          <h1 className="text-5xl md:text-7xl font-heading font-bold text-foreground mb-4 animate-fade-in">
+            Internet Rápida e Confiável
           </h1>
-          <p className="text-2xl md:text-3xl text-primary-foreground/90 mb-2 animate-fade-in">
-            PROVEDOR INTERNET
-          </p>
-          <p className="text-xl md:text-2xl text-primary-foreground/80 mb-8 animate-fade-in">
-            Internet via Fibra Óptica e Rádio
+          <h2 className="text-3xl md:text-4xl text-accent mb-4 animate-fade-in font-bold">
+            para Vila Velha
+          </h2>
+          <p className="text-xl text-muted-foreground mb-8 animate-fade-in max-w-3xl mx-auto">
+            Cobertura em Jardim Guanabara, Iracema, Quintino Cunha e Vila Velha Nova Assunção. Suporte IA 24h.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-fade-in">
-            <a href="https://wa.me/5585996032957" target="_blank" rel="noopener noreferrer">
-              <Button variant="secondary" size="lg" className="min-w-[200px]">
-                Verificar Cobertura
-              </Button>
-            </a>
-            <a href="https://wa.me/5585996032957" target="_blank" rel="noopener noreferrer">
-              <Button variant="outline" size="lg" className="min-w-[200px] border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10">
-                Fale com nossa equipe
-              </Button>
-            </a>
+            <Button variant="cta" size="lg" className="min-w-[200px]">
+              Ver Planos
+            </Button>
+            <Button variant="outline" size="lg" className="min-w-[200px] border-accent text-accent hover:bg-accent/10">
+              Consultar Cobertura
+            </Button>
           </div>
         </div>
       </section>
 
       {/* Value Proposition */}
-      <section className="py-16 bg-background">
+      <section className="py-16">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="animate-fade-in">
-              <ValueCard
-                icon={Wifi}
-                title="Tecnologia FTTH"
-                description="Fibra óptica até sua casa com velocidade e estabilidade incomparáveis"
-              />
-            </div>
-            <div className="animate-fade-in" style={{ animationDelay: "100ms" }}>
-              <ValueCard
-                icon={Shield}
-                title="Estabilidade"
-                description="Conexão estável e confiável para trabalhar, estudar e se divertir"
-              />
-            </div>
-            <div className="animate-fade-in" style={{ animationDelay: "200ms" }}>
-              <ValueCard
-                icon={Headphones}
-                title="Suporte de Qualidade"
-                description="Equipe especializada pronta para atender você quando precisar"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Plans Section */}
-      <section className="py-16 bg-muted">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-heading font-bold text-foreground mb-4">
-              Nossos Planos
-            </h2>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Escolha o plano ideal para suas necessidades
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {plans.map((plan, index) => (
-              <div key={index} className="animate-fade-in" style={{ animationDelay: `${index * 100}ms` }}>
-                <PlanCard {...plan} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* How It Works */}
-      <section className="py-16 bg-background">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-heading font-bold text-foreground mb-4">
-              Como Funciona
-            </h2>
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Simples e rápido para você começar
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {steps.map((step, index) => (
-              <div key={index} className="text-center animate-fade-in" style={{ animationDelay: `${index * 100}ms` }}>
-                <div className="w-20 h-20 bg-gradient-hero rounded-full flex items-center justify-center mb-4 mx-auto">
-                  <span className="text-3xl font-heading font-bold text-primary-foreground">
-                    {step.number}
-                  </span>
-                </div>
-                <h3 className="text-xl font-heading font-semibold text-foreground mb-2">
-                  {step.title}
-                </h3>
-                <p className="text-muted-foreground">
-                  {step.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Technology Section */}
-      <section className="py-16 bg-muted">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-heading font-bold text-foreground mb-4">
-              Nossa Tecnologia
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
-            <div className="bg-card rounded-lg p-8 shadow-card hover:shadow-card-hover transition-all duration-300 animate-fade-in">
-              <div className="w-16 h-16 bg-gradient-card rounded-lg flex items-center justify-center mb-6">
-                <Zap className="w-8 h-8 text-secondary" />
-              </div>
-              <h3 className="text-2xl font-heading font-bold text-card-foreground mb-4">
-                FTTH - Fibra Óptica
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="bg-card rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all text-center">
+              <Zap className="h-12 w-12 text-accent mx-auto mb-4" />
+              <h3 className="text-lg font-heading font-bold text-card-foreground mb-2">
+                Velocidade Ilimitada
               </h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Velocidade ultra-rápida e estável</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Menor latência para jogos e streaming</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Conexão direta via fibra óptica</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Imune a interferências climáticas</span>
+              <p className="text-sm text-muted-foreground">
+                Planos de 100 a 500 Mbps para todas as necessidades
+              </p>
+            </div>
+
+            <div className="bg-card rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all text-center">
+              <Bot className="h-12 w-12 text-accent mx-auto mb-4" />
+              <h3 className="text-lg font-heading font-bold text-card-foreground mb-2">
+                Suporte IA 24h
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Assistente inteligente para diagnóstico rápido
+              </p>
+            </div>
+
+            <div className="bg-card rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all text-center">
+              <MapPin className="h-12 w-12 text-accent mx-auto mb-4" />
+              <h3 className="text-lg font-heading font-bold text-card-foreground mb-2">
+                Cobertura Local
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Atendemos os principais bairros de Vila Velha
+              </p>
+            </div>
+
+            <div className="bg-card rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all text-center">
+              <Shield className="h-12 w-12 text-accent mx-auto mb-4" />
+              <h3 className="text-lg font-heading font-bold text-card-foreground mb-2">
+                Sem Fidelidade
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Cancele quando quiser, sem multas
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Plans */}
+      <section className="py-16 bg-card">
+        <div className="container mx-auto px-4">
+          <h2 className="text-4xl md:text-5xl font-heading font-bold text-card-foreground mb-12 text-center">
+            Planos Populares
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            {/* 100 Mega */}
+            <div className="bg-background rounded-lg p-8 border border-accent/20 hover:shadow-card-hover transition-all">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">100 Mega</h3>
+                <div className="text-4xl font-bold text-accent mb-2">R$ 79,90</div>
+                <p className="text-sm text-muted-foreground">por mês</p>
+              </div>
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Wifi className="h-4 w-4 text-accent" />
+                  Navegação e streaming
                 </li>
               </ul>
+              <Button variant="outline" className="w-full">Contratar via Bot</Button>
             </div>
 
-            <div className="bg-card rounded-lg p-8 shadow-card hover:shadow-card-hover transition-all duration-300 animate-fade-in" style={{ animationDelay: "100ms" }}>
-              <div className="w-16 h-16 bg-gradient-card rounded-lg flex items-center justify-center mb-6">
-                <Radio className="w-8 h-8 text-secondary" />
+            {/* 300 Mega - Popular */}
+            <div className="bg-background rounded-lg p-8 border-2 border-accent hover:shadow-card-hover transition-all relative">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-accent text-accent-foreground rounded-full text-sm font-bold">
+                Mais Popular
               </div>
-              <h3 className="text-2xl font-heading font-bold text-card-foreground mb-4">
-                RF - Rádio Frequência
-              </h3>
-              <ul className="space-y-2 text-muted-foreground">
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Cobertura em áreas amplas</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Instalação rápida e prática</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Boa relação custo-benefício</span>
-                </li>
-                <li className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                  <span>Tecnologia confiável</span>
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">300 Mega</h3>
+                <div className="text-4xl font-bold text-accent mb-2">R$ 99,90</div>
+                <p className="text-sm text-muted-foreground">por mês</p>
+              </div>
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Wifi className="h-4 w-4 text-accent" />
+                  Streaming 4K e jogos
                 </li>
               </ul>
+              <Button variant="cta" className="w-full">Contratar via Bot</Button>
+            </div>
+
+            {/* 500 Mega */}
+            <div className="bg-background rounded-lg p-8 border border-accent/20 hover:shadow-card-hover transition-all">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">500 Mega</h3>
+                <div className="text-4xl font-bold text-accent mb-2">R$ 129,90</div>
+                <p className="text-sm text-muted-foreground">por mês</p>
+              </div>
+              <ul className="space-y-3 mb-6">
+                <li className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Wifi className="h-4 w-4 text-accent" />
+                  Home office profissional
+                </li>
+              </ul>
+              <Button variant="outline" className="w-full">Contratar via Bot</Button>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Contact Info Section */}
-      <section className="py-16 bg-primary text-primary-foreground">
+      {/* Testimonials */}
+      <section className="py-16">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-4xl md:text-5xl font-heading font-bold mb-4">
-              Fale Conosco
-            </h2>
-            <p className="text-xl text-primary-foreground/80 max-w-2xl mx-auto">
-              Estamos prontos para atendê-lo
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4 mx-auto">
-                <svg className="w-8 h-8 text-secondary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+          <h2 className="text-4xl font-heading font-bold text-foreground mb-12 text-center">
+            O Que Dizem Nossos Clientes
+          </h2>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            <div className="bg-card rounded-lg p-6 border border-accent/20">
+              <div className="flex mb-3">
+                {[1,2,3,4,5].map(i => <Star key={i} className="h-4 w-4 text-accent fill-accent" />)}
               </div>
-              <h3 className="font-heading font-semibold text-lg mb-2">Endereço</h3>
-              <p className="text-primary-foreground/80 text-sm">
-                Av. Major Assis, 1275 C<br />
-                Fortaleza, CE
-              </p>
+              <p className="text-muted-foreground mb-4">"Internet estável em Iracema! Melhor que as concorrentes."</p>
+              <p className="text-sm font-semibold text-foreground">- João Silva</p>
             </div>
 
-            <div className="text-center">
-              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4 mx-auto">
-                <svg className="w-8 h-8 text-secondary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                </svg>
+            <div className="bg-card rounded-lg p-6 border border-accent/20">
+              <div className="flex mb-3">
+                {[1,2,3,4,5].map(i => <Star key={i} className="h-4 w-4 text-accent fill-accent" />)}
               </div>
-              <h3 className="font-heading font-semibold text-lg mb-2">Telefones</h3>
-              <p className="text-primary-foreground/80 text-sm">
-                (85) 3045-0548<br />
-                (85) 99603-2957
-              </p>
+              <p className="text-muted-foreground mb-4">"Suporte IA responde rapidinho. Muito prático!"</p>
+              <p className="text-sm font-semibold text-foreground">- Maria Santos</p>
             </div>
 
-            <div className="text-center">
-              <div className="w-16 h-16 bg-secondary rounded-full flex items-center justify-center mb-4 mx-auto">
-                <svg className="w-8 h-8 text-secondary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+            <div className="bg-card rounded-lg p-6 border border-accent/20">
+              <div className="flex mb-3">
+                {[1,2,3,4,5].map(i => <Star key={i} className="h-4 w-4 text-accent fill-accent" />)}
               </div>
-              <h3 className="font-heading font-semibold text-lg mb-2">Horário</h3>
-              <p className="text-primary-foreground/80 text-sm">
-                Segunda a Sexta<br />
-                08:00 às 12:00 e 13:30 às 17:00
-              </p>
+              <p className="text-muted-foreground mb-4">"Preço justo e velocidade real. Recomendo!"</p>
+              <p className="text-sm font-semibold text-foreground">- Pedro Costa</p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* CTA Final */}
+      <section className="py-16 bg-gradient-hero">
+        <div className="container mx-auto px-4 text-center">
+          <h2 className="text-3xl md:text-4xl font-heading font-bold text-foreground mb-4">
+            Pronto para ter a melhor internet?
+          </h2>
+          <p className="text-xl text-muted-foreground mb-8">
+            Fale com nosso assistente IA agora mesmo
+          </p>
+          <Button variant="cta" size="lg">
+            Falar com o Bot
+          </Button>
         </div>
       </section>
 
