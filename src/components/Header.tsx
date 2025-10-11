@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Wifi, Code } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const Header = () => {
@@ -8,67 +8,71 @@ const Header = () => {
   const location = useLocation();
 
   const navItems = [
-    { name: "Página Inicial", path: "/" },
+    { name: "Home", path: "/" },
     { name: "Planos", path: "/planos" },
-    { name: "Sobre", path: "/sobre" },
+    { name: "Cobertura", path: "/cobertura" },
+    { name: "Suporte", path: "/suporte" },
+    { name: "Hotspots", path: "/hotspots" },
+    { name: "Trabalhe Conosco", path: "/trabalhe-conosco" },
     { name: "Contato", path: "/contato" },
   ];
 
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-primary border-b border-primary/10 backdrop-blur-sm">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo */}
-          <Link to="/" className="flex items-center space-x-2">
-            <div className="bg-secondary px-4 py-2 rounded">
-              <h1 className="text-xl md:text-2xl font-heading font-bold text-primary-foreground">
-                SALESNET
-              </h1>
-            </div>
-          </Link>
+    <header className="sticky top-0 z-50 w-full border-b border-border bg-primary/95 backdrop-blur supports-[backdrop-filter]:bg-primary/80">
+      <div className="container mx-auto flex h-20 items-center justify-between px-4">
+        {/* Logo */}
+        <Link to="/" className="flex items-center space-x-2">
+          <Wifi className="h-8 w-8 text-accent" />
+          <span className="text-xl font-heading font-bold text-foreground">
+            SALESNET
+          </span>
+        </Link>
+        
+        {/* Desktop Navigation */}
+        <nav className="hidden lg:flex items-center space-x-1">
+          {navItems.map((item) => (
+            <Link key={item.path} to={item.path}>
+              <Button
+                variant={isActive(item.path) ? "secondary" : "ghost"}
+                size="sm"
+                className="text-foreground"
+              >
+                {item.name}
+              </Button>
+            </Link>
+          ))}
+        </nav>
+        
+        {/* Ronald Digital Branding */}
+        <div className="hidden xl:flex items-center gap-2 text-xs text-muted-foreground">
+          <Code className="h-4 w-4 text-accent" />
+          <span>Desenvolvido por <span className="text-accent font-semibold">Ronald Digital</span></span>
+        </div>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-1">
-            {navItems.map((item) => (
-              <Link key={item.path} to={item.path}>
-                <Button
-                  variant={isActive(item.path) ? "secondary" : "ghost"}
-                  className="text-primary-foreground hover:text-secondary transition-colors"
-                >
-                  {item.name}
-                </Button>
-              </Link>
-            ))}
-          </nav>
-
-          {/* WhatsApp Button - Desktop */}
-          <a
-            href="https://wa.me/5585996032957"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden md:block"
-          >
+        {/* CTA Button */}
+        <div className="hidden md:block">
+          <a href="https://wa.me/5527999999999" target="_blank" rel="noopener noreferrer">
             <Button variant="cta" size="sm">
-              WhatsApp
+              Fale no WhatsApp
             </Button>
           </a>
-
-          {/* Mobile Menu Toggle */}
-          <button
-            className="md:hidden text-primary-foreground"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            aria-label="Toggle menu"
-          >
-            {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
         </div>
+
+        {/* Mobile Menu Toggle */}
+        <button
+          className="lg:hidden text-foreground"
+          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          aria-label="Toggle menu"
+        >
+          {isMenuOpen ? <X size={24} /> : <Menu size={24} />}
+        </button>
       </div>
 
       {/* Mobile Navigation */}
       {isMenuOpen && (
-        <div className="md:hidden bg-primary border-t border-primary/10 animate-slide-in">
+        <div className="lg:hidden border-t border-border animate-slide-in bg-primary">
           <nav className="container mx-auto px-4 py-4 flex flex-col space-y-2">
             {navItems.map((item) => (
               <Link
@@ -78,14 +82,14 @@ const Header = () => {
               >
                 <Button
                   variant={isActive(item.path) ? "secondary" : "ghost"}
-                  className="w-full justify-start text-primary-foreground"
+                  className="w-full justify-start text-foreground"
                 >
                   {item.name}
                 </Button>
               </Link>
             ))}
             <a
-              href="https://wa.me/5585996032957"
+              href="https://wa.me/5527999999999"
               target="_blank"
               rel="noopener noreferrer"
               className="w-full"

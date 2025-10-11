@@ -1,95 +1,124 @@
 import { Link } from "react-router-dom";
-import { MapPin, Phone, Clock, Mail } from "lucide-react";
+import { MapPin, Phone, Clock, Mail, Wifi, MessageCircle } from "lucide-react";
 
 const Footer = () => {
   return (
-    <footer className="bg-primary text-primary-foreground mt-20">
+    <footer className="bg-primary text-foreground border-t border-border">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-          {/* Logo e Descrição */}
-          <div className="space-y-4">
-            <div className="bg-secondary px-4 py-2 rounded inline-block">
-              <h2 className="text-2xl font-heading font-bold">SALESNET</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+          {/* Column 1: Brand */}
+          <div>
+            <div className="flex items-center space-x-2 mb-4">
+              <Wifi className="h-6 w-6 text-accent" />
+              <h3 className="text-lg font-heading font-bold">SALESNET</h3>
             </div>
-            <p className="text-sm text-primary-foreground/80">
-              Provedor de Internet com qualidade e tecnologia para sua casa e empresa.
+            <p className="text-sm text-muted-foreground">
+              Internet via Fibra Óptica de qualidade em Vila Velha/ES. Suporte IA 24h.
             </p>
           </div>
 
-          {/* Links Rápidos */}
+          {/* Column 2: Quick Links */}
           <div>
-            <h3 className="text-lg font-heading font-semibold mb-4">Links Rápidos</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/" className="text-primary-foreground/80 hover:text-secondary transition-colors">
-                  Página Inicial
-                </Link>
-              </li>
-              <li>
-                <Link to="/planos" className="text-primary-foreground/80 hover:text-secondary transition-colors">
-                  Planos
-                </Link>
-              </li>
-              <li>
-                <Link to="/sobre" className="text-primary-foreground/80 hover:text-secondary transition-colors">
-                  Sobre
-                </Link>
-              </li>
-              <li>
-                <Link to="/contato" className="text-primary-foreground/80 hover:text-secondary transition-colors">
-                  Contato
-                </Link>
-              </li>
+            <h4 className="text-sm font-heading font-bold mb-4">Links Rápidos</h4>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              <li><Link to="/" className="hover:text-accent transition-colors">Home</Link></li>
+              <li><Link to="/planos" className="hover:text-accent transition-colors">Planos</Link></li>
+              <li><Link to="/cobertura" className="hover:text-accent transition-colors">Cobertura</Link></li>
+              <li><Link to="/suporte" className="hover:text-accent transition-colors">Suporte</Link></li>
+              <li><Link to="/hotspots" className="hover:text-accent transition-colors">Hotspots</Link></li>
+              <li><Link to="/trabalhe-conosco" className="hover:text-accent transition-colors">Trabalhe Conosco</Link></li>
+              <li><Link to="/contato" className="hover:text-accent transition-colors">Contato</Link></li>
             </ul>
           </div>
 
-          {/* Contato */}
+          {/* Column 3: Contact */}
           <div>
-            <h3 className="text-lg font-heading font-semibold mb-4">Contato</h3>
-            <ul className="space-y-3">
+            <h4 className="text-sm font-heading font-bold mb-4">Contato</h4>
+            <ul className="space-y-3 text-sm text-muted-foreground">
               <li className="flex items-start space-x-2">
-                <MapPin className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-                <span className="text-sm text-primary-foreground/80">
-                  Av. Major Assis, 1275 C<br />
-                  Fortaleza, CE
-                </span>
+                <MapPin className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                <span>Vila Velha, Espírito Santo</span>
               </li>
-              <li className="flex items-center space-x-2">
-                <Phone className="w-5 h-5 text-secondary flex-shrink-0" />
-                <a href="tel:+558530450548" className="text-sm text-primary-foreground/80 hover:text-secondary transition-colors">
-                  (85) 3045-0548
-                </a>
+              <li className="flex items-start space-x-2">
+                <Phone className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                <div>
+                  <a href="tel:+552799999999" className="hover:text-accent transition-colors block">
+                    (27) 9 9999-9999
+                  </a>
+                </div>
               </li>
-              <li className="flex items-center space-x-2">
-                <Phone className="w-5 h-5 text-secondary flex-shrink-0" />
-                <a href="https://wa.me/5585996032957" className="text-sm text-primary-foreground/80 hover:text-secondary transition-colors">
-                  (85) 99603-2957
+              <li className="flex items-start space-x-2">
+                <MessageCircle className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                <a
+                  href="https://wa.me/5527999999999"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hover:text-accent transition-colors"
+                >
+                  WhatsApp
                 </a>
               </li>
             </ul>
           </div>
 
-          {/* Horário */}
+          {/* Column 4: Hours */}
           <div>
-            <h3 className="text-lg font-heading font-semibold mb-4">Horário de Funcionamento</h3>
-            <div className="flex items-start space-x-2">
-              <Clock className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-primary-foreground/80">
-                <p>Segunda a Sexta</p>
-                <p>08:00 às 12:00</p>
-                <p>13:30 às 17:00</p>
+            <h4 className="text-sm font-heading font-bold mb-4">Horário</h4>
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex items-start space-x-2">
+                <Clock className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                <div>
+                  <p>Bot IA: 24h/7</p>
+                  <p className="mt-1">Atendimento Humano:</p>
+                  <p>Seg-Dom: 8h-22h</p>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Copyright */}
-        <div className="border-t border-primary-foreground/10 mt-8 pt-8 text-center">
-          <p className="text-sm text-primary-foreground/60">
-            © {new Date().getFullYear()} SALESNET. Todos os direitos reservados.
+        {/* Map Section */}
+        <div className="mt-8 pt-8 border-t border-border">
+          <h4 className="text-sm font-heading font-bold mb-4 text-center">Área de Cobertura</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center text-sm text-muted-foreground">
+            <div className="flex items-center justify-center gap-2">
+              <MapPin className="h-4 w-4 text-accent" />
+              <span>Jardim Guanabara</span>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <MapPin className="h-4 w-4 text-accent" />
+              <span>Iracema</span>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <MapPin className="h-4 w-4 text-accent" />
+              <span>Quintino Cunha</span>
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <MapPin className="h-4 w-4 text-accent" />
+              <span>Vila Velha Nova Assunção</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Ronald Digital Branding & Copyright */}
+        <div className="mt-8 pt-8 border-t border-border text-center">
+          <div className="mb-4">
+            <p className="text-sm text-muted-foreground mb-2">
+              Desenvolvido por <span className="text-accent font-semibold">Ronald Digital</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Soluções em IA e Web | Contato:{" "}
+              <a href="mailto:ronald@ronalddigital.com" className="text-accent hover:underline">
+                ronald@ronalddigital.com
+              </a>
+            </p>
+          </div>
+          
+          <p className="text-xs text-muted-foreground">
+            © {new Date().getFullYear()} SalesNet Telecom. Todos os direitos reservados.
           </p>
-          <p className="text-xs text-primary-foreground/40 mt-2">
-            Empresa autorizada ANATEL
+          <p className="text-xs text-muted-foreground mt-2">
+            Empresa autorizada pela ANATEL
           </p>
         </div>
       </div>
