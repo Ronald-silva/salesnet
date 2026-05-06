@@ -5,9 +5,9 @@ import { z } from 'zod';
 export const CustomerPlanSchema = z.object({
   id: z.string(),
   name: z.string(),
-  downloadMbps: z.number(),
-  uploadMbps: z.number(),
-  monthlyPrice: z.number(),
+  downloadMbps: z.number().finite(),
+  uploadMbps: z.number().finite(),
+  monthlyPrice: z.number().finite(),
 });
 
 export const CustomerSchema = z.object({
@@ -15,7 +15,7 @@ export const CustomerSchema = z.object({
   name: z.string(),
   document: z.string(),          // CPF or CNPJ
   email: z.string().email().optional(),
-  phone: z.string(),
+  phone: z.string().min(7),
   address: z.object({
     street: z.string(),
     number: z.string(),
@@ -33,7 +33,7 @@ export const CustomerSchema = z.object({
 export const InvoiceSchema = z.object({
   id: z.string(),
   customerId: z.string(),
-  amount: z.number(),
+  amount: z.number().finite(),
   dueDate: z.string(),           // ISO date string
   status: z.enum(['open', 'paid', 'overdue', 'cancelled']),
   barcode: z.string().optional(),
@@ -48,17 +48,17 @@ export const PixKeySchema = z.object({
 export const OverdueCustomerSchema = z.object({
   customerId: z.string(),
   name: z.string(),
-  phone: z.string(),
-  daysOverdue: z.number(),
-  amountDue: z.number(),
+  phone: z.string().min(7),
+  daysOverdue: z.number().finite(),
+  amountDue: z.number().finite(),
 });
 
 export const DueSoonCustomerSchema = z.object({
   customerId: z.string(),
   name: z.string(),
-  phone: z.string(),
+  phone: z.string().min(7),
   dueDate: z.string(),
-  amount: z.number(),
+  amount: z.number().finite(),
 });
 
 export const SuspendReactivateResponseSchema = z.object({
@@ -107,7 +107,7 @@ export const NetworkNodeSchema = z.object({
   nodeId: z.string(),
   neighborhood: z.string(),
   online: z.boolean(),
-  clientCount: z.number(),
+  clientCount: z.number().finite(),
   lastChecked: z.string(),
 });
 
