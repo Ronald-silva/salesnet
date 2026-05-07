@@ -1,0 +1,1 @@
+export { processMessage } from './processor';

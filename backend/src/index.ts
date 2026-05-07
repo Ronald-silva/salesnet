@@ -1,6 +1,8 @@
 import express from 'express';
 import { env } from './config/env';
 import { twilioWebhookRouter } from './integrations/twilio';
+import { messageBus } from './services/message-bus';
+import { processMessage } from './agent';
 
 const app = express();
 
@@ -20,10 +22,17 @@ app.get('/health', (_req, res) => {
 
 app.use('/webhook/twilio', twilioWebhookRouter);
 
+messageBus.onIncomingMessage(({ phone, body }) => {
+  processMessage(phone, body).catch((err: unknown) => {
+    console.error(`[agent] processMessage error for ${phone}:`, err);
+  });
+});
+
 app.listen(env.PORT, () => {
   console.log(`🚀 SalesNet backend running on port ${env.PORT} [${env.NODE_ENV}]`);
   console.log(`   Health check: http://localhost:${env.PORT}/health`);
   console.log(`   Twilio webhook: http://localhost:${env.PORT}/webhook/twilio`);
+  console.log(`   AI agent: listening on message bus`);
 });
 
 export default app;
