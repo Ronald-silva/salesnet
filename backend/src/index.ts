@@ -4,6 +4,8 @@ import { twilioWebhookRouter } from './integrations/twilio';
 import { messageBus } from './services/message-bus';
 import { processMessage } from './agent';
 import { startAutomations, paymentWebhookRouter, campaignExpansionRouter } from './automations';
+import { authRouter } from './routes/auth';
+import { clientRouter } from './routes/client';
 
 const app = express();
 
@@ -24,6 +26,8 @@ app.get('/health', (_req, res) => {
 app.use('/webhook/twilio', twilioWebhookRouter);
 app.use('/webhook/sgp', paymentWebhookRouter);
 app.use('/api/campaigns', campaignExpansionRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/client', clientRouter);
 
 messageBus.onIncomingMessage(({ phone, body }) => {
   processMessage(phone, body).catch((err: unknown) => {
