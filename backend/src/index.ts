@@ -3,7 +3,7 @@ import { env } from './config/env';
 import { twilioWebhookRouter } from './integrations/twilio';
 import { messageBus } from './services/message-bus';
 import { processMessage } from './agent';
-import { startAutomations, paymentWebhookRouter } from './automations';
+import { startAutomations, paymentWebhookRouter, campaignExpansionRouter } from './automations';
 
 const app = express();
 
@@ -23,6 +23,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/webhook/twilio', twilioWebhookRouter);
 app.use('/webhook/sgp', paymentWebhookRouter);
+app.use('/api/campaigns', campaignExpansionRouter);
 
 messageBus.onIncomingMessage(({ phone, body }) => {
   processMessage(phone, body).catch((err: unknown) => {

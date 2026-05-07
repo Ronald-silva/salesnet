@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { runBillingJobD3, runBillingJobD0, runBillingJobOverdueD3, runBillingJobSuspendD5 } from './billing-reminders';
+import { startCampaigns, expansionRouter as campaignExpansionRouter } from './campaigns';
 
 export function startAutomations(): void {
   // D-3: every day at 08:00
@@ -22,7 +23,10 @@ export function startAutomations(): void {
     runBillingJobSuspendD5().catch((err) => console.error('[cron:suspended_d5]', err));
   });
 
+  startCampaigns();
+
   console.log('[automations] billing cron jobs scheduled');
 }
 
 export { paymentWebhookRouter } from './payment-webhook';
+export { campaignExpansionRouter };
