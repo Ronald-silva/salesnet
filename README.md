@@ -2,7 +2,70 @@
 
 ## Sobre o Projeto
 
-Site institucional da **SalesNet Telecom**, provedor de internet via fibra óptica em Fortaleza/CE.
+Plataforma completa da **SalesNet Telecom** com:
+
+- **Frontend institucional** (React + Vite) para captação e suporte.
+- **Backend operacional** (Node + Express) com integrações reais:
+  - WhatsApp via Twilio
+  - SGP (ERP ISP)
+  - Supabase (dados operacionais/memória)
+  - Agente IA para atendimento e automações
+
+Objetivo: centralizar atendimento, cobrança e campanhas com eficiência operacional e controle de custo.
+
+## Contexto Técnico Atual (para escolha de API)
+
+### Arquitetura em produção (resumo)
+
+- `frontend` em Vercel, consumindo API do backend.
+- `backend` (Express/TypeScript) com webhooks (`/webhook/twilio`, `/webhook/sgp/*`) e rotas de portal/admin.
+- Integrações principais:
+  - `Twilio` para mensagens WhatsApp
+  - `SGP` para clientes/faturas/rede/chamados
+  - `Supabase` para persistência e suporte a automações
+- IA atual integrada via `@anthropic-ai/sdk`.
+
+### Requisitos de IA do projeto
+
+- Boa interpretação de contexto em português (suporte e cobrança).
+- Confiabilidade para casos críticos (financeiro/rede/chamados).
+- Baixa latência para atendimento.
+- Custo previsível por conversa.
+- Facilidade de observabilidade e fallback.
+
+## Decisão de API de IA (Claude vs DeepSeek)
+
+### Resposta curta
+
+Sim, **DeepSeek pode ser uma boa opção de economia**, mas para este projeto a abordagem mais segura é:
+
+1. manter **Claude** como motor principal para casos complexos/críticos;
+2. introduzir DeepSeek de forma controlada para casos simples/intermediários;
+3. medir custo/qualidade antes de trocar o core.
+
+### Recomendação prática para SalesNet
+
+- **Cenário recomendado agora:** Claude-first com roteamento por complexidade.
+- **Piloto de DeepSeek:** começar em intents de baixo risco:
+  - FAQ
+  - reformulação/resumo
+  - respostas de catálogo e perguntas recorrentes
+- **Não migrar de imediato** casos de maior risco:
+  - negociação de cobrança
+  - orientações técnicas com impacto operacional
+  - ações com tool-calling em múltiplos sistemas
+
+### Critérios objetivos para decisão final
+
+Avaliar por 2-4 semanas com logs comparativos:
+
+- custo por atendimento
+- taxa de resolução no primeiro contato
+- taxa de escalonamento para humano
+- taxa de correção manual necessária
+- latência P95
+
+Se DeepSeek mantiver qualidade com redução de custo relevante, ampliar gradualmente.
 
 ### Cobertura
 
@@ -56,6 +119,11 @@ Este projeto foi desenvolvido com:
 - 🔄 **TanStack Query** - Gerenciamento de estado e cache
 - 📋 **React Hook Form + Zod** - Formulários e validação
 - 🎭 **Lucide React** - Ícones modernos
+- 🧩 **Backend Node/Express** - APIs, webhooks e automações
+- 💬 **Twilio** - WhatsApp oficial
+- 🗄️ **Supabase** - persistência e suporte operacional
+- 🌐 **SGP API** - integração com ERP ISP
+- 🤖 **Anthropic Claude API** - agente principal atual
 
 ## Como fazer deploy
 
@@ -142,7 +210,7 @@ npm run lint         # Executa ESLint
 
 ### Variáveis de Ambiente (Opcional)
 
-Crie um arquivo `.env.local` na raiz do projeto para configurações personalizadas:
+Crie um arquivo `.env.local` na raiz do frontend para configurações personalizadas:
 
 ```env
 # Exemplo de configurações
@@ -150,6 +218,35 @@ VITE_WHATSAPP_NUMBER=5585999999999
 VITE_GOOGLE_ANALYTICS_ID=G-XXXXXXXXXX
 VITE_API_BASE_URL=https://api.salesnet.com.br
 ```
+
+### Variáveis do Backend (`backend/.env`)
+
+```env
+ANTHROPIC_API_KEY=
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_WHATSAPP_NUMBER=+5585996032957
+SGP_BASE_URL=
+SGP_API_TOKEN=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+PORT=3001
+NODE_ENV=development
+```
+
+> Em produção, mantenha segredos no Railway (ou provedor do backend), não no frontend.
+
+## Estratégia recomendada de otimização de tokens
+
+Mesmo usando apenas Claude, a economia pode ser expressiva com arquitetura:
+
+- roteamento por complexidade (`simples`, `intermediário`, `complexo`)
+- respostas determinísticas para FAQ sem chamar LLM
+- contexto mínimo por requisição (RAG + resumo de histórico)
+- limites de saída por categoria de atendimento
+- cache de perguntas repetidas
+
+Com isso, você preserva qualidade nos casos críticos e reduz custo médio por conversa.
 
 ### Requisitos do Sistema
 
