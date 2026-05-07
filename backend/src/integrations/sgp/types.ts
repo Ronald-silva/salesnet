@@ -111,6 +111,13 @@ export const NetworkNodeSchema = z.object({
   lastChecked: z.string(),
 });
 
+// --- Array schemas for list endpoints ---
+
+export const OverdueCustomerListSchema = z.array(OverdueCustomerSchema);
+export const DueSoonCustomerListSchema = z.array(DueSoonCustomerSchema);
+export const TicketListSchema = z.array(TicketSchema);
+export const NetworkNodeListSchema = z.array(NetworkNodeSchema);
+
 // --- Inferred TypeScript types ---
 
 export type Customer = z.infer<typeof CustomerSchema>;

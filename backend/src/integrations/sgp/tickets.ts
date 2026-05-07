@@ -1,5 +1,6 @@
 import { sgpClient } from './client';
 import {
+  TicketListSchema,
   TicketSchema,
   OpenTicketResponseSchema,
   ScheduleVisitResponseSchema,
@@ -7,7 +8,6 @@ import {
   type OpenTicketResponse,
   type ScheduleVisitResponse,
 } from './types';
-import { z } from 'zod';
 
 export async function openTicket(
   customerId: string,
@@ -22,11 +22,11 @@ export async function openTicket(
   return OpenTicketResponseSchema.parse(data);
 }
 
-export async function getCustomerTickets(customerId: string): Promise<Ticket[]> {
+export async function getCustomerTickets(customerId: string, limit = 5): Promise<Ticket[]> {
   const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/chamados`, {
-    params: { limit: 5 },
+    params: { limit },
   });
-  return z.array(TicketSchema).parse(data);
+  return TicketListSchema.parse(data);
 }
 
 export async function scheduleVisit(

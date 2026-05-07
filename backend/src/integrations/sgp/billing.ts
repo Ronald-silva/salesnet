@@ -2,8 +2,8 @@ import { sgpClient } from './client';
 import {
   InvoiceSchema,
   PixKeySchema,
-  OverdueCustomerSchema,
-  DueSoonCustomerSchema,
+  OverdueCustomerListSchema,
+  DueSoonCustomerListSchema,
   SuspendReactivateResponseSchema,
   type Invoice,
   type PixKey,
@@ -11,7 +11,6 @@ import {
   type DueSoonCustomer,
   type SuspendReactivateResponse,
 } from './types';
-import { z } from 'zod';
 
 export async function getCurrentInvoice(customerId: string): Promise<Invoice> {
   const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/faturas/atual`);
@@ -27,14 +26,14 @@ export async function getOverdueCustomers(daysOverdue: number): Promise<OverdueC
   const { data } = await sgpClient.get('/api/v1/clientes/inadimplentes', {
     params: { dias: daysOverdue },
   });
-  return z.array(OverdueCustomerSchema).parse(data);
+  return OverdueCustomerListSchema.parse(data);
 }
 
 export async function getCustomersDueInDays(days: number): Promise<DueSoonCustomer[]> {
   const { data } = await sgpClient.get('/api/v1/clientes/vencendo', {
     params: { dias: days },
   });
-  return z.array(DueSoonCustomerSchema).parse(data);
+  return DueSoonCustomerListSchema.parse(data);
 }
 
 export async function suspendCustomer(customerId: string): Promise<SuspendReactivateResponse> {
