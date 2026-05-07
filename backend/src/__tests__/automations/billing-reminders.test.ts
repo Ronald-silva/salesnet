@@ -138,6 +138,20 @@ describe('runBillingJobD0', () => {
       expect.objectContaining({ nome: 'Ana' })
     );
   });
+
+  it('skips customer already notified today', async () => {
+    const customers = [
+      { customerId: 'c3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 90 },
+    ];
+    (getCustomersDueInDays as jest.Mock).mockResolvedValue(customers);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
+    });
+
+    await runBillingJobD0();
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+  });
 });
 
 describe('runBillingJobOverdueD3', () => {
@@ -160,6 +174,20 @@ describe('runBillingJobOverdueD3', () => {
       'HXoverdue_d3',
       expect.objectContaining({ nome: 'Pedro' })
     );
+  });
+
+  it('skips customer already notified today', async () => {
+    const customers = [
+      { customerId: 'c4', name: 'Pedro', phone: '+5585999990004', daysOverdue: 3, amountDue: 70 },
+    ];
+    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
+    });
+
+    await runBillingJobOverdueD3();
+
+    expect(sendTemplate).not.toHaveBeenCalled();
   });
 });
 
@@ -185,5 +213,20 @@ describe('runBillingJobSuspendD5', () => {
       'HXsuspended_d5',
       expect.objectContaining({ nome: 'Clara' })
     );
+  });
+
+  it('skips customer already notified today', async () => {
+    const customers = [
+      { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60 },
+    ];
+    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
+    });
+
+    await runBillingJobSuspendD5();
+
+    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(suspendCustomer).not.toHaveBeenCalled();
   });
 });
