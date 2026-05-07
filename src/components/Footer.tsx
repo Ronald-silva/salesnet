@@ -113,7 +113,7 @@ const Footer = () => {
             Empresa autorizada pela ANATEL
           </p>
           <p className="text-xs text-muted-foreground mt-2 opacity-60">
-            by Ronald Digital
+            By RonalDigital
           </p>
         </div>
       </div>

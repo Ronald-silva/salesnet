@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { Menu, Wifi } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Menu, X, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
     { name: "Home", path: "/" },
@@ -20,10 +21,17 @@ const Header = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  useEffect(() => {
-    // close mobile menu on route change for a smoother, "app-like" feel
+  const prefersReducedMotion = useMemo(() => {
+    if (typeof window === "undefined" || !("matchMedia" in window)) return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }, []);
+
+  function closeMenuThenNavigate(path: string) {
+    // Close with animation first, then navigate (avoids "hard cut" feeling).
+    const delayMs = prefersReducedMotion ? 0 : 220;
     setIsMenuOpen(false);
-  }, [location.pathname]);
+    window.setTimeout(() => navigate(path), delayMs);
+  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-primary/95 backdrop-blur supports-[backdrop-filter]:bg-primary/80">
@@ -72,7 +80,11 @@ const Header = () => {
                 className="group inline-flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-background/30 text-foreground shadow-sm shadow-black/20 transition-all duration-300 ease-out hover:border-accent/30 hover:bg-accent/10 hover:shadow-[0_0_0_1px_hsl(var(--accent)/0.15),0_12px_30px_hsl(0_0%_0%/0.35)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98]"
                 aria-label="Abrir menu"
               >
-                <Menu size={20} className="transition-transform duration-300 ease-out group-hover:rotate-[-6deg]" />
+                {isMenuOpen ? (
+                  <X size={20} className="transition-transform duration-300 ease-out group-hover:rotate-[6deg]" />
+                ) : (
+                  <Menu size={20} className="transition-transform duration-300 ease-out group-hover:rotate-[-6deg]" />
+                )}
               </button>
             </SheetTrigger>
 
@@ -93,18 +105,59 @@ const Header = () => {
               </SheetHeader>
 
               <nav className="mt-6 flex flex-col gap-1">
-                {navItems.map((item) => (
-                  <SheetClose asChild key={item.path}>
-                    <Link to={item.path} className="block">
-                      <Button
-                        variant={isActive(item.path) ? "secondary" : "ghost"}
-                        className="w-full justify-start text-foreground transition-all duration-300 ease-out hover:translate-x-[2px]"
+                {navItems.map((item, idx) => {
+                  const active = isActive(item.path);
+                  const enterDelay = prefersReducedMotion ? "0ms" : `${110 + idx * 32}ms`;
+
+                  return (
+                    <button
+                      key={item.path}
+                      type="button"
+                      onClick={() => closeMenuThenNavigate(item.path)}
+                      className="group text-left"
+                      aria-current={active ? "page" : undefined}
+                    >
+                      <div
+                        className={[
+                          "relative overflow-hidden rounded-md",
+                          "transition-transform duration-300 ease-out",
+                          "motion-safe:will-change-transform",
+                          isMenuOpen ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0",
+                        ].join(" ")}
+                        style={{ transitionDelay: isMenuOpen ? enterDelay : "0ms" }}
                       >
-                        {item.name}
-                      </Button>
-                    </Link>
-                  </SheetClose>
-                ))}
+                        {/* Active pill highlight */}
+                        <span
+                          className={[
+                            "pointer-events-none absolute inset-0 rounded-md",
+                            "transition-all duration-300 ease-out",
+                            active
+                              ? "bg-accent/14 ring-1 ring-accent/25 shadow-[0_0_0_1px_hsl(var(--accent)/0.08),0_14px_40px_hsl(var(--accent)/0.10)]"
+                              : "bg-transparent ring-1 ring-transparent",
+                          ].join(" ")}
+                          aria-hidden="true"
+                        />
+                        {/* Subtle left glow on hover */}
+                        <span
+                          className="pointer-events-none absolute left-0 top-0 h-full w-10 bg-gradient-to-r from-accent/20 to-transparent opacity-0 transition-opacity duration-300 ease-out group-hover:opacity-100"
+                          aria-hidden="true"
+                        />
+
+                        <Button
+                          variant={active ? "secondary" : "ghost"}
+                          className={[
+                            "relative w-full justify-start text-foreground",
+                            "transition-all duration-300 ease-out",
+                            "hover:translate-x-[2px]",
+                            active ? "font-semibold" : "",
+                          ].join(" ")}
+                        >
+                          {item.name}
+                        </Button>
+                      </div>
+                    </button>
+                  );
+                })}
               </nav>
 
               <div className="mt-6 grid gap-3">
