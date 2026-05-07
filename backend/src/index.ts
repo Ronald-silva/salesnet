@@ -3,6 +3,7 @@ import { env } from './config/env';
 import { twilioWebhookRouter } from './integrations/twilio';
 import { messageBus } from './services/message-bus';
 import { processMessage } from './agent';
+import { startAutomations, paymentWebhookRouter } from './automations';
 
 const app = express();
 
@@ -21,12 +22,17 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/webhook/twilio', twilioWebhookRouter);
+app.use('/webhook/sgp', paymentWebhookRouter);
 
 messageBus.onIncomingMessage(({ phone, body }) => {
   processMessage(phone, body).catch((err: unknown) => {
     console.error(`[agent] processMessage error for ${phone}:`, err);
   });
 });
+
+if (env.NODE_ENV !== 'test') {
+  startAutomations();
+}
 
 app.listen(env.PORT, () => {
   console.log(`🚀 SalesNet backend running on port ${env.PORT} [${env.NODE_ENV}]`);
