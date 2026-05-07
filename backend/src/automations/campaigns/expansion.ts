@@ -10,9 +10,13 @@ const RATE_LIMIT_DELAY_MS = 60_000;
 async function sendBatch(phones: string[], message: string): Promise<number> {
   let sent = 0;
   for (let i = 0; i < phones.length; i++) {
-    await sendMessage(phones[i], message);
-    sent++;
-    if (sent % RATE_LIMIT_BATCH === 0 && i < phones.length - 1) {
+    try {
+      await sendMessage(phones[i], message);
+      sent++;
+    } catch (err) {
+      console.error(`[campaigns:expansion] failed to send to ${phones[i]}:`, err);
+    }
+    if (sent % RATE_LIMIT_BATCH === 0 && sent > 0 && i < phones.length - 1) {
       await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
     }
   }

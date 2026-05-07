@@ -1,6 +1,7 @@
 import { getAllActiveCustomers, getCustomerTickets, type Ticket } from '../../integrations/sgp';
 import { sendMessage } from '../../integrations/twilio';
 import { supabase } from '../../config/supabase';
+import { alreadySentCampaign, logCampaignSend } from './shared';
 
 type ChurnLevel = 'low' | 'medium' | 'high';
 type ChurnReason = 'too_many_tickets' | 'recurring_overdue' | 'cancellation_ticket';
@@ -77,11 +78,15 @@ export async function runChurnRiskCampaign(): Promise<void> {
       });
 
       if (signal.level === 'high') {
-        await sendMessage(
-          customer.phone,
-          `Oi ${customer.name}, percebemos que você teve algumas dificuldades ultimamente. ` +
-          `Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`
-        );
+        const alreadySent = await alreadySentCampaign(customer.id, 'churn_risk_high', 7);
+        if (!alreadySent) {
+          await sendMessage(
+            customer.phone,
+            `Oi ${customer.name}, percebemos que você teve algumas dificuldades ultimamente. ` +
+            `Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`
+          );
+          await logCampaignSend(customer.id, 'churn_risk_high');
+        }
       }
     } catch (err) {
       console.error(`[campaigns:churn-risk] failed for ${customer.id}:`, err);

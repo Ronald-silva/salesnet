@@ -10,10 +10,15 @@ jest.mock('../../integrations/twilio', () => ({
 jest.mock('../../config/supabase', () => ({
   supabase: { from: jest.fn() },
 }));
+jest.mock('../../automations/campaigns/shared', () => ({
+  alreadySentCampaign: jest.fn().mockResolvedValue(false),
+  logCampaignSend: jest.fn().mockResolvedValue(undefined),
+}));
 
 import { getAllActiveCustomers, getCustomerTickets } from '../../integrations/sgp';
 import { sendMessage } from '../../integrations/twilio';
 import { supabase } from '../../config/supabase';
+import { alreadySentCampaign, logCampaignSend } from '../../automations/campaigns/shared';
 
 beforeEach(() => jest.clearAllMocks());
 
