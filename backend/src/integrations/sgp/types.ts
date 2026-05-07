@@ -25,6 +25,7 @@ export const CustomerSchema = z.object({
     zipCode: z.string(),
   }),
   status: z.enum(['active', 'suspended', 'cancelled']),
+  activatedAt: z.string().optional(),
   plan: CustomerPlanSchema.optional(),
 });
 
@@ -117,6 +118,7 @@ export const OverdueCustomerListSchema = z.array(OverdueCustomerSchema);
 export const DueSoonCustomerListSchema = z.array(DueSoonCustomerSchema);
 export const TicketListSchema = z.array(TicketSchema);
 export const NetworkNodeListSchema = z.array(NetworkNodeSchema);
+export const InvoiceListSchema = z.array(InvoiceSchema);
 
 // --- Inferred TypeScript types ---
 
@@ -132,3 +134,4 @@ export type OpenTicketResponse = z.infer<typeof OpenTicketResponseSchema>;
 export type ScheduleVisitResponse = z.infer<typeof ScheduleVisitResponseSchema>;
 export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 export type NetworkNode = z.infer<typeof NetworkNodeSchema>;
+export type InvoiceList = z.infer<typeof InvoiceListSchema>;

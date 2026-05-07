@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { sgpClient } from './client';
 import {
   CustomerSchema,
@@ -33,4 +34,28 @@ export async function getCustomerById(id: string): Promise<Customer> {
 export async function getCustomerPlan(customerId: string): Promise<CustomerPlan> {
   const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/plano`);
   return CustomerPlanSchema.parse(data);
+}
+
+export async function getCustomersByPlan(downloadMbps: number): Promise<Customer[]> {
+  const { data } = await sgpClient.get('/api/v1/clientes', {
+    params: { plano_mbps: downloadMbps, status: 'active' },
+  });
+  return z.array(CustomerSchema).parse(data);
+}
+
+export async function getCustomersByActivationDays(days: number): Promise<Customer[]> {
+  const targetDate = new Date();
+  targetDate.setDate(targetDate.getDate() - days);
+  const dateStr = targetDate.toISOString().split('T')[0];
+  const { data } = await sgpClient.get('/api/v1/clientes', {
+    params: { ativado_em: dateStr, status: 'active' },
+  });
+  return z.array(CustomerSchema).parse(data);
+}
+
+export async function getAllActiveCustomers(): Promise<Customer[]> {
+  const { data } = await sgpClient.get('/api/v1/clientes', {
+    params: { status: 'active' },
+  });
+  return z.array(CustomerSchema).parse(data);
 }

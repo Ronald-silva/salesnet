@@ -1,6 +1,7 @@
 import { sgpClient } from './client';
 import {
   InvoiceSchema,
+  InvoiceListSchema,
   PixKeySchema,
   OverdueCustomerListSchema,
   DueSoonCustomerListSchema,
@@ -44,4 +45,9 @@ export async function suspendCustomer(customerId: string): Promise<SuspendReacti
 export async function reactivateCustomer(customerId: string): Promise<SuspendReactivateResponse> {
   const { data } = await sgpClient.post(`/api/v1/clientes/${customerId}/reativar`);
   return SuspendReactivateResponseSchema.parse(data);
+}
+
+export async function getCustomerInvoices(customerId: string): Promise<Invoice[]> {
+  const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/faturas`);
+  return InvoiceListSchema.parse(data);
 }
