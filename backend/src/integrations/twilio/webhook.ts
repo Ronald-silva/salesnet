@@ -30,10 +30,15 @@ function twilioSignatureGuard(req: Request, res: Response, next: NextFunction): 
 
 router.post('/', twilioSignatureGuard, (req: Request, res: Response) => {
   const { From, Body, ProfileName } = req.body as {
-    From: string;
-    Body: string;
+    From?: string;
+    Body?: string;
     ProfileName?: string;
   };
+
+  if (!From || !Body) {
+    res.status(200).send('');
+    return;
+  }
 
   const phone = From.replace('whatsapp:', '');
 
