@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AIBotContext } from "./contexts/AIBotContext";
+import AIBotWidget from "./components/AIBotWidget";
 import Home from "./pages/Home";
 import Plans from "./pages/Plans";
 import About from "./pages/About";
@@ -12,30 +15,41 @@ import Suporte from "./pages/Suporte";
 import Hotspots from "./pages/Hotspots";
 import TrabalheConosco from "./pages/TrabalheConosco";
 import NotFound from "./pages/NotFound";
+import ClientLogin from "./pages/ClientLogin";
+import ClientPortal from "./pages/ClientPortal";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/planos" element={<Plans />} />
-          <Route path="/cobertura" element={<Cobertura />} />
-          <Route path="/suporte" element={<Suporte />} />
-          <Route path="/hotspots" element={<Hotspots />} />
-          <Route path="/trabalhe-conosco" element={<TrabalheConosco />} />
-          <Route path="/contato" element={<Contact />} />
-          <Route path="/sobre" element={<About />} />
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  const [aiIsOpen, setAiIsOpen] = useState(false);
+
+  return (
+    <AIBotContext.Provider value={{ isOpen: aiIsOpen, setIsOpen: setAiIsOpen }}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/planos" element={<Plans />} />
+              <Route path="/cobertura" element={<Cobertura />} />
+              <Route path="/suporte" element={<Suporte />} />
+              <Route path="/hotspots" element={<Hotspots />} />
+              <Route path="/trabalhe-conosco" element={<TrabalheConosco />} />
+              <Route path="/contato" element={<Contact />} />
+              <Route path="/sobre" element={<About />} />
+              <Route path="/minha-conta/login" element={<ClientLogin />} />
+              <Route path="/minha-conta" element={<ClientPortal />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+            <AIBotWidget />
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </AIBotContext.Provider>
+  );
+};
 
 export default App;
