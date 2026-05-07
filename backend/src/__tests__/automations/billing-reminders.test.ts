@@ -35,6 +35,10 @@ import { supabase } from '../../config/supabase';
 import { getCustomersDueInDays, getOverdueCustomers, suspendCustomer, generatePixKey, getCurrentInvoice } from '../../integrations/sgp';
 import { sendTemplate } from '../../integrations/twilio';
 
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
 function mockSupabaseChain(overrides: Record<string, jest.Mock> = {}) {
   const chain = {
     select: jest.fn().mockReturnThis(),
@@ -192,14 +196,16 @@ describe('runBillingJobOverdueD3', () => {
 });
 
 describe('runBillingJobSuspendD5', () => {
-  it('suspends customer and sends suspension template after 5 days overdue', async () => {
+  it('sends suspension template then suspends customer after 5 days overdue', async () => {
     const customers = [
       { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60 },
     ];
     (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
-    (suspendCustomer as jest.Mock).mockResolvedValue({ customerId: 'c5', status: 'suspended', updatedAt: '' });
     (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv5', amount: 60, dueDate: '2026-05-02' });
     (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pixABC', invoiceId: 'inv5' });
+    const callOrder: string[] = [];
+    (sendTemplate as jest.Mock).mockImplementation(async () => { callOrder.push('sendTemplate'); });
+    (suspendCustomer as jest.Mock).mockImplementation(async () => { callOrder.push('suspendCustomer'); return { customerId: 'c5', status: 'suspended', updatedAt: '' }; });
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
     });
@@ -207,12 +213,13 @@ describe('runBillingJobSuspendD5', () => {
     await runBillingJobSuspendD5();
 
     expect(getOverdueCustomers).toHaveBeenCalledWith(5);
-    expect(suspendCustomer).toHaveBeenCalledWith('c5');
     expect(sendTemplate).toHaveBeenCalledWith(
       customers[0].phone,
       'HXsuspended_d5',
       expect.objectContaining({ nome: 'Clara' })
     );
+    expect(suspendCustomer).toHaveBeenCalledWith('c5');
+    expect(callOrder).toEqual(['sendTemplate', 'suspendCustomer']);
   });
 
   it('skips customer already notified today', async () => {

@@ -30,12 +30,15 @@ export async function logNotification(
   phone: string,
   type: NotificationType
 ): Promise<void> {
-  await supabase.from('billing_notifications').insert({
+  const { error } = await supabase.from('billing_notifications').insert({
     customer_id: customerId,
     phone,
     type,
     status: 'sent',
   });
+  if (error) {
+    console.error(`[billing] failed to log notification for ${customerId} type=${type}:`, error);
+  }
 }
 
 export async function runBillingJobD3(): Promise<void> {
@@ -47,7 +50,7 @@ export async function runBillingJobD3(): Promise<void> {
       const pix = await generatePixKey(invoice.id);
       await sendTemplate(customer.phone, TEMPLATES.BILLING_REMINDER_D3, {
         nome: customer.name,
-        valor: String(customer.amount.toFixed(2)),
+        valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
         chave_pix: pix.pixKey,
       });
@@ -67,7 +70,7 @@ export async function runBillingJobD0(): Promise<void> {
       const pix = await generatePixKey(invoice.id);
       await sendTemplate(customer.phone, TEMPLATES.BILLING_REMINDER_D0, {
         nome: customer.name,
-        valor: String(customer.amount.toFixed(2)),
+        valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
         chave_pix: pix.pixKey,
       });
@@ -87,7 +90,7 @@ export async function runBillingJobOverdueD3(): Promise<void> {
       const pix = await generatePixKey(invoice.id);
       await sendTemplate(customer.phone, TEMPLATES.BILLING_OVERDUE_D3, {
         nome: customer.name,
-        valor: String(customer.amountDue.toFixed(2)),
+        valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,
       });
       await logNotification(customer.customerId, customer.phone, 'overdue_d3');
@@ -102,14 +105,14 @@ export async function runBillingJobSuspendD5(): Promise<void> {
   for (const customer of customers) {
     if (await alreadySentToday(customer.customerId, 'suspended_d5')) continue;
     try {
-      await suspendCustomer(customer.customerId);
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
       await sendTemplate(customer.phone, TEMPLATES.BILLING_SUSPENDED_D5, {
         nome: customer.name,
-        valor: String(customer.amountDue.toFixed(2)),
+        valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,
       });
+      await suspendCustomer(customer.customerId);
       await logNotification(customer.customerId, customer.phone, 'suspended_d5');
     } catch (err) {
       console.error(`[billing:suspended_d5] failed for ${customer.customerId}:`, err);
