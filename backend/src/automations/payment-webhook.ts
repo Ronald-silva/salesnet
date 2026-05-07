@@ -27,6 +27,6 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
     res.status(200).json({ ok: true });
   } catch (err) {
     console.error(`[payment-webhook] reactivation failed for ${customerId}:`, err);
-    res.status(500).json({ error: 'reactivation failed' });
+    res.status(500).json({ error: err instanceof Error ? err.message : 'reactivation failed' });
   }
 });

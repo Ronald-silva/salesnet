@@ -51,6 +51,7 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
       .send({ customerId: 'cust1' });
 
     expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('error');
     expect(reactivateCustomer).not.toHaveBeenCalled();
   });
 
@@ -60,6 +61,23 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
     const res = await request(buildApp())
       .post('/webhook/sgp/payment-confirmed')
       .send({ customerId: 'cust2', phone: '+5585999990002', amount: 60 });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toHaveProperty('error');
+    expect(res.body.error).toBe('SGP timeout');
+  });
+
+  it('returns 500 when sendMessage fails', async () => {
+    (reactivateCustomer as jest.Mock).mockResolvedValue({
+      customerId: 'cust3',
+      status: 'active',
+      updatedAt: '2026-05-07T10:00:00Z',
+    });
+    (sendMessage as jest.Mock).mockRejectedValue(new Error('Twilio unavailable'));
+
+    const res = await request(buildApp())
+      .post('/webhook/sgp/payment-confirmed')
+      .send({ customerId: 'cust3', phone: '+5585999990003', amount: 70 });
 
     expect(res.status).toBe(500);
     expect(res.body).toHaveProperty('error');
