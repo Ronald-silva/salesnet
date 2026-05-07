@@ -2,8 +2,10 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Wifi, Check } from "lucide-react";
+import { useAIBot } from "@/contexts/AIBotContext";
 
 const Plans = () => {
+  const { setIsOpen } = useAIBot();
   const plans = [
     {
       name: "20 Mbps",
@@ -83,7 +85,7 @@ const Plans = () => {
                     </li>
                   ))}
                 </ul>
-                <Button variant={plan.popular ? "cta" : "outline"} className="w-full">
+                <Button variant={plan.popular ? "cta" : "outline"} className="w-full" onClick={() => setIsOpen(true)}>
                   Contratar Agora
                 </Button>
               </div>
@@ -118,7 +120,7 @@ const Plans = () => {
                 </div>
               </li>
             </ol>
-            <Button variant="cta" size="lg" className="mt-8">Simular Upgrade via Bot</Button>
+            <Button variant="cta" size="lg" className="mt-8" onClick={() => setIsOpen(true)}>Simular Upgrade via Bot</Button>
           </div>
         </div>
       </section>

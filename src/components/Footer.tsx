@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { MapPin, Phone, Clock, Mail, Wifi, MessageCircle } from "lucide-react";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Footer = () => {
   return (
@@ -50,7 +51,7 @@ const Footer = () => {
               <li className="flex items-start space-x-2">
                 <MessageCircle className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
                 <a
-                  href="https://wa.me/5585996032957"
+                  href={buildWhatsAppLink()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-accent transition-colors"

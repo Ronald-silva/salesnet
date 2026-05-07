@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Menu, X, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -62,7 +63,7 @@ const Header = () => {
         {/* CTA Button */}
         <div className="hidden md:block">
           <a
-            href="https://wa.me/5585996032957"
+            href={buildWhatsAppLink()}
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -162,7 +163,7 @@ const Header = () => {
 
               <div className="mt-6 grid gap-3">
                 <a
-                  href="https://wa.me/5585996032957"
+                  href={buildWhatsAppLink()}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full"

@@ -2,8 +2,46 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Users, Briefcase, Clock, Award } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { buildJobApplicationMessage, buildWhatsAppLink } from "@/lib/whatsapp";
 
 const TrabalheConosco = () => {
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: "",
+    about: "",
+    hasNetworkExperience: false,
+    hasFlexibleHours: false,
+    hasCNH: false,
+  });
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, checked } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: checked }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.name || !formData.email || !formData.phone || !formData.role || !formData.about) {
+      toast.error("Preencha os campos obrigatórios para enviar a candidatura");
+      return;
+    }
+
+    const message = buildJobApplicationMessage(formData);
+
+    window.open(buildWhatsAppLink(message), "_blank", "noopener,noreferrer");
+    toast.success("WhatsApp aberto para envio final da candidatura");
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -136,7 +174,7 @@ const TrabalheConosco = () => {
               Preencha o formulário e envie seu currículo
             </p>
 
-            <form className="space-y-6 bg-card p-8 rounded-lg border border-accent/20">
+            <form onSubmit={handleSubmit} className="space-y-6 bg-card p-8 rounded-lg border border-accent/20">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-card-foreground mb-2">
@@ -145,6 +183,9 @@ const TrabalheConosco = () => {
                   <input
                     type="text"
                     required
+                    name="name"
+                    value={formData.name}
+                    onChange={handleInputChange}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -156,6 +197,9 @@ const TrabalheConosco = () => {
                   <input
                     type="email"
                     required
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -169,6 +213,9 @@ const TrabalheConosco = () => {
                   <input
                     type="tel"
                     required
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleInputChange}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -177,12 +224,17 @@ const TrabalheConosco = () => {
                   <label className="block text-sm font-semibold text-card-foreground mb-2">
                     Vaga de Interesse *
                   </label>
-                  <select className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground">
+                  <select
+                    name="role"
+                    value={formData.role}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
+                  >
                     <option value="">Selecione</option>
-                    <option value="tecnico">Técnico de Fibra Óptica</option>
-                    <option value="suporte">Atendente de Suporte</option>
-                    <option value="vendas">Vendedor Externo</option>
-                    <option value="outro">Outra vaga</option>
+                    <option value="Técnico de Fibra Óptica">Técnico de Fibra Óptica</option>
+                    <option value="Atendente de Suporte">Atendente de Suporte</option>
+                    <option value="Vendedor Externo">Vendedor Externo</option>
+                    <option value="Outra vaga">Outra vaga</option>
                   </select>
                 </div>
               </div>
@@ -194,7 +246,6 @@ const TrabalheConosco = () => {
                 <input
                   type="file"
                   accept=".pdf"
-                  required
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 />
               </div>
@@ -205,21 +256,39 @@ const TrabalheConosco = () => {
                 </p>
                 
                 <label className="flex items-start gap-3">
-                  <input type="checkbox" className="mt-1" />
+                  <input
+                    type="checkbox"
+                    name="hasNetworkExperience"
+                    checked={formData.hasNetworkExperience}
+                    onChange={handleCheckboxChange}
+                    className="mt-1"
+                  />
                   <span className="text-sm text-muted-foreground">
                     Tenho experiência com fibra óptica e/ou redes
                   </span>
                 </label>
 
                 <label className="flex items-start gap-3">
-                  <input type="checkbox" className="mt-1" />
+                  <input
+                    type="checkbox"
+                    name="hasFlexibleHours"
+                    checked={formData.hasFlexibleHours}
+                    onChange={handleCheckboxChange}
+                    className="mt-1"
+                  />
                   <span className="text-sm text-muted-foreground">
                     Tenho disponibilidade para horários flexíveis (incluindo fins de semana)
                   </span>
                 </label>
 
                 <label className="flex items-start gap-3">
-                  <input type="checkbox" className="mt-1" />
+                  <input
+                    type="checkbox"
+                    name="hasCNH"
+                    checked={formData.hasCNH}
+                    onChange={handleCheckboxChange}
+                    className="mt-1"
+                  />
                   <span className="text-sm text-muted-foreground">
                     Possuo CNH categoria B (para vagas externas)
                   </span>
@@ -233,11 +302,14 @@ const TrabalheConosco = () => {
                 <textarea
                   required
                   rows={4}
+                  name="about"
+                  value={formData.about}
+                  onChange={handleInputChange}
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 ></textarea>
               </div>
 
-              <Button variant="cta" size="lg" className="w-full">
+              <Button type="submit" variant="cta" size="lg" className="w-full">
                 Enviar Candidatura
               </Button>
 

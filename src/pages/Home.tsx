@@ -3,8 +3,12 @@ import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Wifi, Shield, Bot, Zap, MapPin, Star } from "lucide-react";
 import heroImage from "@/assets/hero-network.jpg";
+import { Link } from "react-router-dom";
+import { useAIBot } from "@/contexts/AIBotContext";
 
 const Home = () => {
+  const { setIsOpen } = useAIBot();
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -29,11 +33,11 @@ const Home = () => {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center animate-fade-in">
-            <Button variant="cta" size="lg" className="min-w-[200px]">
-              Ver Planos
+            <Button asChild variant="cta" size="lg" className="min-w-[200px]">
+              <Link to="/planos">Ver Planos</Link>
             </Button>
-            <Button variant="outline" size="lg" className="min-w-[200px] border-accent text-accent hover:bg-accent/10">
-              Consultar Cobertura
+            <Button asChild variant="outline" size="lg" className="min-w-[200px] border-accent text-accent hover:bg-accent/10">
+              <Link to="/cobertura">Consultar Cobertura</Link>
             </Button>
           </div>
         </div>
@@ -108,7 +112,7 @@ const Home = () => {
                   Navegação básica
                 </li>
               </ul>
-              <Button variant="outline" className="w-full">Contratar via Bot</Button>
+              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
 
             {/* 30 Mbps */}
@@ -125,7 +129,7 @@ const Home = () => {
                   Streaming e redes sociais
                 </li>
               </ul>
-              <Button variant="outline" className="w-full">Contratar via Bot</Button>
+              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
 
             {/* 50 Mbps - Popular */}
@@ -145,7 +149,7 @@ const Home = () => {
                   Streaming HD e jogos
                 </li>
               </ul>
-              <Button variant="cta" className="w-full">Contratar via Bot</Button>
+              <Button variant="cta" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
 
             {/* 100 Mbps */}
@@ -162,7 +166,7 @@ const Home = () => {
                   Home office e streaming 4K
                 </li>
               </ul>
-              <Button variant="outline" className="w-full">Contratar via Bot</Button>
+              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
           </div>
         </div>
@@ -212,7 +216,7 @@ const Home = () => {
           <p className="text-xl text-muted-foreground mb-8">
             Fale com nosso assistente IA agora mesmo
           </p>
-          <Button variant="cta" size="lg">
+          <Button variant="cta" size="lg" onClick={() => setIsOpen(true)}>
             Falar com o Bot
           </Button>
         </div>

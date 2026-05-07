@@ -2,8 +2,39 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Wifi, Store, Users, TrendingUp } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { buildHotspotLeadMessage, buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Hotspots = () => {
+  const [formData, setFormData] = useState({
+    name: "",
+    businessType: "",
+    address: "",
+    neighborhood: "",
+    phone: "",
+    notes: "",
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.name || !formData.businessType || !formData.address || !formData.neighborhood || !formData.phone) {
+      toast.error("Preencha todos os campos obrigatórios");
+      return;
+    }
+
+    const message = buildHotspotLeadMessage(formData);
+
+    window.open(buildWhatsAppLink(message), "_blank", "noopener,noreferrer");
+    toast.success("Abrimos o WhatsApp para finalizar sua solicitação.");
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -69,7 +100,7 @@ const Hotspots = () => {
               Preencha o formulário e entraremos em contato para avaliar a instalação
             </p>
 
-            <form className="space-y-6 bg-background p-8 rounded-lg border border-accent/20">
+            <form onSubmit={handleSubmit} className="space-y-6 bg-background p-8 rounded-lg border border-accent/20">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-semibold text-foreground mb-2">
@@ -78,6 +109,9 @@ const Hotspots = () => {
                   <input
                     type="text"
                     required
+                    name="name"
+                    value={formData.name}
+                    onChange={handleChange}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -89,6 +123,9 @@ const Hotspots = () => {
                   <input
                     type="text"
                     required
+                    name="businessType"
+                    value={formData.businessType}
+                    onChange={handleChange}
                     placeholder="Ex: Café, Restaurante, Loja"
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
@@ -102,6 +139,9 @@ const Hotspots = () => {
                 <input
                   type="text"
                   required
+                  name="address"
+                  value={formData.address}
+                  onChange={handleChange}
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 />
               </div>
@@ -111,13 +151,18 @@ const Hotspots = () => {
                   <label className="block text-sm font-semibold text-foreground mb-2">
                     Bairro *
                   </label>
-                  <select className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground">
+                  <select
+                    name="neighborhood"
+                    value={formData.neighborhood}
+                    onChange={handleChange}
+                    className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
+                  >
                     <option value="">Selecione</option>
-                    <option value="jardim-guanabara">Jardim Guanabara</option>
-                    <option value="jardim-iracema">Jardim Iracema</option>
-                    <option value="quintino-cunha">Quintino Cunha</option>
-                    <option value="vila-velha">Vila Velha</option>
-                    <option value="nova-assuncao">Nova Assunção</option>
+                    <option value="Jardim Guanabara">Jardim Guanabara</option>
+                    <option value="Jardim Iracema">Jardim Iracema</option>
+                    <option value="Quintino Cunha">Quintino Cunha</option>
+                    <option value="Vila Velha">Vila Velha</option>
+                    <option value="Nova Assunção">Nova Assunção</option>
                   </select>
                 </div>
 
@@ -128,6 +173,9 @@ const Hotspots = () => {
                   <input
                     type="tel"
                     required
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleChange}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -139,12 +187,15 @@ const Hotspots = () => {
                 </label>
                 <textarea
                   rows={4}
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleChange}
                   placeholder="Conte-nos mais sobre seu estabelecimento e expectativas"
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 ></textarea>
               </div>
 
-              <Button variant="cta" size="lg" className="w-full">
+              <Button type="submit" variant="cta" size="lg" className="w-full">
                 Solicitar Parceria
               </Button>
 

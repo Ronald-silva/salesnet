@@ -1,6 +1,7 @@
 import { MessageCircle, X, Send } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAIBot } from "@/contexts/AIBotContext";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 interface Message {
   id: number;
@@ -71,7 +72,7 @@ const AIBotWidget = () => {
     }
     
     if (message.includes('whatsapp') || message.includes('atendente') || message.includes('humano')) {
-      return "📱 **Atendimento Humano:**\n\nWhatsApp: (85) 9 9603-2957\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: https://wa.me/5585996032957";
+      return `📱 **Atendimento Humano:**\n\nWhatsApp: (85) 9 9603-2957\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: ${buildWhatsAppLink()}`;
     }
     
     if (message.includes('oi') || message.includes('olá') || message.includes('bom dia') || message.includes('boa tarde') || message.includes('boa noite')) {
@@ -344,7 +345,7 @@ const AIBotWidget = () => {
             <p className="text-xs text-muted-foreground mt-2 text-center">
               Ou fale conosco no{" "}
               <a
-                href="https://wa.me/5585996032957"
+                href={buildWhatsAppLink()}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"

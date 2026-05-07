@@ -8,6 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Suporte = () => {
   const { setIsOpen } = useAIBot();
@@ -74,7 +75,7 @@ const Suporte = () => {
                 Abrir Chat IA
               </button>
               <a
-                href="https://wa.me/5585996032957"
+                href={buildWhatsAppLink()}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-8 py-4 bg-background border border-accent text-accent rounded-md hover:bg-accent/10 transition-colors font-bold text-lg"

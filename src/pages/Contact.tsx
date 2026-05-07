@@ -6,8 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { useAIBot } from "@/contexts/AIBotContext";
+import { buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Contact = () => {
+  const { setIsOpen } = useAIBot();
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -87,7 +90,7 @@ const Contact = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">WhatsApp</h3>
-                      <a href="https://wa.me/5585996032957" className="text-muted-foreground hover:text-accent transition-colors">
+                      <a href={buildWhatsAppLink()} className="text-muted-foreground hover:text-accent transition-colors">
                         Fale Conosco
                       </a>
                     </div>
@@ -147,7 +150,7 @@ const Contact = () => {
 
                 <p className="text-xs text-muted-foreground text-center">
                   Ou converse agora com nosso{" "}
-                  <button type="button" className="text-accent hover:underline">assistente IA</button>
+                  <button type="button" className="text-accent hover:underline" onClick={() => setIsOpen(true)}>assistente IA</button>
                 </p>
               </form>
             </div>

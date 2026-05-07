@@ -3,9 +3,39 @@ import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { MapPin, CheckCircle } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
+import { buildCoverageMessage, buildWhatsAppLink } from "@/lib/whatsapp";
 
 const Cobertura = () => {
   const [cep, setCep] = useState("");
+  const [notifyEmail, setNotifyEmail] = useState("");
+
+  const openWhatsAppCoverage = (value: string) => {
+    window.open(buildWhatsAppLink(buildCoverageMessage(value)), "_blank", "noopener,noreferrer");
+  };
+
+  const handleCoverageCheck = () => {
+    const sanitized = cep.replace(/\D/g, "");
+
+    if (sanitized.length !== 8) {
+      toast.error("Digite um CEP válido com 8 números");
+      return;
+    }
+
+    openWhatsAppCoverage(cep);
+  };
+
+  const handleNotifySubmit = () => {
+    const email = notifyEmail.trim();
+
+    if (!email || !email.includes("@")) {
+      toast.error("Digite um email válido");
+      return;
+    }
+
+    toast.success("Cadastro recebido! Avisaremos quando houver cobertura.");
+    setNotifyEmail("");
+  };
 
   const neighborhoods = [
     { name: "Jardim Guanabara", coverage: 95 },
@@ -43,23 +73,23 @@ const Cobertura = () => {
               Digite seu CEP para verificar disponibilidade e planos recomendados
             </p>
             
-            <div className="flex gap-3">
+            <div className="flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
                 value={cep}
                 onChange={(e) => setCep(e.target.value)}
                 placeholder="00000-000"
                 maxLength={9}
-                className="flex-1 px-4 py-3 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground text-lg"
+                className="w-full sm:flex-1 px-4 py-3 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground text-lg"
               />
-              <Button variant="cta" size="lg">
+              <Button variant="cta" size="lg" onClick={handleCoverageCheck} className="w-full sm:w-auto">
                 Verificar
               </Button>
             </div>
 
             <p className="text-sm text-muted-foreground text-center mt-4">
               Ou consulte via{" "}
-              <a href="https://wa.me/5585996032957" className="text-accent hover:underline">
+              <a href={buildWhatsAppLink()} className="text-accent hover:underline">
                 WhatsApp
               </a>
             </p>
@@ -118,7 +148,12 @@ const Cobertura = () => {
                     {neighborhood.coverage}% de cobertura
                   </p>
                 </div>
-                <Button variant="outline" size="sm" className="w-full">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => openWhatsAppCoverage(`Bairro ${neighborhood.name}`)}
+                >
                   Verificar Endereço
                 </Button>
               </div>
@@ -137,13 +172,15 @@ const Cobertura = () => {
             Novos bairros em breve! Cadastre seu email para ser notificado quando chegarmos na sua região
           </p>
 
-          <div className="max-w-md mx-auto flex gap-3">
+          <div className="max-w-md mx-auto flex flex-col sm:flex-row gap-3">
             <input
               type="email"
+              value={notifyEmail}
+              onChange={(e) => setNotifyEmail(e.target.value)}
               placeholder="Seu melhor email"
-              className="flex-1 px-4 py-3 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
+              className="w-full sm:flex-1 px-4 py-3 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
             />
-            <Button variant="cta" size="lg">
+            <Button variant="cta" size="lg" onClick={handleNotifySubmit} className="w-full sm:w-auto">
               Inscrever
             </Button>
           </div>
