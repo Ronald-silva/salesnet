@@ -1,6 +1,5 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import AIBotWidget from "@/components/AIBotWidget";
 import { Button } from "@/components/ui/button";
 import { Wifi, Store, Users, TrendingUp } from "lucide-react";
 
@@ -8,7 +7,6 @@ const Hotspots = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <AIBotWidget />
 
       {/* Hero Section */}
       <section className="bg-gradient-hero text-foreground py-20">

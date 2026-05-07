@@ -6,7 +6,7 @@ import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { sendMessage } from '../integrations/twilio/sender';
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-sonnet-4-5';
 const MAX_TOKENS = 1024;
 
 export async function processMessage(phone: string, message: string): Promise<void> {

@@ -6,6 +6,8 @@ import { processMessage } from './agent';
 import { startAutomations, paymentWebhookRouter, campaignExpansionRouter } from './automations';
 import { authRouter } from './routes/auth';
 import { clientRouter } from './routes/client';
+import { adminRouter } from './routes/admin';
+import { adminAuthMiddleware } from './middleware/adminAuth';
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use('/webhook/sgp', paymentWebhookRouter);
 app.use('/api/campaigns', campaignExpansionRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/client', clientRouter);
+app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);
+app.use('/api/admin', adminRouter);
 
 messageBus.onIncomingMessage(({ phone, body }) => {
   processMessage(phone, body).catch((err: unknown) => {

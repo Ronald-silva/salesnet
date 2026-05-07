@@ -1,8 +1,7 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import AIBotWidget from "@/components/AIBotWidget";
-import { Headphones, ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { Headphones } from "lucide-react";
+import { useAIBot } from "@/contexts/AIBotContext";
 import {
   Accordion,
   AccordionContent,
@@ -11,6 +10,8 @@ import {
 } from "@/components/ui/accordion";
 
 const Suporte = () => {
+  const { setIsOpen } = useAIBot();
+
   const faqs = [
     {
       question: "Minha internet está lenta, o que fazer?",
@@ -41,7 +42,6 @@ const Suporte = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <AIBotWidget />
 
       {/* Hero Section */}
       <section className="bg-gradient-hero text-foreground py-20">
@@ -67,11 +67,14 @@ const Suporte = () => {
               Diagnóstico automático, teste de velocidade, agendamentos e mais
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button className="px-8 py-4 bg-accent text-accent-foreground rounded-md hover:bg-accent/90 transition-colors font-bold text-lg shadow-lg hover:shadow-[0_0_20px_rgba(0,255,149,0.5)]">
+              <button
+                onClick={() => setIsOpen(true)}
+                className="px-8 py-4 bg-accent text-accent-foreground rounded-md hover:bg-accent/90 transition-colors font-bold text-lg shadow-lg hover:shadow-[0_0_20px_rgba(0,255,149,0.5)]"
+              >
                 Abrir Chat IA
               </button>
               <a
-                href="https://wa.me/5527999999999"
+                href="https://wa.me/5585996032957"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-8 py-4 bg-background border border-accent text-accent rounded-md hover:bg-accent/10 transition-colors font-bold text-lg"

@@ -1,36 +1,44 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import AIBotWidget from "@/components/AIBotWidget";
 import { Button } from "@/components/ui/button";
 import { Wifi, Check } from "lucide-react";
 
 const Plans = () => {
   const plans = [
     {
-      name: "100 Mega",
-      speed: 100,
-      price: "79,90",
-      features: ["FTTH Ilimitado", "WiFi incluso", "Suporte IA 24h", "Instalação grátis", "Sem fidelidade"],
+      name: "20 Mbps",
+      speed: 20,
+      price: "60,00",
+      discountPrice: "50,00",
+      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte IA 24h", "Instalação grátis", "Sem fidelidade"],
     },
     {
-      name: "300 Mega",
-      speed: 300,
-      price: "99,90",
-      features: ["FTTH Ilimitado", "WiFi premium", "Suporte prioritário", "Instalação grátis", "Streaming 4K"],
+      name: "30 Mbps",
+      speed: 30,
+      price: "70,00",
+      discountPrice: "60,00",
+      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte IA 24h", "Instalação grátis", "Sem fidelidade"],
+    },
+    {
+      name: "50 Mbps",
+      speed: 50,
+      price: "80,00",
+      discountPrice: "70,00",
+      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte prioritário", "Instalação grátis", "Streaming HD"],
       popular: true,
     },
     {
-      name: "500 Mega",
-      speed: 500,
-      price: "129,90",
-      features: ["FTTH Ilimitado", "WiFi ultra", "Suporte VIP", "Instalação grátis", "Home office Pro"],
+      name: "100 Mbps",
+      speed: 100,
+      price: "100,00",
+      discountPrice: "90,00",
+      features: ["FTTX Ilimitado", "WiFi premium", "Suporte VIP", "Instalação grátis", "Home office e 4K"],
     },
   ];
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <AIBotWidget />
 
       <section className="bg-gradient-hero py-20">
         <div className="container mx-auto px-4 text-center">
@@ -49,7 +57,10 @@ const Plans = () => {
 
       <section className="py-16">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          <div className="text-center mb-8">
+            <p className="text-lg text-accent font-semibold">💰 Desconto de R$ 10,00 pagando até o vencimento!</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
             {plans.map((plan, i) => (
               <div key={i} className={`bg-card rounded-lg p-8 ${plan.popular ? 'border-2 border-accent' : 'border border-accent/20'} relative hover:shadow-card-hover transition-all`}>
                 {plan.popular && (
@@ -60,8 +71,9 @@ const Plans = () => {
                 <div className="text-center mb-6">
                   <Wifi className="h-12 w-12 text-accent mx-auto mb-4" />
                   <h3 className="text-2xl font-heading font-bold text-card-foreground mb-2">{plan.name}</h3>
-                  <div className="text-5xl font-bold text-accent mb-2">R$ {plan.price}</div>
-                  <p className="text-sm text-muted-foreground">por mês</p>
+                  <div className="text-4xl font-bold text-accent mb-1">R$ {plan.discountPrice}</div>
+                  <p className="text-sm text-muted-foreground line-through">R$ {plan.price}</p>
+                  <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
                 </div>
                 <ul className="space-y-3 mb-8">
                   {plan.features.map((f, j) => (

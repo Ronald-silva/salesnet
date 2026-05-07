@@ -1,7 +1,6 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import AIBotWidget from "@/components/AIBotWidget";
 import { MapPin, Phone, Clock, Mail, Wifi, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +43,6 @@ const Contact = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <AIBotWidget />
 
       <section className="bg-gradient-hero py-20">
         <div className="container mx-auto px-4 text-center">
@@ -77,8 +75,8 @@ const Contact = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">Telefone</h3>
-                      <a href="tel:+552799999999" className="text-muted-foreground hover:text-accent transition-colors">
-                        (27) 9 9999-9999
+                      <a href="tel:+5585996032957" className="text-muted-foreground hover:text-accent transition-colors">
+                        (85) 9 9603-2957
                       </a>
                     </div>
                   </div>
@@ -89,7 +87,7 @@ const Contact = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">WhatsApp</h3>
-                      <a href="https://wa.me/5527999999999" className="text-muted-foreground hover:text-accent transition-colors">
+                      <a href="https://wa.me/5585996032957" className="text-muted-foreground hover:text-accent transition-colors">
                         Fale Conosco
                       </a>
                     </div>

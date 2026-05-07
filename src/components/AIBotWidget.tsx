@@ -1,5 +1,6 @@
 import { MessageCircle, X, Send } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { useAIBot } from "@/contexts/AIBotContext";
 
 interface Message {
   id: number;
@@ -9,12 +10,12 @@ interface Message {
 }
 
 const AIBotWidget = () => {
-  const [isOpen, setIsOpen] = useState(false);
+  const { isOpen, setIsOpen } = useAIBot();
   const [position, setPosition] = useState({ bottom: '6rem', right: '1.5rem' });
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Olá! 👋 Como posso ajudar você hoje?\n\n• Ver planos disponíveis\n• Verificar cobertura\n• Suporte técnico\n• Falar com atendente",
+      text: "Olá! 👋 Sou o assistente virtual da SalesNet!\n\nComo posso ajudar você?\n\n• Ver planos e preços\n• Verificar cobertura\n• Agendar instalação\n• Suporte técnico\n• Falar com atendente\n\n💡 Dica: Pagando em dia você ganha R$ 10 de desconto!",
       isBot: true,
       timestamp: new Date()
     }
@@ -58,7 +59,7 @@ const AIBotWidget = () => {
     const message = userMessage.toLowerCase();
     
     if (message.includes('plano') || message.includes('preço') || message.includes('valor')) {
-      return "📋 **Nossos Planos:**\n\n🚀 **100 Mbps** - R$ 79,90/mês\n⚡ **300 Mbps** - R$ 99,90/mês (Mais Popular)\n🔥 **500 Mbps** - R$ 129,90/mês\n\n✅ Sem fidelidade\n✅ Instalação gratuita\n✅ Suporte 24h\n\nQual plano te interessa?";
+      return "📋 **Nossos Planos:**\n\n📶 **20 Mbps** - R$ 50,00/mês*\n📶 **30 Mbps** - R$ 60,00/mês*\n⚡ **50 Mbps** - R$ 70,00/mês* (Mais Popular)\n🔥 **100 Mbps** - R$ 90,00/mês*\n\n*Pagando até o vencimento (senão +R$10)\n\n✅ Tecnologia FTTX (fibra óptica)\n✅ Sem fidelidade\n✅ Instalação gratuita\n✅ Suporte 24h\n\nQual plano te interessa?";
     }
     
     if (message.includes('cobertura') || message.includes('bairro') || message.includes('atende')) {
@@ -66,11 +67,11 @@ const AIBotWidget = () => {
     }
     
     if (message.includes('suporte') || message.includes('problema') || message.includes('lenta') || message.includes('não funciona')) {
-      return "🔧 **Suporte Técnico:**\n\n1. Reinicie seu roteador (30 segundos)\n2. Teste a velocidade: fast.com\n3. Verifique cabos e conexões\n\nProblema persiste? Fale conosco no WhatsApp: (85) 9999-9999";
+      return "🔧 **Suporte Técnico:**\n\n1. Reinicie seu roteador (30 segundos)\n2. Teste a velocidade: fast.com\n3. Verifique cabos e conexões\n\nProblema persiste? Fale conosco no WhatsApp: (85) 9 9603-2957";
     }
     
     if (message.includes('whatsapp') || message.includes('atendente') || message.includes('humano')) {
-      return "📱 **Atendimento Humano:**\n\nWhatsApp: (85) 9999-9999\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: https://wa.me/5585999999999";
+      return "📱 **Atendimento Humano:**\n\nWhatsApp: (85) 9 9603-2957\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: https://wa.me/5585996032957";
     }
     
     if (message.includes('oi') || message.includes('olá') || message.includes('bom dia') || message.includes('boa tarde') || message.includes('boa noite')) {
@@ -78,11 +79,43 @@ const AIBotWidget = () => {
     }
     
     if (message.includes('obrigado') || message.includes('valeu') || message.includes('tchau')) {
-      return "Por nada! 😊 Foi um prazer ajudar!\n\nPrecisa de mais alguma coisa? Estou sempre aqui!\n\n📱 WhatsApp: (85) 9999-9999";
+      return "Por nada! 😊 Foi um prazer ajudar!\n\nPrecisa de mais alguma coisa? Estou sempre aqui!\n\n📱 WhatsApp: (85) 9 9603-2957";
     }
-    
+
+    if (message.includes('desconto') || message.includes('promoção') || message.includes('promocao')) {
+      return "💰 **Desconto Especial:**\n\nTodos os clientes que pagam até o vencimento ganham **R$ 10,00 de desconto**!\n\nExemplo:\n• 50 Mbps: de R$ 80,00 por apenas R$ 70,00\n\nPague no dia e economize todo mês!";
+    }
+
+    if (message.includes('instala') || message.includes('agendar') || message.includes('visita')) {
+      return "🔧 **Instalação:**\n\n✅ Instalação 100% gratuita\n✅ Agendamos no melhor horário para você\n✅ Técnico chega em até 48h úteis\n✅ Equipamentos inclusos\n\nPara agendar, me informe:\n1. Seu endereço completo\n2. Melhor dia e horário\n\nOu fale direto no WhatsApp: (85) 9 9603-2957";
+    }
+
+    if (message.includes('pix') || message.includes('pagamento') || message.includes('pagar') || message.includes('boleto')) {
+      return "💳 **Formas de Pagamento:**\n\n• **PIX** - Chave enviada todo mês\n• **Boleto** - Vence todo dia 10\n• **Cartão** - Débito automático\n\n💡 Pagando até o vencimento: **R$ 10 de desconto**!\n\nDúvidas sobre sua fatura? Fale conosco!";
+    }
+
+    if (message.includes('cancelar') || message.includes('cancelamento') || message.includes('sair')) {
+      return "📋 **Cancelamento:**\n\n✅ Sem multa - você cancela quando quiser\n✅ Sem fidelidade\n✅ Processo simples e rápido\n\nPara cancelar, entre em contato:\n📱 WhatsApp: (85) 9 9603-2957\n\nPodemos ajudar com algum problema antes?";
+    }
+
+    if (message.includes('upgrade') || message.includes('mudar plano') || message.includes('trocar plano') || message.includes('aumentar')) {
+      return "⬆️ **Upgrade de Plano:**\n\nVocê pode mudar de plano a qualquer momento!\n\n📶 20 Mbps → 30 Mbps: +R$ 10/mês\n📶 30 Mbps → 50 Mbps: +R$ 10/mês\n📶 50 Mbps → 100 Mbps: +R$ 20/mês\n\n✅ Mudança sem custo adicional\n✅ Ativação imediata\n\nQuer fazer upgrade agora?";
+    }
+
+    if (message.includes('velocidade') || message.includes('lento') || message.includes('rapido') || message.includes('mbps')) {
+      return "🚀 **Sobre Velocidades:**\n\n• **20 Mbps** - Navegação, e-mail, redes sociais\n• **30 Mbps** - Streaming SD, videochamadas\n• **50 Mbps** - Streaming HD, jogos online\n• **100 Mbps** - 4K, home office, múltiplos dispositivos\n\n💡 Para família com 3+ pessoas, recomendamos 50 Mbps ou mais!\n\nQual seu uso principal?";
+    }
+
+    if (message.includes('fibra') || message.includes('fttx') || message.includes('cabo')) {
+      return "🔌 **Tecnologia FTTX:**\n\nUsamos cabos de fibra óptica, que garantem:\n\n✅ Velocidade real (upload e download)\n✅ Mais estabilidade\n✅ Menor latência para jogos\n✅ Resistente a interferências\n\nSua conexão vai ficar muito mais rápida e estável!";
+    }
+
+    if (message.includes('contrato') || message.includes('fidelidade') || message.includes('multa')) {
+      return "📝 **Sobre Contrato:**\n\n✅ **SEM FIDELIDADE** - cancele quando quiser\n✅ **SEM MULTA** - liberdade total\n✅ Contrato mensal simples\n\nVocê só fica se estiver satisfeito! 😊";
+    }
+
     // Resposta padrão
-    return "🤖 Desculpe, não entendi sua pergunta.\n\nPosso ajudar com:\n• **Planos** e preços\n• **Cobertura** na sua região\n• **Suporte** técnico\n• Falar com **atendente**\n\nOu digite sua dúvida de forma diferente!";
+    return "🤖 Desculpe, não entendi sua pergunta.\n\nPosso ajudar com:\n• **Planos** e preços\n• **Cobertura** na sua região\n• **Instalação** e agendamento\n• **Pagamento** e faturas\n• **Suporte** técnico\n• **Upgrade** de velocidade\n• Falar com **atendente**\n\nOu digite sua dúvida de forma diferente!";
   };
 
   // Função para enviar mensagem
@@ -295,22 +328,28 @@ const AIBotWidget = () => {
                 📍 Cobertura
               </button>
               <button
-                onClick={() => setInputMessage("Suporte técnico")}
+                onClick={() => setInputMessage("Agendar instalação")}
                 className="px-3 py-1 bg-accent/10 text-accent text-xs rounded-full hover:bg-accent/20 transition-colors"
               >
-                🔧 Suporte
+                🔧 Instalação
+              </button>
+              <button
+                onClick={() => setInputMessage("Formas de pagamento")}
+                className="px-3 py-1 bg-accent/10 text-accent text-xs rounded-full hover:bg-accent/20 transition-colors"
+              >
+                💳 Pagamento
               </button>
             </div>
             
             <p className="text-xs text-muted-foreground mt-2 text-center">
               Ou fale conosco no{" "}
               <a
-                href="https://wa.me/5585999999999"
+                href="https://wa.me/5585996032957"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
               >
-                WhatsApp: (85) 9999-9999
+                WhatsApp: (85) 9 9603-2957
               </a>
             </p>
           </div>

@@ -17,11 +17,20 @@ import TrabalheConosco from "./pages/TrabalheConosco";
 import NotFound from "./pages/NotFound";
 import ClientLogin from "./pages/ClientLogin";
 import ClientPortal from "./pages/ClientPortal";
+import AdminLogin from "./pages/admin/AdminLogin";
+import AdminLayout from "./pages/admin/AdminLayout";
+import Conversations from "./pages/admin/Conversations";
+import Metrics from "./pages/admin/Metrics";
+import CampaignManager from "./pages/admin/CampaignManager";
+import ChurnRiskList from "./pages/admin/ChurnRiskList";
+import { ClientesPage, FinanceiroPage, RedePage, ConfiguracoesPage } from "./pages/admin/Placeholders";
+import { getAdminToken } from "./lib/adminAuth";
 
 const queryClient = new QueryClient();
 
 const App = () => {
   const [aiIsOpen, setAiIsOpen] = useState(false);
+  const hasAdminToken = !!getAdminToken();
 
   return (
     <AIBotContext.Provider value={{ isOpen: aiIsOpen, setIsOpen: setAiIsOpen }}>
@@ -41,6 +50,18 @@ const App = () => {
               <Route path="/sobre" element={<About />} />
               <Route path="/minha-conta/login" element={<ClientLogin />} />
               <Route path="/minha-conta" element={<ClientPortal />} />
+              <Route path="/admin/login" element={<AdminLogin />} />
+              <Route path="/admin/*" element={hasAdminToken ? <AdminLayout /> : <AdminLogin />}>
+                <Route path="conversas" element={<Conversations />} />
+                <Route path="clientes" element={<ClientesPage />} />
+                <Route path="campanhas" element={<CampaignManager />} />
+                <Route path="financeiro" element={<FinanceiroPage />} />
+                <Route path="rede" element={<RedePage />} />
+                <Route path="configuracoes" element={<ConfiguracoesPage />} />
+                <Route path="churn-risks" element={<ChurnRiskList />} />
+                <Route path="metricas" element={<Metrics />} />
+                <Route path="" element={<Conversations />} />
+              </Route>
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

@@ -16,9 +16,12 @@ Atendemos os seguintes bairros:
 
 ### Planos Disponíveis
 
-- 💨 **100 Mbps** - R$ 79,90/mês
-- 🚀 **300 Mbps** - R$ 99,90/mês (Mais Popular)
-- ⚡ **500 Mbps** - R$ 129,90/mês
+- 📶 **20 Mbps** - R$ 50,00/mês*
+- 📶 **30 Mbps** - R$ 60,00/mês*
+- ⚡ **50 Mbps** - R$ 70,00/mês* (Mais Popular)
+- 🔥 **100 Mbps** - R$ 90,00/mês*
+
+*Pagando até o vencimento. Sem desconto: +R$ 10,00/mês.
 
 ## Como executar o projeto
 

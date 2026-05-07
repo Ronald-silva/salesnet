@@ -1,6 +1,5 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import AIBotWidget from "@/components/AIBotWidget";
 import { Button } from "@/components/ui/button";
 import { MapPin, CheckCircle } from "lucide-react";
 import { useState } from "react";
@@ -19,7 +18,6 @@ const Cobertura = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <AIBotWidget />
 
       {/* Hero Section */}
       <section className="bg-gradient-hero text-foreground py-20">
@@ -61,7 +59,7 @@ const Cobertura = () => {
 
             <p className="text-sm text-muted-foreground text-center mt-4">
               Ou consulte via{" "}
-              <a href="https://wa.me/5527999999999" className="text-accent hover:underline">
+              <a href="https://wa.me/5585996032957" className="text-accent hover:underline">
                 WhatsApp
               </a>
             </p>
@@ -78,7 +76,7 @@ const Cobertura = () => {
           
           <div className="bg-muted rounded-lg overflow-hidden border border-accent/20">
             <iframe
-              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d59943.02!2d-40.29!3d-20.33!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMjDCsDE5JzQ4LjAiUyA0MMKwMTcnMjQuMCJX!5e0!3m2!1spt-BR!2sbr!4v1234567890"
+              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d15940.0!2d-38.5661!3d-3.7716!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zLTMuNzcxNiwtMzguNTY2MQ!5e0!3m2!1spt-BR!2sbr!4v1710000000000!5m2!1spt-BR!2sbr"
               width="100%"
               height="500"
               style={{ border: 0 }}
