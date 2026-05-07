@@ -25,3 +25,8 @@ bun.lockb
 *.njsproj
 *.sln
 *.sw?
+
+# Local environment and agent artifacts
+.env
+.superpowers/
+docs/superpowers/
