@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AIBotContext } from "./contexts/AIBotContext";
 import AIBotWidget from "./components/AIBotWidget";
 import Home from "./pages/Home";
@@ -28,9 +28,12 @@ import { getAdminToken } from "./lib/adminAuth";
 
 const queryClient = new QueryClient();
 
+function AdminGuard() {
+  return getAdminToken() ? <AdminLayout /> : <Navigate to="/admin/login" replace />;
+}
+
 const App = () => {
   const [aiIsOpen, setAiIsOpen] = useState(false);
-  const hasAdminToken = !!getAdminToken();
 
   return (
     <AIBotContext.Provider value={{ isOpen: aiIsOpen, setIsOpen: setAiIsOpen }}>
@@ -51,7 +54,7 @@ const App = () => {
               <Route path="/minha-conta/login" element={<ClientLogin />} />
               <Route path="/minha-conta" element={<ClientPortal />} />
               <Route path="/admin/login" element={<AdminLogin />} />
-              <Route path="/admin/*" element={hasAdminToken ? <AdminLayout /> : <AdminLogin />}>
+              <Route path="/admin/*" element={<AdminGuard />}>
                 <Route path="conversas" element={<Conversations />} />
                 <Route path="clientes" element={<ClientesPage />} />
                 <Route path="campanhas" element={<CampaignManager />} />
