@@ -11,7 +11,7 @@ export interface InstanceConfig {
   /** Nome único da instância no provider */
   instanceName: string;
   /** URL do webhook que o provider vai chamar */
-  webhookUrl: string;
+  webhookUrl?: string;
   /** ID do tenant (empresa/provedor) dono desta instância */
   tenantId: string;
   /** Número WhatsApp (opcional, preenchido após conexão) */
