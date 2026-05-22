@@ -49,6 +49,7 @@ const envSchema = z.object({
   // ── Server ────────────────────────────────────────────────────────────────
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  CORS_ORIGIN: z.string().optional(),
 }).superRefine((data, ctx) => {
   // LLM
   if (data.LLM_PROVIDER === 'anthropic' && !data.ANTHROPIC_API_KEY) {

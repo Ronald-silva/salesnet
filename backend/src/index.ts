@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { env } from './config/env';
 import { bootstrapProviders, ensureDefaultInstance } from './bootstrap';
 import { webhookRouter, twilioLegacyRouter } from './routes/webhook-router';
@@ -23,6 +24,10 @@ ensureDefaultInstance().catch((err: unknown) => {
 const app = express();
 
 app.set('trust proxy', 1);
+app.use(cors({
+  origin: env.CORS_ORIGIN ?? '*',
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
