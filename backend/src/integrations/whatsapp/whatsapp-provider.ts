@@ -18,6 +18,8 @@ export interface InstanceConfig {
   phoneNumber?: string;
   /** Se true, já retorna QR code na criação */
   qrcode?: boolean;
+  /** Token de autenticação por instância (Evolution Go) */
+  token?: string;
 }
 
 export interface InstanceInfo {
@@ -25,6 +27,8 @@ export interface InstanceInfo {
   status: InstanceStatus;
   qrCode?: string;
   pairingCode?: string;
+  /** Token retornado na criação (Evolution Go) */
+  token?: string;
 }
 
 export interface InstanceStatus {

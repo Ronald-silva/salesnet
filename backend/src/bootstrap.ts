@@ -17,9 +17,15 @@ export function bootstrapProviders(): void {
     const evolution = new EvolutionGoProvider({
       baseUrl: env.EVOLUTION_API_URL!,
       apiKey: env.EVOLUTION_API_KEY!,
+      defaultInstanceToken: env.EVOLUTION_INSTANCE_TOKEN,
     });
     providerRegistry.register(evolution, true);
     console.log(`✅ WhatsApp provider: Evolution Go (${env.EVOLUTION_API_URL})`);
+    if (env.EVOLUTION_INSTANCE_TOKEN) {
+      console.log(`   Instance token: definido via EVOLUTION_INSTANCE_TOKEN`);
+    } else {
+      console.warn(`   ⚠️  EVOLUTION_INSTANCE_TOKEN não definido — necessário para envio de mensagens`);
+    }
   }
 
   // Registrar Twilio como provider de fallback se vars disponíveis

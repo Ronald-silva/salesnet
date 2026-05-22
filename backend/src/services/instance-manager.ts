@@ -17,6 +17,7 @@ export interface StoredInstance {
   phoneNumber?: string;
   status: 'connected' | 'disconnected' | 'connecting';
   webhookUrl?: string;
+  instanceToken?: string;
   lastConnectedAt?: string;
   createdAt: string;
 }
@@ -29,6 +30,7 @@ interface InstanceRow {
   phone_number?: string;
   status: string;
   webhook_url?: string;
+  instance_token?: string;
   last_connected_at?: string;
   created_at: string;
 }
@@ -42,6 +44,7 @@ function rowToInstance(row: InstanceRow): StoredInstance {
     phoneNumber: row.phone_number,
     status: row.status as StoredInstance['status'],
     webhookUrl: row.webhook_url,
+    instanceToken: row.instance_token,
     lastConnectedAt: row.last_connected_at,
     createdAt: row.created_at,
   };
@@ -63,6 +66,7 @@ class InstanceManager {
         provider: provider.name,
         status: 'disconnected',
         webhook_url: config.webhookUrl,
+        instance_token: info.token,
       })
       .select()
       .single();

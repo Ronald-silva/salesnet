@@ -26,6 +26,8 @@ const envSchema = z.object({
   EVOLUTION_API_URL: z.string().url().optional(),
   EVOLUTION_API_KEY: z.string().optional(),
   EVOLUTION_INSTANCE_NAME: z.string().default('salesnet'),
+  /** Token por-instância (Evolution Go) — gerado na criação e armazenado aqui para single-tenant */
+  EVOLUTION_INSTANCE_TOKEN: z.string().optional(),
 
   // Twilio (legacy — manter para compatibilidade durante transição)
   TWILIO_ACCOUNT_SID: z.string().optional(),
