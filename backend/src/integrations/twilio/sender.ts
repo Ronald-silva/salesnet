@@ -7,7 +7,8 @@ function toWhatsappNumber(phone: string): string {
   return `whatsapp:${e164}`;
 }
 
-const FROM = `whatsapp:${env.TWILIO_WHATSAPP_NUMBER.startsWith('+') ? env.TWILIO_WHATSAPP_NUMBER : `+${env.TWILIO_WHATSAPP_NUMBER}`}`;
+const whatsappNum = env.TWILIO_WHATSAPP_NUMBER ?? '';
+const FROM = `whatsapp:${whatsappNum.startsWith('+') ? whatsappNum : `+${whatsappNum}`}`;
 
 export async function sendMessage(to: string, body: string): Promise<void> {
   await twilioClient.messages.create({ from: FROM, to: toWhatsappNumber(to), body });

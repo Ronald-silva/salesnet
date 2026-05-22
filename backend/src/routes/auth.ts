@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getCustomerByPhone } from '../integrations/sgp';
-import { sendMessage } from '../integrations/twilio';
+import { whatsappService } from '../services/whatsapp-service';
 import { supabase } from '../config/supabase';
 
 export const authRouter = Router();
@@ -39,7 +39,8 @@ authRouter.post('/request-otp', async (req, res) => {
   await supabase.from('otp_codes').upsert({ phone: normalized, code, expires_at: expiresAt });
 
   try {
-    await sendMessage(
+    await whatsappService.sendText(
+      process.env['DEFAULT_TENANT_ID'] ?? 'default',
       normalized,
       `Seu código de acesso SalesNet é: ${code}\nVálido por 10 minutos.`
     );

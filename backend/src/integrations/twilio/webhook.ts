@@ -14,7 +14,7 @@ function twilioSignatureGuard(req: Request, res: Response, next: NextFunction): 
   const signature = (req.headers['x-twilio-signature'] as string) ?? '';
   const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
   const valid = validateRequest(
-    env.TWILIO_AUTH_TOKEN,
+    env.TWILIO_AUTH_TOKEN ?? '',
     signature,
     url,
     req.body as Record<string, string>,

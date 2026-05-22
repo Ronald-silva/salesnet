@@ -1,23 +1,180 @@
 version: '3.9'
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SalesNet — Docker Compose
+# Fase 1: Railway (subir cada serviço individualmente no Railway)
+# Fase 2: VPS Hostinger (docker-compose up -d diretamente)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 services:
+
+  # ── Backend SalesNet API ────────────────────────────────────────────────────
   api:
     build:
-      context: .
+      context: ./backend
       dockerfile: docker/Dockerfile
     container_name: salesnet-api
     restart: unless-stopped
     ports:
       - '3001:3001'
     env_file:
-      - .env
+      - ./backend/.env
     environment:
-      - NODE_ENV=production
-    volumes:
-      - ./logs:/app/logs
+      NODE_ENV: production
+      # No Railway, esta URL aponta para o serviço interno evolution
+      # Na VPS, aponta para o container evolution na mesma rede
+      EVOLUTION_API_URL: http://evolution:8080
+    depends_on:
+      evolution:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3001/health']
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3001/health']
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    networks:
+      - salesnet
+    volumes:
+      - ./backend/logs:/app/logs
+
+  # ── Evolution Go (WhatsApp) ──────────────────────────────────────────────────
+  evolution:
+    image: atendai/evolution-api:latest
+    container_name: salesnet-evolution
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      # Autenticação global da API
+      AUTHENTICATION_TYPE: apikey
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+
+      # Banco de dados para persistência de sessões
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://salesnet:${DB_PASSWORD}@postgres:5432/evolution
+      DATABASE_SAVE_DATA_INSTANCE: 'true'
+      DATABASE_SAVE_DATA_NEW_MESSAGE: 'true'
+      DATABASE_SAVE_MESSAGE_UPDATE: 'true'
+      DATABASE_SAVE_DATA_CONTACTS: 'true'
+      DATABASE_SAVE_DATA_CHATS: 'true'
+
+      # URL pública desta instância (usar domínio em produção)
+      SERVER_URL: ${EVOLUTION_SERVER_URL:-http://localhost:8080}
+
+      # Configurações gerais
+      DEL_INSTANCE: 'false'
+      QRCODE_LIMIT: '30'
+      LOG_LEVEL: ERROR
+
+      # Webhook global (opcional — por instância é preferível)
+      WEBHOOK_GLOBAL_ENABLED: 'false'
+
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:8080/']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - salesnet
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: salesnet-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: salesnet
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: salesnet
+    ports:
+      - '5432:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/src/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U salesnet -d salesnet']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - salesnet
+
+  # ── Redis (opcional — ativar quando implementar filas com BullMQ) ────────────
+  redis:
+    image: redis:7-alpine
+    container_name: salesnet-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - salesnet
+    profiles:
+      - with-redis
+
+  # ── Nginx (Fase 2 — VPS com SSL) ─────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: salesnet-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+    depends_on:
+      - api
+      - evolution
+    networks:
+      - salesnet
+    profiles:
+      - with-nginx
+
+  # ── Certbot (Fase 2 — SSL automático) ────────────────────────────────────────
+  certbot:
+    image: certbot/certbot:latest
+    container_name: salesnet-certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    profiles:
+      - with-nginx
+
+# ── Volumes ────────────────────────────────────────────────────────────────────
+volumes:
+  pg_data:
+    driver: local
+  redis_data:
+    driver: local
+  evolution_instances:
+    driver: local
+  certbot_certs:
+    driver: local
+  certbot_www:
+    driver: local
+
+# ── Networks ───────────────────────────────────────────────────────────────────
+networks:
+  salesnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24

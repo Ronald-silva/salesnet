@@ -6,7 +6,8 @@ import {
   getCurrentInvoice,
   generatePixKey,
 } from '../integrations/sgp';
-import { sendTemplate, TEMPLATES } from '../integrations/twilio';
+import { whatsappService } from '../services/whatsapp-service';
+import type { BillingTemplateName } from '../templates';
 
 type NotificationType = 'd3' | 'd0' | 'overdue_d3' | 'suspended_d5';
 
@@ -48,7 +49,7 @@ export async function runBillingJobD3(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await sendTemplate(customer.phone, TEMPLATES.BILLING_REMINDER_D3, {
+      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_reminder_d3' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
@@ -68,7 +69,7 @@ export async function runBillingJobD0(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await sendTemplate(customer.phone, TEMPLATES.BILLING_REMINDER_D0, {
+      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_reminder_d0' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
@@ -88,7 +89,7 @@ export async function runBillingJobOverdueD3(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await sendTemplate(customer.phone, TEMPLATES.BILLING_OVERDUE_D3, {
+      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_overdue_d3' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,
@@ -107,7 +108,7 @@ export async function runBillingJobSuspendD5(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await sendTemplate(customer.phone, TEMPLATES.BILLING_SUSPENDED_D5, {
+      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_suspended_d5' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,

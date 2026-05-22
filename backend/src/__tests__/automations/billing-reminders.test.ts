@@ -21,19 +21,15 @@ jest.mock('../../integrations/sgp', () => ({
   getCurrentInvoice: jest.fn(),
 }));
 
-jest.mock('../../integrations/twilio', () => ({
-  sendTemplate: jest.fn(),
-  TEMPLATES: {
-    BILLING_REMINDER_D3: 'HXd3',
-    BILLING_REMINDER_D0: 'HXd0',
-    BILLING_OVERDUE_D3: 'HXoverdue_d3',
-    BILLING_SUSPENDED_D5: 'HXsuspended_d5',
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: {
+    sendTemplate: jest.fn(),
   },
 }));
 
 import { supabase } from '../../config/supabase';
 import { getCustomersDueInDays, getOverdueCustomers, suspendCustomer, generatePixKey, getCurrentInvoice } from '../../integrations/sgp';
-import { sendTemplate } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -98,9 +94,10 @@ describe('runBillingJobD3', () => {
     await runBillingJobD3();
 
     expect(getCustomersDueInDays).toHaveBeenCalledWith(3);
-    expect(sendTemplate).toHaveBeenCalledWith(
+    expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
+      expect.any(String),
       customers[0].phone,
-      'HXd3',
+      'billing_reminder_d3',
       expect.objectContaining({ nome: 'Maria' })
     );
     expect(chain.insert).toHaveBeenCalled();
@@ -117,7 +114,7 @@ describe('runBillingJobD3', () => {
 
     await runBillingJobD3();
 
-    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 });
 
@@ -136,9 +133,10 @@ describe('runBillingJobD0', () => {
     await runBillingJobD0();
 
     expect(getCustomersDueInDays).toHaveBeenCalledWith(0);
-    expect(sendTemplate).toHaveBeenCalledWith(
+    expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
+      expect.any(String),
       customers[0].phone,
-      'HXd0',
+      'billing_reminder_d0',
       expect.objectContaining({ nome: 'Ana' })
     );
   });
@@ -154,7 +152,7 @@ describe('runBillingJobD0', () => {
 
     await runBillingJobD0();
 
-    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 });
 
@@ -173,9 +171,10 @@ describe('runBillingJobOverdueD3', () => {
     await runBillingJobOverdueD3();
 
     expect(getOverdueCustomers).toHaveBeenCalledWith(3);
-    expect(sendTemplate).toHaveBeenCalledWith(
+    expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
+      expect.any(String),
       customers[0].phone,
-      'HXoverdue_d3',
+      'billing_overdue_d3',
       expect.objectContaining({ nome: 'Pedro' })
     );
   });
@@ -191,7 +190,7 @@ describe('runBillingJobOverdueD3', () => {
 
     await runBillingJobOverdueD3();
 
-    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
   });
 });
 
@@ -204,7 +203,7 @@ describe('runBillingJobSuspendD5', () => {
     (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv5', amount: 60, dueDate: '2026-05-02' });
     (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pixABC', invoiceId: 'inv5' });
     const callOrder: string[] = [];
-    (sendTemplate as jest.Mock).mockImplementation(async () => { callOrder.push('sendTemplate'); });
+    (whatsappService.sendTemplate as jest.Mock).mockImplementation(async () => { callOrder.push('sendTemplate'); });
     (suspendCustomer as jest.Mock).mockImplementation(async () => { callOrder.push('suspendCustomer'); return { customerId: 'c5', status: 'suspended', updatedAt: '' }; });
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
@@ -213,9 +212,10 @@ describe('runBillingJobSuspendD5', () => {
     await runBillingJobSuspendD5();
 
     expect(getOverdueCustomers).toHaveBeenCalledWith(5);
-    expect(sendTemplate).toHaveBeenCalledWith(
+    expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
+      expect.any(String),
       customers[0].phone,
-      'HXsuspended_d5',
+      'billing_suspended_d5',
       expect.objectContaining({ nome: 'Clara' })
     );
     expect(suspendCustomer).toHaveBeenCalledWith('c5');
@@ -233,7 +233,7 @@ describe('runBillingJobSuspendD5', () => {
 
     await runBillingJobSuspendD5();
 
-    expect(sendTemplate).not.toHaveBeenCalled();
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
     expect(suspendCustomer).not.toHaveBeenCalled();
   });
 });

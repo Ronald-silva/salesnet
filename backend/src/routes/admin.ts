@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone, getCustomerById, getCurrentInvoice } from '../integrations/sgp';
-import { sendMessage } from '../integrations/twilio';
+import { whatsappService } from '../services/whatsapp-service';
 
 export const adminRouter = Router();
 
@@ -200,7 +200,7 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
     .update({ messages: updatedMessages, updated_at: new Date().toISOString() })
     .eq('id', req.params.id);
 
-  await sendMessage(row.phone, message);
+  await whatsappService.sendText(process.env['DEFAULT_TENANT_ID'] ?? 'default', row.phone, message);
   res.status(200).json({ ok: true });
 });
 
@@ -337,7 +337,8 @@ adminRouter.post('/campaigns/churn-outreach/:id', async (req, res) => {
   const targetPhone = customer?.phone ?? row.customer_id;
   const targetName = customer?.name?.split(' ')[0] ?? 'Cliente';
 
-  await sendMessage(
+  await whatsappService.sendText(
+    process.env['DEFAULT_TENANT_ID'] ?? 'default',
     targetPhone,
     `Oi ${targetName}, percebemos que você teve algumas dificuldades ultimamente. Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`
   );

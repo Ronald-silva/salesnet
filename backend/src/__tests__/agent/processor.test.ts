@@ -1,3 +1,29 @@
+jest.mock('../../config/env', () => ({
+  env: {
+    LLM_ROUTING_MODE:           'single',
+    LLM_PROVIDER:               'anthropic',
+    LLM_FALLBACK_PROVIDER:      undefined,
+    ANTHROPIC_API_KEY:          'test-key',
+    DEEPSEEK_API_KEY:           undefined,
+    DEEPSEEK_BASE_URL:          'https://api.deepseek.com',
+    ANTHROPIC_MODEL:            'claude-test',
+    DEEPSEEK_MODEL:             'deepseek-chat',
+    LLM_MAX_TOKENS:             1024,
+    LLM_SIMPLE_MAX_TOKENS:      512,
+    LLM_SIMPLE_MAX_TOOL_ROUNDS: 3,
+    TWILIO_ACCOUNT_SID:         'x',
+    TWILIO_AUTH_TOKEN:          'x',
+    TWILIO_WHATSAPP_NUMBER:     'x',
+    SGP_BASE_URL:               'https://example.com',
+    SGP_API_TOKEN:              'x',
+    SUPABASE_URL:               'https://example.com',
+    SUPABASE_SERVICE_ROLE_KEY:  'x',
+    PORT:                       3001,
+    NODE_ENV:                   'test',
+    DEFAULT_TENANT_ID:          'test-tenant',
+  },
+}));
+
 jest.mock('../../agent/memory', () => ({
   isHumanMode: jest.fn(),
   getThread:   jest.fn(),
@@ -25,15 +51,17 @@ jest.mock('../../config/supabase', () => ({
   },
 }));
 
-jest.mock('../../integrations/twilio/sender', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: {
+    sendText: jest.fn(),
+  },
 }));
 
 import { processMessage } from '../../agent/processor';
 import { isHumanMode, getThread, saveMessage } from '../../agent/memory';
 import { executeTool } from '../../agent/tools';
 import { anthropic } from '../../config/anthropic';
-import { sendMessage } from '../../integrations/twilio/sender';
+import { whatsappService } from '../../services/whatsapp-service';
 
 const PHONE = '+5585999990000';
 const THREAD = {
@@ -56,7 +84,7 @@ describe('processMessage — human_mode ON', () => {
     await processMessage(PHONE, 'Oi');
 
     expect(anthropic.messages.create).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 });
 
@@ -67,7 +95,7 @@ describe('processMessage — normal flow', () => {
     (getThread as jest.Mock).mockResolvedValue(THREAD);
     (executeTool as jest.Mock).mockResolvedValue(CUSTOMER);
     (anthropic.messages.create as jest.Mock).mockResolvedValue(TEXT_RESPONSE);
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
   });
 
   it('saves user message before calling Claude', async () => {
@@ -80,9 +108,13 @@ describe('processMessage — normal flow', () => {
     expect(executeTool).toHaveBeenCalledWith('buscar_cliente', { phone: PHONE }, PHONE);
   });
 
-  it('sends Claude response via Twilio', async () => {
+  it('sends Claude response via WhatsApp', async () => {
     await processMessage(PHONE, 'Oi');
-    expect(sendMessage).toHaveBeenCalledWith(PHONE, 'Olá João! Posso ajudar?');
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      expect.any(String),
+      PHONE,
+      'Olá João! Posso ajudar?'
+    );
   });
 
   it('saves assistant response to thread', async () => {
@@ -96,7 +128,7 @@ describe('processMessage — tool use loop', () => {
     (isHumanMode as jest.Mock).mockResolvedValue(false);
     (saveMessage as jest.Mock).mockResolvedValue(undefined);
     (getThread as jest.Mock).mockResolvedValue(THREAD);
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
     // buscar_cliente returns customer; get_fatura_atual returns invoice
     (executeTool as jest.Mock)
@@ -126,6 +158,10 @@ describe('processMessage — tool use loop', () => {
     await processMessage(PHONE, 'Qual minha fatura?');
 
     expect(executeTool).toHaveBeenCalledWith('get_fatura_atual', { customer_id: 'c1' }, PHONE);
-    expect(sendMessage).toHaveBeenCalledWith(PHONE, 'Sua fatura é R$90.');
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      expect.any(String),
+      PHONE,
+      'Sua fatura é R$90.'
+    );
   });
 });

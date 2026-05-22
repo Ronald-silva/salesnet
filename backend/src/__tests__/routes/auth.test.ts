@@ -5,15 +5,15 @@ import { authRouter } from '../../routes/auth';
 jest.mock('../../integrations/sgp', () => ({
   getCustomerByPhone: jest.fn(),
 }));
-jest.mock('../../integrations/twilio', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: { sendText: jest.fn() },
 }));
 jest.mock('../../config/supabase', () => ({
   supabase: { from: jest.fn() },
 }));
 
 import { getCustomerByPhone } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
 
 beforeEach(() => jest.clearAllMocks());
@@ -58,7 +58,7 @@ const mockCustomer = {
 describe('POST /api/auth/request-otp', () => {
   it('sends OTP to valid customer phone', async () => {
     (getCustomerByPhone as jest.Mock).mockResolvedValue(mockCustomer);
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
     mockSupabase();
 
     const res = await request(buildApp())
@@ -67,7 +67,8 @@ describe('POST /api/auth/request-otp', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      expect.any(String),
       expect.stringContaining('85999990001'),
       expect.stringContaining('código')
     );
@@ -81,7 +82,7 @@ describe('POST /api/auth/request-otp', () => {
       .send({ phone: '85000000000' });
 
     expect(res.status).toBe(404);
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 
   it('returns 400 when phone is missing', async () => {

@@ -1,104 +1,229 @@
 # SalesNet — Checklist de Produção (Railway + Vercel)
 
-Este guia consolida a etapa final para colocar backend e frontend em produção com segurança.
+## Arquitetura
 
-## 1) Pré-requisitos
+```
+WhatsApp ──► Evolution Go (Railway) ──► Backend SalesNet (Railway) ──► Claude / SGP / Supabase
+              ◄──────────────────────────────────────────────────────
+```
 
-- Repositório com `backend/railway.json` e `vercel.json` já versionados.
-- Build local validado:
-  - `npm --prefix backend run build`
-  - `npm run build`
-- Banco Supabase com schemas aplicados:
-  - `backend/src/agent/schema.sql`
-  - `backend/src/automations/schema.sql`
-  - `backend/src/automations/campaigns/schema.sql`
-  - `backend/src/routes/schema.sql`
+Dois serviços no mesmo projeto Railway:
+- **evolution** → recebe e envia mensagens WhatsApp
+- **backend** → agente IA, automações, API
 
-## 2) Deploy do backend no Railway
+---
 
-1. No Railway, criar projeto via GitHub e definir **Root Directory** como `backend`.
-2. Confirmar detecção de Node/Nixpacks.
-3. Configurar variáveis de ambiente:
-   - `ANTHROPIC_API_KEY`
-   - `TWILIO_ACCOUNT_SID`
-   - `TWILIO_AUTH_TOKEN`
-   - `TWILIO_WHATSAPP_NUMBER`
-   - `SGP_BASE_URL`
-   - `SGP_API_TOKEN`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `NODE_ENV=production`
-   - `PORT=3001` (Railway injeta dinâmico, manter fallback)
-4. Deploy e copiar URL pública final (ex: `https://salesnet-backend.up.railway.app`).
-5. Verificar healthcheck:
-   - `curl https://SUA_URL_RAILWAY/health`
+## 1) Supabase — Rodar os SQLs (ordem importa)
 
-## 3) Deploy do frontend no Vercel
+No editor SQL do Supabase, rodar nesta sequência:
 
-1. Importar o repositório no Vercel.
-2. Definir:
-   - Framework: Vite
-   - Root Directory: `.`
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-3. Configurar variável:
-   - `VITE_API_URL=https://SUA_URL_RAILWAY`
-4. Fazer deploy e validar carregamento de rotas SPA:
-   - `/`
-   - `/minha-conta/login`
-   - `/admin/login`
+```
+1. backend/src/agent/schema.sql             → conversation_threads, interaction_logs
+2. backend/src/automations/schema.sql       → billing_notifications
+3. backend/src/automations/campaigns/schema.sql → campaign_sends, referral_links, churn_risks
+4. backend/src/routes/schema.sql            → otp_codes, client_sessions
+5. backend/src/scripts/whatsapp-migration.sql   → tenants, whatsapp_instances, whatsapp_send_log
+```
 
-## 4) Ordem correta de configuração dos webhooks
+O arquivo 5 já insere o tenant padrão e a instância `salesnet` como `disconnected`.
 
-1. **Twilio webhook de entrada** (primeiro):
-   - URL: `https://SUA_URL_RAILWAY/webhook/twilio`
-   - Método: `POST`
-   - Evento: mensagem recebida no número WhatsApp Business
-2. **SGP webhook de pagamento** (depois):
-   - URL: `https://SUA_URL_RAILWAY/webhook/sgp/payment-confirmed`
-   - Método: `POST`
-   - Evento: `pagamento_confirmado`
+---
 
-## 5) Smoke test pós-deploy (E2E funcional)
+## 2) Railway — Serviço Evolution Go
 
-## Backend
+### 2.1 Criar o serviço
 
-- `GET /health` responde `{ status: "ok" }`.
-- Mensagem WhatsApp de teste chega no backend e gera resposta do agente.
-- Em caso de assinatura Twilio inválida (produção), rota recusa com `403`.
+1. Novo projeto Railway → **"Add Service" → "Docker Image"**
+2. Imagem: `atendai/evolution-api:latest`
+3. Nome do serviço: `evolution`
+4. Após criar, ir em **Settings → Networking** e gerar domínio público (ex: `evolution-salesnet.up.railway.app`)
 
-## Portal do cliente
+### 2.2 Volume (obrigatório — mantém sessão WhatsApp entre deploys)
 
-1. Entrar em `/minha-conta/login`.
-2. Solicitar OTP com telefone válido do SGP.
-3. Confirmar OTP.
-4. Validar carregamento das abas:
-   - Fatura
-   - Conexão
-   - Chamados
-   - Indicações
-   - Histórico
+Em **Settings → Volumes → Add Volume**:
+- Mount Path: `/evolution/instances`
+- Tamanho: 1 GB é suficiente
 
-## Dashboard admin
+### 2.3 Variáveis de ambiente
 
-1. Entrar em `/admin/login` com usuário role `admin`.
-2. Validar listagem de conversas.
-3. Testar:
-   - Assumir conversa (modo humano)
-   - Devolver ao bot
-   - Resposta manual
-4. Validar páginas:
-   - Métricas
-   - Campanhas
-   - Churn risks
+| Variável | Valor |
+|---|---|
+| `AUTHENTICATION_TYPE` | `apikey` |
+| `AUTHENTICATION_API_KEY` | gerar chave aleatória (ex: `openssl rand -hex 32`) |
+| `SERVER_URL` | `https://evolution-salesnet.up.railway.app` (URL pública do passo 2.1) |
+| `DATABASE_PROVIDER` | `sqlite` |
+| `LOG_LEVEL` | `ERROR` |
+| `DEL_INSTANCE` | `false` |
+| `QRCODE_LIMIT` | `30` |
+| `WEBHOOK_GLOBAL_ENABLED` | `false` |
 
-## Cobrança e campanhas
+### 2.4 Verificar
 
-- Confirmar jobs carregados nos logs do Railway (`[automations]` e `[campaigns]`).
-- Validar que envios são registrados no Supabase (`billing_notifications`, `campaign_sends`).
+```bash
+curl https://evolution-salesnet.up.railway.app/
+# Deve retornar JSON com info da API
+```
 
-## 6) Rollback rápido
+---
 
-- Railway: usar “Redeploy” da versão anterior estável.
-- Vercel: promover deployment anterior em “Deployments”.
-- Revalidar `GET /health` e login admin após rollback.
+## 3) Railway — Serviço Backend SalesNet
+
+### 3.1 Criar o serviço
+
+1. **"Add Service" → "GitHub Repo"** → selecionar o repositório
+2. **Root Directory**: `backend`
+3. Railway detecta Nixpacks (Node.js) automaticamente
+4. Nome do serviço: `backend`
+5. Após criar, gerar domínio público (ex: `salesnet-backend.up.railway.app`)
+
+### 3.2 Variáveis de ambiente
+
+#### WhatsApp / Evolution Go
+| Variável | Valor |
+|---|---|
+| `WHATSAPP_PROVIDER` | `evolution-go` |
+| `EVOLUTION_API_URL` | `https://evolution-salesnet.up.railway.app` |
+| `EVOLUTION_API_KEY` | mesma chave do passo 2.3 |
+| `EVOLUTION_INSTANCE_NAME` | `salesnet` |
+| `BACKEND_URL` | `https://salesnet-backend.up.railway.app` |
+
+> **Rede interna Railway (opcional):** se ambos os serviços estão no mesmo projeto,
+> você pode usar `http://evolution.railway.internal:8080` em `EVOLUTION_API_URL`
+> para evitar tráfego externo. A URL pública funciona em ambos os casos.
+
+#### IA
+| Variável | Valor |
+|---|---|
+| `LLM_ROUTING_MODE` | `tiered` (recomendado) ou `single` |
+| `LLM_PROVIDER` | `anthropic` |
+| `LLM_FALLBACK_PROVIDER` | `deepseek` (opcional) |
+| `ANTHROPIC_API_KEY` | `sk-ant-...` |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-5` |
+| `DEEPSEEK_API_KEY` | apenas se usar DeepSeek |
+| `LLM_MAX_TOKENS` | `1024` |
+| `LLM_SIMPLE_MAX_TOKENS` | `512` |
+| `LLM_SIMPLE_MAX_TOOL_ROUNDS` | `3` |
+
+#### ERP e banco
+| Variável | Valor |
+|---|---|
+| `SGP_BASE_URL` | `https://sgp.seuisp.com.br/api` |
+| `SGP_API_TOKEN` | token do SGP |
+| `SUPABASE_URL` | `https://xxxx.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | chave service role do Supabase |
+
+#### Servidor
+| Variável | Valor |
+|---|---|
+| `NODE_ENV` | `production` |
+| `TENANT_MODE` | `single` |
+| `DEFAULT_TENANT_ID` | `salesnet-default` |
+
+### 3.3 Verificar deploy
+
+```bash
+curl https://salesnet-backend.up.railway.app/health
+# Esperado: { "status": "ok", "provider": "evolution-go", ... }
+```
+
+Nos logs do Railway, deve aparecer:
+```
+✅ WhatsApp provider: Evolution Go (...)
+✅ WhatsApp instance: "salesnet" (disconnected)   ← ou "🆕 Instância provisionada"
+🚀 SalesNet backend running on port ...
+```
+
+---
+
+## 4) Conectar o WhatsApp (escanear QR)
+
+O backend provisiona a instância automaticamente no startup. Para escanear o QR:
+
+### Opção A — Via painel admin
+
+1. Acessar `https://seu-frontend.vercel.app/admin/login`
+2. Navegar em **Instâncias**
+3. Clicar em **Conectar** → exibe o QR Code
+4. Escanear com o WhatsApp do número de produção
+
+### Opção B — Via curl direto no Evolution Go
+
+```bash
+# Listar instâncias
+curl -H "apikey: SUA_CHAVE" https://evolution-salesnet.up.railway.app/instance/fetchInstances
+
+# Obter QR Code da instância salesnet
+curl -H "apikey: SUA_CHAVE" https://evolution-salesnet.up.railway.app/instance/connect/salesnet
+# Retorna { qrcode: { base64: "..." } } — copiar o base64 e abrir num leitor de QR
+```
+
+### Verificar conexão
+
+```bash
+curl -H "apikey: SUA_CHAVE" \
+  https://evolution-salesnet.up.railway.app/instance/connectionState/salesnet
+# Esperado: { instance: { state: "open" } }
+```
+
+Quando conectado, o Supabase atualiza `whatsapp_instances.status = 'connected'`.
+
+---
+
+## 5) Configurar webhook SGP (pagamentos)
+
+No painel do SGP, configurar:
+- **URL**: `https://salesnet-backend.up.railway.app/webhook/sgp/payment-confirmed`
+- **Método**: `POST`
+- **Evento**: confirmação de pagamento
+
+---
+
+## 6) Deploy do frontend no Vercel
+
+1. Importar repositório no Vercel
+2. Framework: **Vite** | Root Directory: `.` | Build: `npm run build` | Output: `dist`
+3. Variável de ambiente:
+   - `VITE_API_URL=https://salesnet-backend.up.railway.app`
+4. Deploy e validar rotas: `/`, `/minha-conta/login`, `/admin/login`
+
+---
+
+## 7) Smoke test E2E
+
+- [ ] `GET /health` retorna `{ status: "ok", provider: "evolution-go" }`
+- [ ] Supabase: `whatsapp_instances` tem status `connected`
+- [ ] Enviar mensagem WhatsApp para o número → agente responde em segundos
+- [ ] Logs Railway mostram `[processor] tier=...` e `[agent]` sem erros
+- [ ] Portal `/minha-conta/login` solicita OTP com sucesso
+- [ ] Admin `/admin/login` mostra conversas
+
+---
+
+## 8) Troubleshooting
+
+### Agente não responde
+1. Verificar `GET /health` — backend está no ar?
+2. Logs Railway: erro em `[webhook]` ou `[processor]`?
+3. Evolution Go conectado? (`connectionState` retorna `open`?)
+4. Supabase: `whatsapp_instances.status = 'connected'`?
+
+### QR Code expira sem ser escaneado
+- QR dura ~60s. Repetir `GET /instance/connect/salesnet` para gerar novo.
+- Se instância sumir após redeploy: o Volume do passo 2.2 não foi configurado.
+
+### Backend não acha instância conectada
+- Verificar `DEFAULT_TENANT_ID=salesnet-default` está setado
+- A instância no Supabase deve ter `tenant_id = 'salesnet-default'`
+- (já inserido automaticamente pelo `whatsapp-migration.sql`)
+
+### Evolution Go não entrega webhook no backend
+- Verificar `BACKEND_URL` está correto e acessível publicamente
+- Testar: `curl -X POST https://salesnet-backend.up.railway.app/webhook/whatsapp/salesnet -H "Content-Type: application/json" -d '{}'`
+
+---
+
+## 9) Rollback rápido
+
+- **Railway**: usar "Redeploy" da versão anterior estável (aba Deployments)
+- **Vercel**: promover deployment anterior em "Deployments"
+- Revalidar `GET /health` e login admin após rollback

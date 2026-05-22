@@ -11,6 +11,10 @@ export function buildWhatsAppLink(message?: string, phone = DEFAULT_WHATSAPP_NUM
   return `${base}?text=${encodeURIComponent(text)}`;
 }
 
+export function buildNetworkIssueMessage(neighborhood: string): string {
+  return `Olá! Estou com problema de conexão no bairro ${neighborhood} e gostaria de abrir um chamado.`;
+}
+
 export function buildCoverageMessage(locationOrCep: string): string {
   return `Olá! Gostaria de verificar cobertura para o CEP/endereço: ${locationOrCep}`;
 }
@@ -34,6 +38,26 @@ export function buildHotspotLeadMessage(input: HotspotLeadInput): string {
     `Bairro: ${input.neighborhood}`,
     `Telefone: ${input.phone}`,
     `Informações adicionais: ${input.notes?.trim() || "Não informado"}`,
+  ].join("\n");
+}
+
+export interface ContactFormInput {
+  name: string;
+  email: string;
+  phone: string;
+  interest: string;
+  message: string;
+}
+
+export function buildContactMessage(input: ContactFormInput): string {
+  return [
+    "Olá! Entrei em contato pelo site.",
+    "",
+    `Nome: ${input.name}`,
+    `Email: ${input.email}`,
+    `Telefone: ${input.phone}`,
+    `Assunto: ${input.interest}`,
+    `Mensagem: ${input.message}`,
   ].join("\n");
 }
 

@@ -8,7 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { buildWhatsAppLink, buildNetworkIssueMessage } from "@/lib/whatsapp";
 
 const Suporte = () => {
   const { setIsOpen } = useAIBot();
@@ -123,78 +123,38 @@ const Suporte = () => {
           </h2>
 
           <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-card rounded-lg p-6 border border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Jardim Guanabara
-                </h3>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
-                  Operacional
-                </span>
+            {[
+              { name: "Jardim Guanabara", speed: "98.5", latency: "8" },
+              { name: "Jardim Iracema",   speed: "97.2", latency: "9" },
+              { name: "Quintino Cunha",   speed: "99.1", latency: "7" },
+              { name: "Vila Velha",       speed: "96.5", latency: "10" },
+              { name: "Nova Assunção",    speed: "98.8", latency: "8" },
+            ].map((bairro) => (
+              <div key={bairro.name} className="bg-card rounded-lg p-6 border border-accent/20">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-lg font-heading font-bold text-card-foreground">
+                    {bairro.name}
+                  </h3>
+                  <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
+                    Operacional
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Velocidade média: {bairro.speed} Mbps | Latência: {bairro.latency}ms
+                </p>
+                <a
+                  href={buildWhatsAppLink(buildNetworkIssueMessage(bairro.name))}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-accent hover:underline"
+                >
+                  Relatar problema neste bairro →
+                </a>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Velocidade média: 98.5 Mbps | Latência: 8ms
-              </p>
-            </div>
-
-            <div className="bg-card rounded-lg p-6 border border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Jardim Iracema
-                </h3>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
-                  Operacional
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Velocidade média: 97.2 Mbps | Latência: 9ms
-              </p>
-            </div>
-
-            <div className="bg-card rounded-lg p-6 border border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Quintino Cunha
-                </h3>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
-                  Operacional
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Velocidade média: 99.1 Mbps | Latência: 7ms
-              </p>
-            </div>
-
-            <div className="bg-card rounded-lg p-6 border border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Vila Velha
-                </h3>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
-                  Operacional
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Velocidade média: 96.5 Mbps | Latência: 10ms
-              </p>
-            </div>
-
-            <div className="bg-card rounded-lg p-6 border border-accent/20">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-heading font-bold text-card-foreground">
-                  Nova Assunção
-                </h3>
-                <span className="px-3 py-1 bg-accent/20 text-accent text-sm rounded-full font-semibold">
-                  Operacional
-                </span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Velocidade média: 98.8 Mbps | Latência: 8ms
-              </p>
-            </div>
+            ))}
           </div>
 
-          <p className="text-center text-sm text-muted-foreground mt-6">
+          <p className="text-center text-sm text-muted-foreground mt-2">
             Última atualização: {new Date().toLocaleString('pt-BR')}
           </p>
         </div>

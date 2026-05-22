@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useAIBot } from "@/contexts/AIBotContext";
-import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { buildWhatsAppLink, buildContactMessage } from "@/lib/whatsapp";
 
 const Contact = () => {
   const { setIsOpen } = useAIBot();
@@ -27,8 +27,10 @@ const Contact = () => {
       return;
     }
 
-    toast.success("Mensagem enviada! Entraremos em contato em breve.");
-    
+    const message = buildContactMessage(formData);
+    window.open(buildWhatsAppLink(message), "_blank", "noopener,noreferrer");
+    toast.success("WhatsApp aberto com sua mensagem!");
+
     setFormData({
       name: "",
       email: "",
