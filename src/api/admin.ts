@@ -1,6 +1,6 @@
 import { getAdminToken } from '@/lib/adminAuth';
 
-const BASE = '/api/admin';
+const BASE = `${import.meta.env.VITE_API_URL ?? ''}/api/admin`;
 
 function headers(): HeadersInit {
   const token = getAdminToken();

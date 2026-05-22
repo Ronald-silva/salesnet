@@ -1,6 +1,6 @@
 import { getToken } from '@/lib/auth';
 
-const BASE = '/api';
+const BASE = `${import.meta.env.VITE_API_URL ?? ''}/api`;
 
 function authHeaders(): HeadersInit {
   const token = getToken();
