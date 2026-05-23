@@ -3,6 +3,9 @@ import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone, getCustomerById, getCurrentInvoice } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
+import { providerRegistry } from '../integrations/whatsapp/provider-registry';
+import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
+import { env } from '../config/env';
 
 export const adminRouter = Router();
 
@@ -373,4 +376,28 @@ adminRouter.get('/conversations/:id/invoice', async (req, res) => {
 
   const invoice = await getCurrentInvoice(customer.id).catch(() => null);
   res.status(200).json(invoice);
+});
+
+// ── WhatsApp connection status + QR ──────────────────────────────────────────
+
+adminRouter.get('/whatsapp/status', async (_req, res) => {
+  try {
+    const provider = providerRegistry.getDefault() as EvolutionGoProvider;
+    const instanceName = env.EVOLUTION_INSTANCE_NAME;
+    const status = await provider.getInstanceStatus(instanceName);
+    res.json({ connected: status.connected, state: status.state, phoneNumber: status.phoneNumber });
+  } catch (err) {
+    res.json({ connected: false, state: 'close', error: (err as Error).message });
+  }
+});
+
+adminRouter.get('/whatsapp/qr', async (_req, res) => {
+  try {
+    const provider = providerRegistry.getDefault() as EvolutionGoProvider;
+    const instanceName = env.EVOLUTION_INSTANCE_NAME;
+    const result = await provider.getQRCode(instanceName);
+    res.json({ qrCode: result.qrCode });
+  } catch (err) {
+    res.status(503).json({ error: (err as Error).message });
+  }
 });

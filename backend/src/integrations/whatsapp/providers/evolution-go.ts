@@ -213,10 +213,18 @@ export class EvolutionGoProvider implements WhatsAppProvider {
   }
 
   async getQRCode(instanceName: string): Promise<QRCodeResult> {
+    // Tenta /instance/qr primeiro; se vazio, busca do campo qrcode em /instance/all
     const { data } = await this.instanceHttp(instanceName)
       .get<EvoGoResponse<{ qrcode?: string }>>('/instance/qr');
 
-    const raw = data.data?.qrcode;
+    let raw = data.data?.qrcode;
+
+    if (!raw) {
+      const { data: all } = await this.adminHttp
+        .get<EvoGoResponse<EvoGoInstance[]>>('/instance/all');
+      raw = (all.data ?? []).find((i) => i.name === instanceName)?.qrcode;
+    }
+
     if (!raw) throw new Error(`QR code não disponível para "${instanceName}"`);
 
     return { qrCode: parseQrCode(raw) };

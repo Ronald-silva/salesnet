@@ -23,7 +23,8 @@ import Conversations from "./pages/admin/Conversations";
 import Metrics from "./pages/admin/Metrics";
 import CampaignManager from "./pages/admin/CampaignManager";
 import ChurnRiskList from "./pages/admin/ChurnRiskList";
-import { ClientesPage, FinanceiroPage, RedePage, ConfiguracoesPage } from "./pages/admin/Placeholders";
+import { ClientesPage, FinanceiroPage, RedePage } from "./pages/admin/Placeholders";
+import ConfiguracoesPage from "./pages/admin/ConfiguracoesPage";
 import { getAdminToken } from "./lib/adminAuth";
 
 const queryClient = new QueryClient();

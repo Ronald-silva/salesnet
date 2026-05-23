@@ -109,4 +109,9 @@ export const adminApi = {
   getChurnRisks: () => request<ChurnRiskItem[]>('/churn-risks'),
   churnOutreach: (id: string) =>
     request<{ ok: true }>(`/campaigns/churn-outreach/${id}`, { method: 'POST' }),
+
+  getWhatsAppStatus: () =>
+    request<{ connected: boolean; state: string; phoneNumber?: string }>('/whatsapp/status'),
+  getWhatsAppQR: () =>
+    request<{ qrCode: string }>('/whatsapp/qr'),
 };

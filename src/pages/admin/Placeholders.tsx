@@ -10,6 +10,3 @@ export function RedePage() {
   return <div className="rounded-lg border border-border/50 p-6">Status da rede e nós por bairro será exibido aqui.</div>;
 }
 
-export function ConfiguracoesPage() {
-  return <div className="rounded-lg border border-border/50 p-6">Configurações administrativas da plataforma.</div>;
-}
