@@ -1,4 +1,4 @@
-import { classifySession, type SessionMode } from '../../agent/session-classifier';
+import { classifySession } from '../../agent/session-classifier';
 
 const activeCustomer = { status: 'active', plan: { downloadMbps: 30 } };
 const suspendedCustomer = { status: 'suspended', plan: { downloadMbps: 50 } };

@@ -4,10 +4,12 @@ const BILLING_RE =
   /\b(pagar?|pagamento|fatura|boleto|pix|vencimento|vencida?|corte?|cortou|cortad[oa]|suspens[oa]|suspendid[oa]|d[eé]bito|inadimplente)\b/i;
 
 const SUPPORT_RE =
-  /\b(lenta?|lentidão|lento|caiu|qu(e|a)da|sem\s+internet|sem\s+sinal|conectar?|n[aã]o\s+(abre|funciona)|roteador|instabilidade|t[eé]cnico|problema|falha|oscila[çc][aã]o|travando|trava|ping)\b/i;
+  /\b(lenta?|lentidão|lento|caiu|quedas?|sem\s+internet|sem\s+sinal|conectar?|n[aã]o\s+(abre|funciona)|roteador|instabilidade|t[eé]cnico|problema|falha|oscila[çc][aã]o|travando|trava|ping)\b/i;
 
 const SPEED_COMPLAINT_RE =
   /\b(videochamada|streaming|netflix|youtube|zoom|bufferizando)\b/i;
+
+const COMMERCIAL_PLAN_THRESHOLD_MBPS = 30;
 
 interface CustomerLike {
   status?: string;
@@ -23,7 +25,7 @@ export function classifySession(
 
   const isSuspended = customer.status === 'suspended';
   const isOverdue = invoiceStatus === 'overdue';
-  const isLowPlan = (customer.plan?.downloadMbps ?? 999) <= 30;
+  const isLowPlan = (customer.plan?.downloadMbps ?? 999) <= COMMERCIAL_PLAN_THRESHOLD_MBPS;
 
   if (isSuspended || isOverdue || BILLING_RE.test(message)) return 'billing';
 
