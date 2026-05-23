@@ -6,6 +6,7 @@ jest.mock('../../integrations/sgp', () => ({
   openTicket:          jest.fn(),
   scheduleVisit:       jest.fn(),
   getConnectionStatus: jest.fn(),
+  getCustomerById:     jest.fn(),
 }));
 
 jest.mock('../../agent/memory', () => ({
@@ -24,8 +25,8 @@ import { setHumanMode } from '../../agent/memory';
 const PHONE = '+5585999990000';
 
 describe('TOOL_DEFINITIONS', () => {
-  it('exports exactly 12 tools', () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(12);
+  it('exports exactly 15 tools', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(15);
   });
 
   it('every tool has name, description, and input_schema', () => {
@@ -103,5 +104,60 @@ describe('executeTool — aplicar_cortesia', () => {
   it('returns queued status without calling SGP', async () => {
     const result = await executeTool('aplicar_cortesia', { customer_id: 'c1', reason: 'Instabilidade' }, PHONE);
     expect(result).toMatchObject({ status: 'queued' });
+  });
+});
+
+describe('executeTool — detectar_apagao_bairro', () => {
+  it('returns outage true when 2+ reports in last 2h', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      gte: jest.fn().mockResolvedValue({ data: [{ id: '1' }, { id: '2' }], error: null }),
+    });
+
+    const result = await executeTool('detectar_apagao_bairro', { bairro: 'Jardim Iracema' }, PHONE);
+    expect(result).toMatchObject({ outage: true, count: 2 });
+  });
+
+  it('returns outage false when fewer than 2 reports', async () => {
+    mockFrom.mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      gte: jest.fn().mockResolvedValue({ data: [{ id: '1' }], error: null }),
+    });
+
+    const result = await executeTool('detectar_apagao_bairro', { bairro: 'Quintino Cunha' }, PHONE);
+    expect(result).toMatchObject({ outage: false, count: 1 });
+  });
+});
+
+describe('executeTool — confirmar_pagamento', () => {
+  it('returns paid true when invoice status is paid', async () => {
+    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'paid', amount: 90 });
+
+    const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
+    expect(result).toEqual({ paid: true, status: 'paid' });
+  });
+
+  it('returns paid false when invoice status is open', async () => {
+    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open', amount: 90 });
+
+    const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
+    expect(result).toEqual({ paid: false, status: 'open' });
+  });
+});
+
+describe('executeTool — registrar_negociacao', () => {
+  it('inserts negotiation record and returns confirmation', async () => {
+    mockFrom.mockReturnValue({
+      insert: jest.fn().mockResolvedValue({ error: null }),
+    });
+
+    const result = await executeTool(
+      'registrar_negociacao',
+      { customer_id: 'c1', condicoes: 'entrada 50% hoje, restante em 15 dias' },
+      PHONE
+    );
+    expect(result).toMatchObject({ status: 'registered' });
   });
 });

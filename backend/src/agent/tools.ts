@@ -151,6 +151,40 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['customer_id', 'reason'],
     },
   },
+  {
+    name: 'detectar_apagao_bairro',
+    description: 'Verifica se há múltiplos clientes reportando problema técnico no mesmo bairro nas últimas 2 horas. Use quando o sinal do cliente estiver ruim no sistema.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        bairro: { type: 'string', description: 'Nome do bairro do cliente' },
+      },
+      required: ['bairro'],
+    },
+  },
+  {
+    name: 'registrar_negociacao',
+    description: 'Registra um acordo de parcelamento ou negociação de fatura no sistema.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        condicoes:   { type: 'string', description: 'Descrição das condições acordadas (ex: entrada 50% hoje, restante em 15 dias)' },
+      },
+      required: ['customer_id', 'condicoes'],
+    },
+  },
+  {
+    name: 'confirmar_pagamento',
+    description: 'Verifica se o pagamento de uma fatura foi confirmado no sistema.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        invoice_id: { type: 'string', description: 'ID da fatura no SGP' },
+      },
+      required: ['invoice_id'],
+    },
+  },
 ];
 
 export async function executeTool(
@@ -176,19 +210,49 @@ export async function executeTool(
     case 'listar_chamados':
       return sgp.getCustomerTickets(input.customer_id as string);
 
-    case 'abrir_chamado':
-      return sgp.openTicket(
+    case 'abrir_chamado': {
+      const ticket = await sgp.openTicket(
         input.customer_id as string,
         input.type as string,
         input.description as string,
       );
+      if (input.type === 'tecnico') {
+        try {
+          const customer = await sgp.getCustomerById(input.customer_id as string);
+          const neighborhood = customer.address?.neighborhood ?? '';
+          if (neighborhood) {
+            await supabase.from('outage_reports').insert({
+              neighborhood,
+              customer_id: input.customer_id as string,
+            });
+          }
+        } catch {
+          // best-effort — não bloqueia o chamado
+        }
+      }
+      return ticket;
+    }
 
-    case 'agendar_visita':
-      return sgp.scheduleVisit(
+    case 'agendar_visita': {
+      const visit = await sgp.scheduleVisit(
         input.customer_id as string,
         input.date as string,
         input.period as 'morning' | 'afternoon',
       );
+      try {
+        const customer = await sgp.getCustomerById(input.customer_id as string);
+        await supabase.from('scheduled_visits').insert({
+          customer_id: input.customer_id as string,
+          phone: customer.phone,
+          visit_date: input.date as string,
+          period: input.period as string,
+          status: 'scheduled',
+        });
+      } catch {
+        // best-effort
+      }
+      return visit;
+    }
 
     case 'status_conexao':
       return sgp.getConnectionStatus(input.customer_id as string);
@@ -229,6 +293,37 @@ export async function executeTool(
         .from('conversation_threads')
         .upsert({ phone, churn_risk: true }, { onConflict: 'phone' });
       return { status: 'marked', customer_id: input.customer_id, reason: input.reason };
+    }
+
+    case 'detectar_apagao_bairro': {
+      const bairro = input.bairro as string;
+      const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const { data } = await supabase
+        .from('outage_reports')
+        .select('id')
+        .eq('neighborhood', bairro)
+        .gte('reported_at', cutoff);
+      const count = (data ?? []).length;
+      return { outage: count >= 2, count, bairro };
+    }
+
+    case 'registrar_negociacao': {
+      await supabase.from('billing_notifications').insert({
+        customer_id: input.customer_id as string,
+        phone,
+        type: 'negociacao',
+        status: 'registered',
+        notes: input.condicoes as string,
+      });
+      return {
+        status: 'registered',
+        message: `Negociação registrada: ${String(input.condicoes)}. Um atendente confirmará em breve.`,
+      };
+    }
+
+    case 'confirmar_pagamento': {
+      const invoice = await sgp.getCurrentInvoice(input.invoice_id as string);
+      return { paid: invoice.status === 'paid', status: invoice.status };
     }
 
     default:
