@@ -35,8 +35,15 @@ jest.mock('../../agent/tools', () => ({
   executeTool: jest.fn(),
 }));
 
+jest.mock('../../agent/session-classifier', () => ({
+  classifySession: jest.fn().mockReturnValue('default'),
+}));
+
 jest.mock('../../agent/prompt', () => ({
   SYSTEM_PROMPT: 'test-prompt',
+  getBillingModeContext:    jest.fn().mockReturnValue(''),
+  getSupportModeContext:    jest.fn().mockReturnValue(''),
+  getCommercialModeContext: jest.fn().mockReturnValue(''),
 }));
 
 jest.mock('../../config/anthropic', () => ({
@@ -130,10 +137,12 @@ describe('processMessage — tool use loop', () => {
     (getThread as jest.Mock).mockResolvedValue(THREAD);
     (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
-    // buscar_cliente returns customer; get_fatura_atual returns invoice
+    // buscar_cliente returns customer; proactive get_fatura_atual returns invoice;
+    // LLM-triggered get_fatura_atual also returns invoice
     (executeTool as jest.Mock)
-      .mockResolvedValueOnce(CUSTOMER)
-      .mockResolvedValueOnce({ id: 'inv-1', amount: 90, status: 'open' });
+      .mockResolvedValueOnce(CUSTOMER)                                    // buscar_cliente
+      .mockResolvedValueOnce({ id: 'inv-1', amount: 90, status: 'open' }) // proactive get_fatura_atual
+      .mockResolvedValueOnce({ id: 'inv-1', amount: 90, status: 'open' }); // LLM-triggered get_fatura_atual
 
     const toolUseResponse = {
       stop_reason: 'tool_use',

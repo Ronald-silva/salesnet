@@ -3,11 +3,12 @@ import axios from 'axios';
 import { anthropic } from '../config/anthropic';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
-import { SYSTEM_PROMPT } from './prompt';
+import { SYSTEM_PROMPT, getBillingModeContext, getSupportModeContext, getCommercialModeContext } from './prompt';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
+import { classifySession } from './session-classifier';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -247,11 +248,39 @@ export async function processMessage(phone: string, message: string): Promise<vo
 
     // Call buscar_cliente directly to get customer context before involving Claude
     const customerData = await executeTool('buscar_cliente', { phone }, phone);
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nDados: ${JSON.stringify(customerData)}`;
+
+    let invoiceStatus: string | undefined;
+    try {
+      const customerId = (customerData as { id?: string }).id;
+      if (customerId) {
+        const invoice = await executeTool('get_fatura_atual', { customer_id: customerId }, phone);
+        invoiceStatus = (invoice as { status?: string }).status;
+      }
+    } catch {
+      // invoice lookup is best-effort
+    }
+
+    const sessionMode = classifySession(
+      message,
+      customerData as { status?: string; plan?: { downloadMbps?: number } },
+      invoiceStatus,
+    );
+
+    const modeContext =
+      sessionMode === 'billing'    ? getBillingModeContext() :
+      sessionMode === 'support'    ? getSupportModeContext() :
+      sessionMode === 'commercial' ? getCommercialModeContext() :
+      '';
+
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(customerData)}${modeContext}`;
 
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },
     ];
+
+    if (invoiceStatus) {
+      initialToolLog.push({ name: 'get_fatura_atual', input: { customer_id: (customerData as { id?: string }).id }, output: { status: invoiceStatus } });
+    }
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
