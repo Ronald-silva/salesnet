@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { runBillingJobD3, runBillingJobD0, runBillingJobOverdueD3, runBillingJobSuspendD5 } from './billing-reminders';
 import { startCampaigns, expansionRouter as campaignExpansionRouter } from './campaigns';
+import { runBillingCadenceD5, runBillingCadenceD2 } from './billing-cadence';
 
 export function startAutomations(): void {
   // D-3: every day at 08:00
@@ -21,6 +22,16 @@ export function startAutomations(): void {
   // D+5 suspend: every day at 08:15
   cron.schedule('15 8 * * *', () => {
     runBillingJobSuspendD5().catch((err) => console.error('[cron:suspended_d5]', err));
+  });
+
+  // D-5 habitual late payers: 07:45
+  cron.schedule('45 7 * * *', () => {
+    runBillingCadenceD5().catch((err) => console.error('[cron:cadence_d5]', err));
+  });
+
+  // D-2 habitual late payers: 07:50
+  cron.schedule('50 7 * * *', () => {
+    runBillingCadenceD2().catch((err) => console.error('[cron:cadence_d2]', err));
   });
 
   startCampaigns();
