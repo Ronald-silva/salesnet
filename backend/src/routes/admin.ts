@@ -42,11 +42,37 @@ adminRouter.post('/login', async (req, res) => {
 
   res.status(200).json({
     accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
     user: {
       id: data.user.id,
       email: data.user.email,
       role,
     },
+  });
+});
+
+adminRouter.post('/refresh', async (req, res) => {
+  const { refreshToken } = req.body as { refreshToken?: string };
+  if (!refreshToken) {
+    res.status(400).json({ error: 'refreshToken is required' });
+    return;
+  }
+
+  const { data, error } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+  if (error || !data.session || !data.user) {
+    res.status(401).json({ error: 'invalid or expired refresh token' });
+    return;
+  }
+
+  const role = resolveRole(data.user);
+  if (role !== 'admin') {
+    res.status(403).json({ error: 'admin role required' });
+    return;
+  }
+
+  res.status(200).json({
+    accessToken: data.session.access_token,
+    refreshToken: data.session.refresh_token,
   });
 });
 

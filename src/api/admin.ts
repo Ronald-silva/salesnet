@@ -1,19 +1,54 @@
-import { getAdminToken } from '@/lib/adminAuth';
+import { getAdminToken, getAdminRefreshToken, setAdminToken, clearAdminSession } from '@/lib/adminAuth';
 
 const BASE = `${import.meta.env.VITE_API_URL ?? ''}/api/admin`;
 
-function headers(): HeadersInit {
-  const token = getAdminToken();
-  return token
-    ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+function headers(token?: string | null): HeadersInit {
+  const t = token ?? getAdminToken();
+  return t
+    ? { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json' }
     : { 'Content-Type': 'application/json' };
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function tryRefresh(): Promise<string | null> {
+  const refreshToken = getAdminRefreshToken();
+  if (!refreshToken) return null;
+  try {
+    const res = await fetch(`${BASE}/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { accessToken: string; refreshToken: string };
+    setAdminToken(data.accessToken);
+    // update refresh token too
+    localStorage.setItem('salesnet_admin_refresh', data.refreshToken);
+    return data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
+async function request<T>(path: string, init?: RequestInit, _retry = true): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     ...init,
     headers: { ...headers(), ...(init?.headers ?? {}) },
   });
+
+  if (response.status === 401 && _retry) {
+    const newToken = await tryRefresh();
+    if (newToken) {
+      const retried = await fetch(`${BASE}${path}`, {
+        ...init,
+        headers: { ...headers(newToken), ...(init?.headers ?? {}) },
+      });
+      if (retried.ok) return retried.json() as Promise<T>;
+    }
+    // refresh failed — clear session so AdminGuard redirects to login
+    clearAdminSession();
+    window.location.href = '/admin/login';
+    throw new Error('Session expired');
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -77,7 +112,7 @@ export interface ChurnRiskItem {
 
 export const adminApi = {
   login: (email: string, password: string) =>
-    request<{ accessToken: string; user: { id: string; email: string; role: 'admin' } }>('/login', {
+    request<{ accessToken: string; refreshToken: string; user: { id: string; email: string; role: 'admin' } }>('/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
