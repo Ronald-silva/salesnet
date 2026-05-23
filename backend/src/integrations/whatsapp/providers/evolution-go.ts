@@ -203,7 +203,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const { data } = await this.instanceHttp(instanceName)
       .get<EvoGoResponse<EvoGoStatus>>('/instance/status');
 
-    const connected = data.data.Connected ?? false;
+    const connected = (data.data.Connected && data.data.LoggedIn) ?? false;
     const jid = data.data.Name ?? '';
     return {
       connected,
