@@ -1,61 +1,93 @@
-import { z } from 'zod';
-import { sgpClient } from './client';
+import { sgpClient, systemParams } from './client';
 import {
+  ContratoSchema,
   CustomerSchema,
-  CustomerPlanSchema,
+  normalizeStatus,
+  extractDownloadMbps,
+  stripPhone,
   type Customer,
-  type CustomerPlan,
+  type Contrato,
 } from './types';
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
+/** Convert E.164 / any format → bare digits (DDD+number, no country code). */
+function toSgpPhone(phone: string): string {
+  const digits = stripPhone(phone);
+  // Strip leading 55 (Brazil country code) if present and result would be 10-11 digits
   if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
-    return `+${digits}`;
+    return digits.slice(2);
   }
-  if (digits.length === 10 || digits.length === 11) {
-    return `+55${digits}`;
-  }
-  return phone;
+  return digits;
+}
+
+/** Map a raw SGP Contrato to our normalized Customer shape. */
+function contratoToCustomer(c: Contrato, rawPhone: string): Customer {
+  const status = normalizeStatus(c.contratoStatus);
+  const mbps = extractDownloadMbps(c.planointernet ?? '');
+
+  return CustomerSchema.parse({
+    id:       String(c.contratoId),
+    name:     c.razaoSocial,
+    phone:    rawPhone,
+    document: c.cpfCnpj,
+    status,
+    plan: {
+      name:        c.planointernet ?? '',
+      downloadMbps: mbps,
+    },
+    address: {
+      street:       c.endereco_logradouro,
+      number:       c.endereco_numero !== undefined ? String(c.endereco_numero) : undefined,
+      neighborhood: c.endereco_bairro,
+      city:         c.endereco_cidade,
+      state:        c.endereco_uf,
+      zipCode:      c.endereco_cep,
+    },
+    contratoValorAberto:     c.contratoValorAberto,
+    contratoTitulosAReceber: c.contratoTitulosAReceber,
+    cobVencimento:           c.cobVencimento,
+    contratoCentralLogin:    c.contratoCentralLogin,
+    contratoCentralSenha:    c.contratoCentralSenha,
+  });
+}
+
+async function consultacliente(params: Record<string, string>): Promise<Contrato[]> {
+  const body = systemParams(params as Record<string, string>);
+  const { data } = await sgpClient.post('/api/ura/consultacliente/', body.toString());
+  const contratos = (data?.contratos ?? []) as unknown[];
+  return contratos.map((c) => ContratoSchema.parse(c));
 }
 
 export async function getCustomerByPhone(phone: string): Promise<Customer> {
-  const normalized = normalizePhone(phone);
-  const { data } = await sgpClient.get('/api/v1/clientes', {
-    params: { telefone: normalized },
-  });
-  return CustomerSchema.parse(data);
+  const sgpPhone = toSgpPhone(phone);
+  const contratos = await consultacliente({ telefone: sgpPhone });
+  if (!contratos.length) throw new Error(`Cliente não encontrado para o telefone ${phone}`);
+  // Prefer active contracts; fall back to first
+  const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
+  return contratoToCustomer(active!, phone);
 }
 
 export async function getCustomerById(id: string): Promise<Customer> {
-  const { data } = await sgpClient.get(`/api/v1/clientes/${id}`);
-  return CustomerSchema.parse(data);
+  // id = contratoId — look up via CPF/CNPJ is not possible without it,
+  // so we search by contrato param (supported by consultacliente)
+  const body = systemParams({ contrato: id });
+  const { data } = await sgpClient.post('/api/ura/consultacliente/', body.toString());
+  const contratos = (data?.contratos ?? []) as unknown[];
+  const parsed = contratos.map((c) => ContratoSchema.parse(c));
+  if (!parsed.length) throw new Error(`Contrato ${id} não encontrado`);
+  return contratoToCustomer(parsed[0]!, '');
 }
 
-export async function getCustomerPlan(customerId: string): Promise<CustomerPlan> {
-  const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/plano`);
-  return CustomerPlanSchema.parse(data);
+/** Not supported by SGP bulk API — returns empty array. */
+export async function getCustomersByPlan(_downloadMbps: number): Promise<Customer[]> {
+  return [];
 }
 
-export async function getCustomersByPlan(downloadMbps: number): Promise<Customer[]> {
-  const { data } = await sgpClient.get('/api/v1/clientes', {
-    params: { plano_mbps: downloadMbps, status: 'active' },
-  });
-  return z.array(CustomerSchema).parse(data);
+/** Not supported by SGP bulk API — returns empty array. */
+export async function getCustomersByActivationDays(_days: number): Promise<Customer[]> {
+  return [];
 }
 
-export async function getCustomersByActivationDays(days: number): Promise<Customer[]> {
-  const targetDate = new Date();
-  targetDate.setDate(targetDate.getDate() - days);
-  const dateStr = targetDate.toISOString().split('T')[0];
-  const { data } = await sgpClient.get('/api/v1/clientes', {
-    params: { ativado_em: dateStr, status: 'active' },
-  });
-  return z.array(CustomerSchema).parse(data);
-}
-
+/** Not supported by SGP bulk API — returns empty array. */
 export async function getAllActiveCustomers(): Promise<Customer[]> {
-  const { data } = await sgpClient.get('/api/v1/clientes', {
-    params: { status: 'active' },
-  });
-  return z.array(CustomerSchema).parse(data);
+  return [];
 }

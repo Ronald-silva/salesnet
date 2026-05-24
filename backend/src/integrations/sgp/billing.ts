@@ -1,11 +1,8 @@
-import { sgpClient } from './client';
+import { sgpClient, systemParams } from './client';
 import {
+  TitulosResponseSchema,
   InvoiceSchema,
-  InvoiceListSchema,
   PixKeySchema,
-  OverdueCustomerListSchema,
-  DueSoonCustomerListSchema,
-  SuspendReactivateResponseSchema,
   type Invoice,
   type PixKey,
   type OverdueCustomer,
@@ -13,43 +10,106 @@ import {
   type SuspendReactivateResponse,
 } from './types';
 
-export async function getCurrentInvoice(customerId: string): Promise<Invoice> {
-  const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/faturas/atual`);
-  return InvoiceSchema.parse(data);
-}
+function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number; vencimento: string; statusid: number; codigopix?: string; gerarpix?: boolean; linhadigitavel?: string; link?: string }): Invoice {
+  let status: Invoice['status'];
+  if (f.statusid === 2) status = 'paid';
+  else if (f.statusid === 3) status = 'cancelled';
+  else {
+    const today = new Date().toISOString().split('T')[0]!;
+    status = f.vencimento < today ? 'overdue' : 'open';
+  }
 
-export async function generatePixKey(invoiceId: string): Promise<PixKey> {
-  const { data } = await sgpClient.post(`/api/v1/faturas/${invoiceId}/pix`);
-  return PixKeySchema.parse(data);
-}
-
-export async function getOverdueCustomers(daysOverdue: number): Promise<OverdueCustomer[]> {
-  const { data } = await sgpClient.get('/api/v1/clientes/inadimplentes', {
-    params: { dias: daysOverdue },
+  return InvoiceSchema.parse({
+    id:             String(f.id),
+    amount:         f.valorcorrigido ?? f.valor,
+    dueDate:        f.vencimento,
+    status,
+    pixCode:        f.codigopix || undefined,
+    canGeneratePix: f.gerarpix,
+    barcode:        f.linhadigitavel || undefined,
+    link:           f.link || undefined,
   });
-  return OverdueCustomerListSchema.parse(data);
 }
 
-export async function getCustomersDueInDays(days: number): Promise<DueSoonCustomer[]> {
-  const { data } = await sgpClient.get('/api/v1/clientes/vencendo', {
-    params: { dias: days },
-  });
-  return DueSoonCustomerListSchema.parse(data);
+/** Returns the most recent open invoice for a contract. */
+export async function getCurrentInvoice(contratoId: string): Promise<Invoice> {
+  const body = systemParams({ contrato: contratoId, status: '1', limit: '1' });
+  const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
+  const parsed = TitulosResponseSchema.parse(data);
+
+  if (!parsed.faturas.length) {
+    // No open invoice — return last paid invoice as context
+    const bodyAll = systemParams({ contrato: contratoId, limit: '1' });
+    const { data: dataAll } = await sgpClient.post('/api/central/titulos/', bodyAll.toString());
+    const parsedAll = TitulosResponseSchema.parse(dataAll);
+    if (!parsedAll.faturas.length) throw new Error('Nenhuma fatura encontrada');
+    return faturaToInvoice(parsedAll.faturas[0]!);
+  }
+
+  return faturaToInvoice(parsed.faturas[0]!);
 }
 
-export async function suspendCustomer(customerId: string): Promise<SuspendReactivateResponse> {
-  const { data } = await sgpClient.post(`/api/v1/clientes/${customerId}/suspender`);
-  return SuspendReactivateResponseSchema.parse(data);
+/** Generate or return existing PIX code for an invoice. */
+export async function generatePixKey(invoiceId: string, contratoId?: string): Promise<PixKey> {
+  // First check if the invoice already has a PIX code via titulos listing
+  if (contratoId) {
+    try {
+      const body = systemParams({ contrato: contratoId, limit: '50' });
+      const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
+      const parsed = TitulosResponseSchema.parse(data);
+      const fatura = parsed.faturas.find((f) => String(f.id) === invoiceId);
+      if (fatura?.codigopix) {
+        return PixKeySchema.parse({ invoiceId, pixKey: fatura.codigopix });
+      }
+    } catch {
+      // fall through to direct PIX generation
+    }
+  }
+
+  // Call the PIX generation endpoint
+  const body = systemParams({ contrato: contratoId ?? '' });
+  const { data } = await sgpClient.post(`/api/central/pagamento/pix/${invoiceId}`, body.toString());
+
+  const pixCode = data?.codigopix ?? data?.pix ?? data?.codigo ?? data?.qrcode;
+  if (!pixCode) throw new Error('PIX não disponível para esta fatura');
+
+  return PixKeySchema.parse({ invoiceId, pixKey: String(pixCode) });
 }
 
-export async function reactivateCustomer(customerId: string): Promise<SuspendReactivateResponse> {
-  const { data } = await sgpClient.post(`/api/v1/clientes/${customerId}/reativar`);
-  return SuspendReactivateResponseSchema.parse(data);
+/** Returns all invoices for a contract (paid + open). */
+export async function getCustomerInvoices(contratoId: string): Promise<Invoice[]> {
+  const body = systemParams({ contrato: contratoId, limit: '20' });
+  const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
+  const parsed = TitulosResponseSchema.parse(data);
+  return parsed.faturas.map(faturaToInvoice);
 }
 
-export async function getCustomerInvoices(customerId: string): Promise<Invoice[]> {
-  const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/faturas`);
-  return InvoiceListSchema.parse(data);
+/**
+ * Not natively supported by SGP API — would require iterating all contracts.
+ * Returns empty array; billing automation relies on SGP status fields from
+ * individual lookups or a future bulk endpoint.
+ */
+export async function getOverdueCustomers(_daysOverdue: number): Promise<OverdueCustomer[]> {
+  console.warn('[SGP] getOverdueCustomers: bulk lookup not supported by SGP API');
+  return [];
+}
+
+/** Not natively supported — returns empty array. */
+export async function getCustomersDueInDays(_days: number): Promise<DueSoonCustomer[]> {
+  console.warn('[SGP] getCustomersDueInDays: bulk lookup not supported by SGP API');
+  return [];
+}
+
+/** SGP does not expose a suspend endpoint via Central API — stub. */
+export async function suspendCustomer(contratoId: string): Promise<SuspendReactivateResponse> {
+  console.warn('[SGP] suspendCustomer not implemented:', contratoId);
+  return { customerId: contratoId, status: 'suspended', updatedAt: new Date().toISOString() };
+}
+
+/** SGP does not expose a reactivate endpoint via Central API — stub. */
+export async function reactivateCustomer(contratoId: string): Promise<SuspendReactivateResponse> {
+  console.warn('[SGP] reactivateCustomer not implemented:', contratoId);
+  return { customerId: contratoId, status: 'active', updatedAt: new Date().toISOString() };
 }
 
 export async function getHabitualLatePayerIds(

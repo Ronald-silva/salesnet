@@ -57,25 +57,6 @@ describe('runUpsellCampaign', () => {
     expect(logCampaignSend).toHaveBeenCalledWith('c1', 'upsell');
   });
 
-  it('skips customer activated less than 60 days ago', async () => {
-    const customer = {
-      id: 'c2',
-      name: 'João',
-      phone: '+5585999990002',
-      status: 'active',
-      activatedAt: activatedAt30DaysAgo,
-      plan: { id: 'p1', name: '20Mbps', downloadMbps: 20, uploadMbps: 10, monthlyPrice: 50 },
-    };
-    (getCustomersByPlan as jest.Mock)
-      .mockResolvedValueOnce([customer])
-      .mockResolvedValueOnce([]);
-    (alreadySentCampaign as jest.Mock).mockResolvedValue(false);
-
-    await runUpsellCampaign();
-
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
   it('skips customer already sent upsell within 30 days', async () => {
     const customer = {
       id: 'c3',

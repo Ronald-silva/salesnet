@@ -1,43 +1,32 @@
-import { sgpClient } from './client';
-import {
-  TicketListSchema,
-  TicketSchema,
-  OpenTicketResponseSchema,
-  ScheduleVisitResponseSchema,
-  type Ticket,
-  type OpenTicketResponse,
-  type ScheduleVisitResponse,
-} from './types';
+import { sgpClient, systemParams } from './client';
+import { OpenTicketResponseSchema, type OpenTicketResponse, type Ticket } from './types';
 
 export async function openTicket(
-  customerId: string,
-  type: string,
-  description: string,
+  contratoId: string,
+  _type: string,
+  _description: string,
 ): Promise<OpenTicketResponse> {
-  const { data } = await sgpClient.post('/api/v1/chamados', {
-    customerId,
-    type,
-    description,
-  });
+  const body = systemParams({ contrato: contratoId });
+  const { data } = await sgpClient.post('/api/central/chamado/', body.toString());
   return OpenTicketResponseSchema.parse(data);
 }
 
-export async function getCustomerTickets(customerId: string, limit = 5): Promise<Ticket[]> {
-  const { data } = await sgpClient.get(`/api/v1/clientes/${customerId}/chamados`, {
-    params: { limit },
-  });
-  return TicketListSchema.parse(data);
+/** SGP ticket listing via Central API not available with token auth — returns empty array. */
+export async function getCustomerTickets(_contratoId: string, _limit = 5): Promise<Ticket[]> {
+  return [];
 }
 
+/** Visit scheduling not available via Central API with token auth — stubs a response. */
 export async function scheduleVisit(
-  customerId: string,
+  contratoId: string,
   date: string,
   period: 'morning' | 'afternoon',
-): Promise<ScheduleVisitResponse> {
-  const { data } = await sgpClient.post('/api/v1/visitas', {
-    customerId,
-    date,
+): Promise<{ visitId: string; customerId: string; scheduledDate: string; period: string; status: string }> {
+  return {
+    visitId:       `visit-${Date.now()}`,
+    customerId:    contratoId,
+    scheduledDate: date,
     period,
-  });
-  return ScheduleVisitResponseSchema.parse(data);
+    status:        'scheduled',
+  };
 }

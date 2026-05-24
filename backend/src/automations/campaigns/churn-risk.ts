@@ -22,18 +22,23 @@ function detectTicketRisk(tickets: Ticket[]): ChurnSignal | null {
   // Rule c: cancellation ticket in last 7 days
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const hasCancellation = tickets.some(
-    t =>
-      t.type.toLowerCase().includes('cancelamento') &&
-      new Date(t.createdAt) >= sevenDaysAgo
+    t => {
+      const ticket = t as { type?: string; createdAt?: string };
+      return typeof ticket.type === 'string' &&
+        ticket.type.toLowerCase().includes('cancelamento') &&
+        ticket.createdAt !== undefined &&
+        new Date(ticket.createdAt) >= sevenDaysAgo;
+    }
   );
   if (hasCancellation) return { reason: 'cancellation_ticket', level: 'high' };
 
   // Rule a: 3+ open/in_progress tickets this calendar month
-  const thisMonthOpen = tickets.filter(
-    t =>
-      (t.status === 'open' || t.status === 'in_progress') &&
-      new Date(t.createdAt) >= monthStart
-  );
+  const thisMonthOpen = tickets.filter(t => {
+    const ticket = t as { status?: string; createdAt?: string };
+    return (ticket.status === 'open' || ticket.status === 'in_progress') &&
+      ticket.createdAt !== undefined &&
+      new Date(ticket.createdAt) >= monthStart;
+  });
   if (thisMonthOpen.length >= 5) return { reason: 'too_many_tickets', level: 'high' };
   if (thisMonthOpen.length >= 3) return { reason: 'too_many_tickets', level: 'medium' };
 

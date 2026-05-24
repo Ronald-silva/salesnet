@@ -40,7 +40,8 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        invoice_id: { type: 'string', description: 'ID da fatura no SGP' },
+        invoice_id:  { type: 'string', description: 'ID da fatura no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP (melhora a geração do PIX)' },
       },
       required: ['invoice_id'],
     },
@@ -205,7 +206,7 @@ export async function executeTool(
       return sgp.getCurrentInvoice(input.customer_id as string);
 
     case 'gerar_pix':
-      return sgp.generatePixKey(input.invoice_id as string);
+      return sgp.generatePixKey(input.invoice_id as string, input.customer_id as string | undefined);
 
     case 'listar_chamados':
       return sgp.getCustomerTickets(input.customer_id as string);

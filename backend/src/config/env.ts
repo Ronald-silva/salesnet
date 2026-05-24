@@ -43,6 +43,7 @@ const envSchema = z.object({
   // ── ERP ───────────────────────────────────────────────────────────────────
   SGP_BASE_URL: z.string().url('SGP_BASE_URL must be a valid URL'),
   SGP_API_TOKEN: z.string().min(1, 'SGP_API_TOKEN is required'),
+  SGP_APP_NAME: z.string().min(1, 'SGP_APP_NAME is required'),
 
   // ── Database ──────────────────────────────────────────────────────────────
   SUPABASE_URL: z.string().url('SUPABASE_URL must be a valid URL'),
