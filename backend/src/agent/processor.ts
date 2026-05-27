@@ -9,8 +9,8 @@ import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
-import { sanitizeUserInput } from './sanitize';
-import { quickReply } from './quick-reply';
+import { formatOutgoingWhatsApp, sanitizeUserInput } from './sanitize';
+import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
 import { randomUUID } from 'crypto';
@@ -532,7 +532,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
     try {
       await saveMessage(phone, 'user', clean);
       await saveMessage(phone, 'assistant', faqResponse);
-      await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, faqResponse);
+      await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, formatOutgoingWhatsApp(faqResponse));
       await supabase.from('interaction_logs').insert({ phone, tool_calls: [], response: faqResponse });
     } catch (err) {
       console.error(`[processor] quick-reply send error for ${phone}:`, err);
@@ -597,7 +597,11 @@ export async function processMessage(phone: string, message: string, rawMessageI
 
     // Pre-call verificar_cobertura so the LLM never needs to guess neighborhoods
     let coverageContext = '';
-    if (/bairro|cobertura|atend|região|disponível|minha.?área/i.test(clean)) {
+    if (
+      !messageAsksForPlans(clean) &&
+      /bairro|cobertura|atend|regi[aã]o|dispon[ií]vel|minha.?[aá]rea/i.test(clean) &&
+      !/\bplanos?\b/i.test(clean)
+    ) {
       try {
         const coverageData = await executeTool('verificar_cobertura', { neighborhood: '*' }, phone);
         initialToolLog.push({ name: 'verificar_cobertura', input: { neighborhood: '*' }, output: coverageData });
@@ -649,7 +653,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
       llmUsage = mergeUsage(llmUsage, result.usage);
     }
 
-    const finalText = result.finalText;
+    const finalText = formatOutgoingWhatsApp(result.finalText);
 
     await saveMessage(phone, 'assistant', finalText);
     await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, finalText);

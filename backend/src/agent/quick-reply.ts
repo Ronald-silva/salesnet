@@ -10,7 +10,6 @@
  */
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
-import { executeTool } from './tools';
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
@@ -23,24 +22,41 @@ type Intent =
   | 'faq_support'
   | null;
 
+export function messageAsksForPlans(message: string): boolean {
+  const m = message.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return (
+    /planos?|precos?|valor|quanto custa|velocidade|mbps|pacote|contratar|assinar|internet/.test(m) &&
+    !/fatura|boleto|segunda via|vencimento|pagar minha|meu plano atual|meu contrato/.test(m)
+  );
+}
+
 function detect(message: string): { intent: Intent; neighborhood?: string } {
   const m = message.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-  // Coverage check for a specific neighborhood
-  const coverageCheckMatch = m.match(
-    /(?:voces?|salesnet|tem|atend[e]?|cobre|cobertura|fibra).{0,30}(?:no|em|bairro)?\s+([a-záàâãéèêíïóôõöúç\s]+?)(?:\?|$|,| tem| atend)/i,
-  );
-  if (coverageCheckMatch?.[1]?.trim().length) {
-    return { intent: 'coverage_check', neighborhood: coverageCheckMatch[1].trim() };
+  // Planos antes de cobertura — "planos disponiveis" contém "disponiv" e não é pergunta de bairro
+  if (messageAsksForPlans(message)) {
+    return { intent: 'plans_list' };
   }
 
-  if (/bairro|cobertura|atend|regiao|disponiv|minha.?area/i.test(m)) {
+  if (/quais?\s+bairros?|lista.{0,15}bairros?|bairros?\s+atendid/i.test(m)) {
     return { intent: 'coverage_list' };
   }
 
-  if (/plano|preco|valor|quanto custa|velocidade|mbps|pacote|contratar|assinar|internet/.test(m) &&
-      !/fatura|boleto|segunda via|vencimento|pagar minha|meu plano atual|meu contrato/.test(m)) {
-    return { intent: 'plans_list' };
+  // Coverage check for a specific neighborhood (not "quais bairros atendem")
+  const coverageCheckMatch = m.match(
+    /(?:voces?|salesnet|tem|cobre|cobertura|fibra).{0,30}(?:no|em|bairro)\s+([a-záàâãéèêíïóôõöúç\s]{3,}?)(?:\?|$|,)/i,
+  );
+  const neighborhood = coverageCheckMatch?.[1]?.trim();
+  if (neighborhood && !/^(atend|atende|atendem|atendemos)$/i.test(neighborhood)) {
+    return { intent: 'coverage_check', neighborhood };
+  }
+
+  if (
+    /bairro|cobertura|regiao|minha.?area/i.test(m) ||
+    /disponiv.{0,25}(bairro|area|regiao|cidade)|(?:bairro|area|regiao).{0,25}disponiv/i.test(m) ||
+    /atend(e|em|emos|imento)/i.test(m)
+  ) {
+    return { intent: 'coverage_list' };
   }
 
   if (/instala|prazo|tempo de instala|demora/.test(m)) {
@@ -113,20 +129,22 @@ function formatCoverageCheck(neighborhood: string): string {
  */
 export async function quickReply(message: string, phone: string): Promise<string | null> {
   const { intent, neighborhood } = detect(message);
+  console.log(
+    `[quick-reply] phone=${phone} intent=${intent ?? 'null'} neighborhood=${neighborhood ?? '-'}`,
+  );
 
   if (intent === 'plans_list') {
-    const customer = await executeTool('buscar_cliente', { phone }, phone) as { error?: string };
-    if (!customer.error) {
-      return null;
-    }
+    console.log('[quick-reply] plans_list → formatPlans() (não usa verificar_cobertura)');
     return formatPlans();
   }
 
   switch (intent) {
     case 'coverage_list':
+      console.log('[quick-reply] coverage_list → formatCoverageList()');
       return formatCoverageList();
 
     case 'coverage_check':
+      console.log(`[quick-reply] coverage_check → formatCoverageCheck(${neighborhood ?? 'list'})`);
       return neighborhood ? formatCoverageCheck(neighborhood) : formatCoverageList();
 
     case 'faq_installation':

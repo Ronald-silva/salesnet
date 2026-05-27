@@ -43,3 +43,11 @@ export function sanitizeUserInput(input: string): string {
 
   return result.trim();
 }
+
+/** Remove markdown com asteriscos — WhatsApp Web não renderiza negrito assim. */
+export function formatOutgoingWhatsApp(text: string): string {
+  return text
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*\n]+)\*/g, '$1')
+    .trim();
+}
