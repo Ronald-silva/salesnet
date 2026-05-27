@@ -301,9 +301,16 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const instanceName = body.instanceName ?? '';
     const data = body.data ?? {};
 
-    // Message events: metadata in data.Info, body in data.Message
+    // Evolution Go nests message metadata under data.Info in some versions;
+    // other versions (or media events) put fields directly on data.
     const info = data.Info ?? {};
-    const timestamp = info.Timestamp ? new Date(info.Timestamp) : new Date();
+    const chatJid    = info.Chat     ?? (data as unknown as { Chat?: string }).Chat     ?? '';
+    const senderJid  = info.Sender   ?? (data as unknown as { Sender?: string }).Sender ?? '';
+    const pushName   = info.PushName ?? (data as unknown as { PushName?: string }).PushName;
+    const msgId      = info.ID       ?? (data as unknown as { ID?: string }).ID;
+    const isFromMe   = info.IsFromMe ?? (data as unknown as { IsFromMe?: boolean }).IsFromMe ?? false;
+    const rawTs      = info.Timestamp ?? (data as unknown as { Timestamp?: string }).Timestamp;
+    const timestamp  = rawTs ? new Date(rawTs) : new Date();
 
     if (eventType === 'qrcode_update') {
       return {
@@ -324,17 +331,17 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       };
     }
 
-    if (eventType === 'message_received' && !info.IsFromMe) {
-      const jid = info.Chat ?? info.Sender ?? '';
+    if (eventType === 'message_received' && !isFromMe) {
+      const jid = chatJid || senderJid;
       return {
         type: 'message_received',
         instanceName,
         data: {
           from: jid,
           fromPhone: jid ? jidToPhone(jid) : undefined,
-          profileName: info.PushName,
+          profileName: pushName,
           body: extractMessageText(data.Message as Record<string, unknown> | string | undefined),
-          messageId: info.ID,
+          messageId: msgId,
           raw: rawBody,
         },
         timestamp,
