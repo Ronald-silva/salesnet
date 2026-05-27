@@ -129,46 +129,80 @@ O Evolution Go **perde a configuração de webhook** quando reinicia. O `bootstr
 
 ## Agente Sofia — Arquitetura do processamento
 
-### Fluxo por mensagem
+### Fluxo por mensagem (ordem exata de execução)
 
 ```
-1. processMessage(phone, body) — processor.ts
-2. sanitizeUserInput() — trunca em 2000 chars, remove padrões de prompt injection (PT+EN)
-3. Chama buscar_cliente(phone) para ter contexto
-4. Chama get_fatura_atual se o cliente existir (best-effort)
-5. classifySession() → modo: billing | support | commercial | prospect | default
-6. Monta system prompt com contexto do cliente + modo ativo
-7. Escolhe LLM via resolveTieredRouting() baseado na complexidade da mensagem
-8. Loop de tool-calling (até 10 rodadas)
-9. Envia resposta + salva no histórico + loga no Supabase
+1.  isHumanMode(phone)          → descarta silenciosamente se atendente humano ativo
+2.  sanitizeUserInput(message)  → trunca 2000 chars, remove 15 padrões de injection PT+EN
+3.  quickReply(clean)           → responde FAQ puro SEM LLM (planos, cobertura, instalação...)
+                                   se retornar string: salva histórico + loga + envia + encerra
+4.  saveMessage(phone, 'user')  → persiste input limpo no Supabase
+5.  getThread(phone)            → carrega histórico da conversa
+6.  executeTool('buscar_cliente', { phone })   → pré-executado fora do loop LLM
+7.  executeTool('get_fatura_atual', { id })    → pré-executado se cliente existe (best-effort)
+8.  [condicional] executeTool('verificar_cobertura', { neighborhood: '*' })
+                                → pré-executado se mensagem contém keyword de bairro/cobertura
+9.  classifySession()           → modo: billing | support | commercial | prospect | default
+10. classifyMessageComplexity() → tier: simple | intermediate | complex
+11. monta systemWithContext     → SYSTEM_PROMPT + tempo Fortaleza + dados cliente + modo ativo
+12. resolveTieredRouting()      → provider + limites de tokens e tool rounds
+13. runLLMFlow()                → loop tool-calling até 10 rodadas (ou cap do tier)
+14. saveMessage('assistant') + sendText() + interaction_logs insert
 ```
 
-A sanitização acontece **antes** de `saveMessage` — a versão limpa é o que fica no histórico e chega ao LLM. A função está em `backend/src/agent/sanitize.ts` e é exportada por `processor.ts`.
+A sanitização acontece **antes** de `saveMessage` — a versão limpa é o que fica no histórico e chega ao LLM. A função está em `backend/src/agent/sanitize.ts`.
+
+### Camada quick-reply — `quick-reply.ts`
+
+Intercepta perguntas puramente informacionais **antes de qualquer chamada ao LLM**. Lê dados de `company-data.ts`. Intents detectados por regex: `plans_list`, `coverage_list`, `coverage_check`, `faq_installation`, `faq_payment`, `faq_support`.
+
+**Limitação crítica:** o quick-reply responde sem contexto do cliente cadastrado. Cliente ativo que pergunta sobre planos recebe resposta de prospect. Para resolver isso: verificar se o cliente está cadastrado antes de acionar quick-reply (passa a ser tarefa de evolução).
 
 ### Modo prospect
 
-Quando `buscar_cliente` retorna `{ error: 'Cliente não encontrado' }`, o `session-classifier` retorna `'prospect'`. Sofia então segue o fluxo de vendas: pergunta nome e bairro → `verificar_cobertura` → apresenta planos → `registrar_interesse` → confirma que a equipe entrará em contato em 24h.
+Quando `buscar_cliente` retorna `{ error: 'Cliente não encontrado' }`, o `session-classifier` retorna `'prospect'`. Sofia segue o fluxo de vendas: pergunta nome e bairro → `verificar_cobertura` → `get_planos_disponiveis` → `registrar_interesse` → confirma que a equipe entrará em contato em 24h.
 
 ### Roteamento de LLM
 
 ```typescript
-// complexity-router.ts
-'simple'       → DeepSeek (saudações, FAQ de planos/cobertura, segunda via)
-'intermediate' → DeepSeek (suporte técnico, fatura com PIX)
-'complex'      → Anthropic Claude (Procon, ação judicial, ameaças)
+// complexity-router.ts — heurística regex, sem LLM extra
+'simple'       → DeepSeek (saudações, FAQ curto, ≤ 100 chars)  — tokens/rounds reduzidos
+'intermediate' → DeepSeek (suporte técnico, fatura com PIX)    — limites padrão
+'complex'      → Anthropic Claude (Procon, ação judicial, ameaças) — limites padrão
 ```
 
 O `LLM_ROUTING_MODE=tiered` ativa este roteamento. Com `LLM_ROUTING_MODE=single` usa sempre `LLM_PROVIDER`.
+
+### Tool get_planos_disponiveis
+
+- Sem parâmetros obrigatórios
+- Retorna `{ plans: [{ nome, velocidadeDown, velocidadeUp, preco, popular }] }` de `company-data.ts`
+- **Use SEMPRE para perguntas sobre planos dentro do fluxo LLM** — nunca use `verificar_cobertura` para isso
+- Regra explícita no system prompt (seção "Regras críticas") e na descrição da tool
 
 ### Tool verificar_cobertura
 
 - Passe `neighborhood="*"` para **listar todos os bairros cobertos** (quando o cliente perguntar quais bairros a SalesNet atende)
 - Sofia **nunca deve listar bairros de memória** — sempre use esta tool para evitar alucinação
 - Os bairros reais são: Jardim Guanabara, Jardim Iracema, Quintino Cunha, Vila Velha, Nova Assunção
+- **NÃO use esta tool para responder sobre planos ou preços** — use `get_planos_disponiveis`
 
 ### Modo humano
 
 Quando `transferir_humano` é chamada, `setHumanMode(phone, true)` é gravado no Supabase. A próxima mensagem desse telefone cai na guard `isHumanMode(phone)` em `processor.ts` e retorna imediatamente sem processar. Para reativar o bot, o admin precisa resetar o flag no Supabase.
+
+### Stubs intencionais — limitações da API SGP
+
+```typescript
+listar_chamados()     // retorna [] — endpoint não disponível com token auth
+agendar_visita()      // SGP retorna stub; agendamento real persiste no Supabase
+solicitar_upgrade()   // fila manual — sem endpoint SGP
+aplicar_cortesia()    // fila manual — sem endpoint SGP
+suspendCustomer()     // stub — endpoint não exposto no SGP TSMX
+reactivateCustomer()  // stub — endpoint não exposto no SGP TSMX
+```
+
+Não tente "corrigir" essas funções chamando outros endpoints do SGP — eles não existem.
 
 ---
 

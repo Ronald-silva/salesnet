@@ -21,49 +21,134 @@ Plataforma completa da **SalesNet Telecom** que une atendimento via WhatsApp (IA
 
 ---
 
-## Agente Sofia
+## Agente Sofia — Estado atual
 
-Sofia é a atendente virtual da SalesNet que opera 24h no WhatsApp. Usa tool-calling para consultar o SGP em tempo real e responder com dados precisos.
+Sofia é a atendente virtual da SalesNet que opera 24h no WhatsApp. Arquitetura em camadas: a mensagem passa por filtros progressivos antes de chegar ao LLM, mantendo custo e latência baixos para perguntas frequentes.
 
-### Cenários cobertos
+### Pipeline de processamento por mensagem
 
-| Modo | Ativação | O que Sofia faz |
-|------|----------|-----------------|
-| **Prospect** | Número não cadastrado no SGP | Pergunta se é novo cliente → verifica cobertura → apresenta planos → registra lead |
-| **Cobrança** | Fatura vencida / suspensão / cliente pergunta sobre fatura | Busca fatura → gera PIX automaticamente → negocia parcelamento se necessário |
-| **Suporte técnico** | "internet caiu", "lento", "sem sinal" | Status de conexão → detecta apagão no bairro → orienta reinício → abre chamado + visita |
-| **Comercial** | Plano ≤ 50 Mbps + reclamação de velocidade | Resolve o problema primeiro → oferece upgrade uma vez de forma natural |
-| **Cancelamento** | "quero cancelar" | Entende o motivo → tenta reter → marca churn risk → transfere para humano se insistir |
-| **Default** | Qualquer outra mensagem | Atende usando o contexto do cliente e ferramentas disponíveis |
+```
+mensagem WhatsApp
+        │
+        ▼
+  isHumanMode?  ──── sim ──▶  descarta silenciosamente
+        │ não
+        ▼
+  sanitizeUserInput()          ← trunca 2000 chars, bloqueia prompt injection (PT+EN)
+        │
+        ▼
+  quickReply()                 ← responde FAQ puro SEM acionar LLM
+  (plans, coverage, FAQ)       ← se responder: salva histórico, loga, envia e encerra
+        │ null (LLM necessário)
+        ▼
+  buscar_cliente(phone)        ← pré-executado antes do LLM (tool call explícita)
+  get_fatura_atual()           ← pré-executado se cliente existe
+        │
+        ▼
+  classifySession()            ← heurística regex: billing | support | commercial | prospect | default
+  classifyMessageComplexity()  ← heurística regex: simple | intermediate | complex
+        │
+        ▼
+  monta systemPrompt           ← SYSTEM_PROMPT + contexto cliente + modo ativo + bairros (se relevante)
+        │
+        ▼
+  resolveTieredRouting()       ← escolhe provider (DeepSeek ou Anthropic) + limites de tokens/rounds
+        │
+        ▼
+  LLM tool-calling loop        ← até 10 rodadas
+  (DeepSeek ou Anthropic)
+        │
+        ▼
+  saveMessage() + sendText() + interaction_logs
+```
 
-### Ferramentas disponíveis
+### Camada quick-reply (sem LLM)
 
-| Tool | Função |
-|------|--------|
-| `buscar_cliente` | Busca dados do contrato pelo telefone no SGP |
-| `get_fatura_atual` | Retorna fatura aberta ou mais recente |
-| `listar_faturas` | Histórico de faturas (pagas + abertas) |
-| `gerar_pix` | Gera código PIX copia-e-cola |
-| `confirmar_pagamento` | Verifica se o pagamento foi confirmado no SGP |
-| `abrir_chamado` | Abre chamado técnico/financeiro/comercial |
-| `agendar_visita` | Agenda visita técnica (manhã ou tarde) |
-| `status_conexao` | Verifica se a conexão está online |
-| `detectar_apagao_bairro` | Detecta múltiplos relatos técnicos no bairro (últimas 2h) |
-| `solicitar_upgrade` | Registra pedido de upgrade de plano |
-| `registrar_negociacao` | Formaliza acordo de parcelamento |
-| `registrar_interesse` | Captura lead de novo cliente (nome, bairro, plano desejado) |
-| `verificar_cobertura` | Verifica se um bairro tem cobertura (ou lista todos com `*`) |
-| `aplicar_cortesia` | Solicita desconto/cortesia na fatura |
-| `marcar_churn_risk` | Sinaliza risco de cancelamento para o time |
-| `transferir_humano` | Pausa o bot e transfere para atendente humano |
+Detecta e responde perguntas de FAQ sem acionar o LLM. Fontes em `company-data.ts`.
+
+| Intent | Trigger | Resposta |
+|--------|---------|---------|
+| `plans_list` | "plano", "preço", "quanto custa", "velocidade", "contratar" | Lista formatada de planos com preços |
+| `coverage_list` | "bairro", "cobertura", "atende", "região" | Lista todos os bairros cobertos |
+| `coverage_check` | "tem fibra em [bairro]" | Verifica bairro específico |
+| `faq_installation` | "instala", "prazo", "demora" | Prazo e condições de instalação |
+| `faq_payment` | "forma de pagamento", "como pag", "pix", "boleto" | Métodos e desconto de pontualidade |
+| `faq_support` | "suporte", "horário", "atendimento" | Horário de atendimento |
+
+Limitação atual: o quick-reply não tem acesso ao contexto do cliente cadastrado — responde de forma genérica mesmo se o cliente já tem um plano ativo e a pergunta pode ser sobre upgrade.
+
+### Modos de sessão (session-classifier)
+
+| Modo | Condição de ativação (heurística) | O que Sofia faz |
+|------|-----------------------------------|----|
+| **prospect** | `buscar_cliente` retorna erro | Pergunta se é novo → verifica cobertura → apresenta planos → `registrar_interesse` |
+| **billing** | Suspensão ativa OU fatura vencida OU keywords de cobrança | `get_fatura_atual` → `gerar_pix` proativo → `registrar_negociacao` se necessário |
+| **support** | Keywords técnicas ("caiu", "lento", "sem sinal") | `status_conexao` → `detectar_apagao_bairro` → `abrir_chamado` → `agendar_visita` |
+| **commercial** | Plano ≤ 50 Mbps + keywords de streaming/velocidade | Resolve problema primeiro → oferece upgrade uma vez |
+| **default** | Qualquer outra mensagem | Tool-calling livre com contexto completo do cliente |
+
+O classificador usa **exclusivamente regex** — não há LLM extra para entender intenção. Isso economiza custo mas pode errar em mensagens ambíguas ou mistas.
+
+### Ferramentas disponíveis (18)
+
+| Tool | Integração | Função |
+|------|-----------|--------|
+| `buscar_cliente` | SGP (real) | Dados do contrato por telefone ou CPF |
+| `get_fatura_atual` | SGP (real) | Fatura aberta ou mais recente |
+| `listar_faturas` | SGP (real) | Histórico de faturas |
+| `gerar_pix` | SGP (real) | Código PIX copia-e-cola |
+| `confirmar_pagamento` | SGP (real) | Status de pagamento |
+| `listar_chamados` | SGP (stub) | Retorna `[]` — endpoint não disponível com token auth |
+| `abrir_chamado` | SGP (real) | Abre chamado + registra em `outage_reports` se técnico |
+| `agendar_visita` | SGP (stub) + Supabase | SGP não retorna ID real; persiste em `scheduled_visits` |
+| `status_conexao` | SGP (real) | Sinal e status da ONU |
+| `get_planos_disponiveis` | Local (`company-data.ts`) | Lista planos com velocidades e preços |
+| `verificar_cobertura` | Local (`company-data.ts`) | Cobertura por bairro ou lista completa |
+| `solicitar_upgrade` | Stub | Fila de análise manual — sem endpoint SGP |
+| `aplicar_cortesia` | Stub | Fila de análise manual — sem endpoint SGP |
+| `registrar_interesse` | Supabase | Lead prospect (nome, bairro, plano desejado) |
+| `registrar_negociacao` | Supabase | Acordo de parcelamento formalizado |
+| `marcar_churn_risk` | Supabase | Flag no thread para acompanhamento |
+| `detectar_apagao_bairro` | Supabase | ≥ 2 relatos no bairro em 2h = apagão |
+| `transferir_humano` | Supabase | Flag `human_mode=true`; desliga bot até reset manual |
 
 ### Roteamento de LLM (modo tiered)
 
-| Complexidade | Exemplos | Provider |
-|---|---|---|
-| **simple** | "oi", "quais os planos?", "segunda via" | DeepSeek (rápido, barato) |
-| **intermediate** | Fatura + PIX, suporte técnico | DeepSeek |
-| **complex** | Procon, ação judicial, ameaças | Anthropic Claude (fallback) |
+| Complexidade | Heurística de ativação | Provider | Limites |
+|---|---|---|---|
+| **simple** | Saudação curta OU FAQ keyword, ≤ 100 chars | DeepSeek | `LLM_SIMPLE_MAX_TOKENS`, `LLM_SIMPLE_MAX_TOOL_ROUNDS` |
+| **intermediate** | Demais mensagens | DeepSeek | `LLM_MAX_TOKENS`, 10 rodadas |
+| **complex** | Procon, Anatel, judicial, ouvidoria, ameaça | Anthropic Claude | `LLM_MAX_TOKENS`, 10 rodadas |
+
+Fallback automático: se o provider primário falhar, tenta `LLM_FALLBACK_PROVIDER`.
+
+### Segurança implementada
+
+| Mecanismo | Onde | O que protege |
+|-----------|------|--------------|
+| Sanitização de input | `sanitize.ts`, início de `processMessage` | Trunca 2000 chars, remove padrões de prompt injection em PT e EN |
+| Validação HMAC do webhook | `evolution-go.ts` | Rejeita payloads não assinados pelo Evolution Go |
+| Rate limiter por IP (IPv4 + IPv6) | `rate-limiter.ts` | Anti-ban e anti-spam |
+| Guard `isHumanMode` | `processor.ts` | Não processa mensagens quando atendente humano está ativo |
+| Guard `phone`/`body` undefined | `index.ts` | Descarta eventos mal-formados antes de chegar ao agente |
+| Dados sensíveis fora do contexto | `processor.ts` | `contratoCentralSenha`, `contratoCentralLogin` removidos do prompt |
+
+### Gaps para agente especialista em ISP
+
+Esta seção descreve o que falta para elevar Sofia de "atendente competente" para "especialista em ISP de alta eficiência":
+
+| Capacidade | Status | Impacto |
+|-----------|--------|---------|
+| Classificador de sessão semântico (LLM-based) | ❌ não existe | Erros em mensagens ambíguas ("meu plano é lento" → commercial vs support) |
+| Quick-reply com contexto do cliente | ❌ genérico | Cliente com plano ativo vê resposta de prospect ao perguntar sobre planos |
+| Histórico de tickets abertos na conversa | ❌ stub | Sofia não sabe se já existe chamado aberto para o problema |
+| Leitura de comprovante de pagamento (imagem) | ❌ não existe | Cliente envia foto do comprovante; Sofia não consegue processar |
+| Sugestão proativa de diagnóstico (velocidade) | ❌ não existe | Sofia não consegue pedir teste de velocidade e interpretar resultado |
+| NPS / satisfação pós-atendimento | ❌ não existe | Sem métrica de qualidade por interação |
+| Memória semântica cross-session | ❌ só histórico raw | Sofia não "lembra" preferências ou padrões do cliente entre conversas |
+| Multimidia (áudio, vídeo, documentos) | ❌ não existe | Mensagens de voz ignoradas; boleto em PDF não lido |
+| A/B testing de prompt/resposta | ❌ não existe | Sem forma de medir qual abordagem gera melhor retenção |
+| Suspensão / reativação real via SGP | ❌ stub | `suspendCustomer()` e `reactivateCustomer()` retornam valores fixos |
 
 ---
 
@@ -134,13 +219,15 @@ Evolution Go (WhatsApp API)
 
 | Arquivo | Responsabilidade |
 |---------|-----------------|
-| `agent/processor.ts` | Loop principal: sanitização → contexto → LLM → tools → resposta |
-| `agent/sanitize.ts` | Sanitização de input: trunca em 2000 chars, remove padrões de prompt injection (PT+EN) |
-| `agent/tools.ts` | Implementação das 17 ferramentas |
-| `agent/prompt.ts` | System prompt + contexto por modo |
-| `agent/session-classifier.ts` | Classifica modo (billing/support/commercial/prospect/default) |
-| `agent/complexity-router.ts` | Classifica complexidade (simple/intermediate/complex) |
-| `agent/memory.ts` | Thread history no Supabase, modo humano |
+| `agent/processor.ts` | Orquestrador principal: sanitização → quick-reply → pré-tools → sessão → LLM → resposta |
+| `agent/quick-reply.ts` | FAQ sem LLM: planos, cobertura, instalação, pagamento, suporte |
+| `agent/sanitize.ts` | Trunca 2000 chars, remove 15 padrões de prompt injection (PT+EN) |
+| `agent/tools.ts` | 18 ferramentas: SGP (real), Supabase, stubs e dados locais |
+| `agent/prompt.ts` | System prompt base + contextos por modo (billing/support/commercial/prospect) |
+| `agent/company-data.ts` | Fonte única de verdade: planos, bairros, horários, políticas |
+| `agent/session-classifier.ts` | Regex heurístico: billing | support | commercial | prospect | default |
+| `agent/complexity-router.ts` | Regex heurístico: simple | intermediate | complex |
+| `agent/memory.ts` | Thread history no Supabase, flag human_mode |
 | `integrations/sgp/` | Cliente HTTP + billing, customers, tickets, network |
 | `integrations/whatsapp/providers/evolution-go.ts` | Parser de webhooks + envio via Evolution Go API |
 | `services/whatsapp-service.ts` | Facade pública de envio |
