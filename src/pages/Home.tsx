@@ -1,10 +1,12 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Wifi, Shield, Bot, Zap, MapPin, Star } from "lucide-react";
+import { Shield, Bot, Zap, MapPin, Star } from "lucide-react";
 import heroImage from "@/assets/hero-network.jpg";
 import { Link } from "react-router-dom";
 import { useAIBot } from "@/contexts/AIBotContext";
+import PlanCard from "@/components/PlanCard";
+import { formatBrl, INSTALLATION_FEE, PUBLIC_PLANS, TV_ADDON_PRICE } from "@/data/plans";
 
 const Home = () => {
   const { setIsOpen } = useAIBot();
@@ -97,60 +99,19 @@ const Home = () => {
             Planos Populares
           </h2>
 
+          <p className="text-center text-muted-foreground mb-8 max-w-2xl mx-auto">
+            Taxa de instalação R$ {formatBrl(INSTALLATION_FEE)} · Canais e filmes adicional R${' '}
+            {formatBrl(TV_ADDON_PRICE)}/mês
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {/* 400 Mega */}
-            <div className="bg-background rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all">
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">400 Mega</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 79,99</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 89,99</p>
-                <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
-              </div>
-              <ul className="space-y-2 mb-6">
-                <li className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wifi className="h-4 w-4 text-accent" />
-                  Streaming e home office
-                </li>
-              </ul>
-              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
-            </div>
-
-            {/* 500 Mega - Popular */}
-            <div className="bg-background rounded-lg p-6 border-2 border-accent hover:shadow-card-hover transition-all relative">
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-accent text-accent-foreground rounded-full text-sm font-bold">
-                Mais Popular
-              </div>
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">500 Mega</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 89,99</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 99,99</p>
-                <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
-              </div>
-              <ul className="space-y-2 mb-6">
-                <li className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wifi className="h-4 w-4 text-accent" />
-                  Streaming HD, jogos e família
-                </li>
-              </ul>
-              <Button variant="cta" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
-            </div>
-
-            {/* 700 Mega */}
-            <div className="bg-background rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all">
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">700 Mega</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 109,99</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 119,99</p>
-                <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
-              </div>
-              <ul className="space-y-2 mb-6">
-                <li className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wifi className="h-4 w-4 text-accent" />
-                  4K, gaming e vários dispositivos
-                </li>
-              </ul>
-              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
-            </div>
+            {PUBLIC_PLANS.map((plan) => (
+              <PlanCard
+                key={plan.speedMbps}
+                plan={plan}
+                variant="home"
+                onContract={() => setIsOpen(true)}
+              />
+            ))}
           </div>
         </div>
       </section>

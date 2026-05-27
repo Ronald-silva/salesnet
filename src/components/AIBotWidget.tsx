@@ -2,6 +2,7 @@ import { MessageCircle, X, Send } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useAIBot } from "@/contexts/AIBotContext";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { formatBrl, INSTALLATION_FEE, plansListText, PUBLIC_PLANS, TV_ADDON_PRICE } from "@/data/plans";
 
 interface Message {
   id: number;
@@ -16,7 +17,7 @@ const AIBotWidget = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Olá! 👋 Sou o assistente virtual da SalesNet!\n\nComo posso ajudar você?\n\n• Ver planos e preços\n• Verificar cobertura\n• Agendar instalação\n• Suporte técnico\n• Falar com atendente\n\n💡 Dica: Pagando em dia você ganha R$ 10 de desconto!",
+      text: "Olá! 👋 Sou o assistente virtual da SalesNet!\n\nComo posso ajudar você?\n\n• Ver planos e preços\n• Verificar cobertura\n• Agendar instalação\n• Suporte técnico\n• Falar com atendente\n\n💡 Taxa de instalação R$ 50,00",
       isBot: true,
       timestamp: new Date()
     }
@@ -60,7 +61,7 @@ const AIBotWidget = () => {
     const message = userMessage.toLowerCase();
     
     if (message.includes('plano') || message.includes('preço') || message.includes('valor')) {
-      return "📋 **Nossos Planos:**\n\n📶 **20 Mbps** - R$ 50,00/mês*\n📶 **30 Mbps** - R$ 60,00/mês*\n⚡ **50 Mbps** - R$ 70,00/mês* (Mais Popular)\n🔥 **100 Mbps** - R$ 90,00/mês*\n\n*Pagando até o vencimento (senão +R$10)\n\n✅ Tecnologia FTTX (fibra óptica)\n✅ Sem fidelidade\n✅ Instalação gratuita\n✅ Suporte 24h\n\nQual plano te interessa?";
+      return `📋 **Nossos Planos:**\n\n${plansListText()}\n\n✅ Fibra óptica\n✅ Sem fidelidade\n✅ Taxa de instalação R$ ${formatBrl(INSTALLATION_FEE)}\n✅ Canais/filmes adicional R$ ${formatBrl(TV_ADDON_PRICE)}/mês\n✅ Suporte 24h\n\nQual plano te interessa?`;
     }
     
     if (message.includes('cobertura') || message.includes('bairro') || message.includes('atende')) {
@@ -84,15 +85,16 @@ const AIBotWidget = () => {
     }
 
     if (message.includes('desconto') || message.includes('promoção') || message.includes('promocao')) {
-      return "💰 **Desconto Especial:**\n\nTodos os clientes que pagam até o vencimento ganham **R$ 10,00 de desconto**!\n\nExemplo:\n• 50 Mbps: de R$ 80,00 por apenas R$ 70,00\n\nPague no dia e economize todo mês!";
+      const popular = PUBLIC_PLANS.find((p) => p.popular);
+      return `💰 **Planos atuais:**\n\n${plansListText()}\n\nO mais procurado é o **${popular?.name ?? '500 Mega'}** por R$ ${formatBrl(popular?.priceMonthly ?? 89.99)}/mês.`;
     }
 
     if (message.includes('instala') || message.includes('agendar') || message.includes('visita')) {
-      return "🔧 **Instalação:**\n\n✅ Instalação 100% gratuita\n✅ Agendamos no melhor horário para você\n✅ Técnico chega em até 48h úteis\n✅ Equipamentos inclusos\n\nPara agendar, me informe:\n1. Seu endereço completo\n2. Melhor dia e horário\n\nOu fale direto no WhatsApp: (85) 9 9603-2957";
+      return `🔧 **Instalação:**\n\n✅ Taxa única de R$ ${formatBrl(INSTALLATION_FEE)}\n✅ Agendamos no melhor horário para você\n✅ Técnico chega em até 48h úteis\n✅ Equipamentos inclusos\n\nPara agendar, me informe:\n1. Seu endereço completo\n2. Melhor dia e horário\n\nOu fale direto no WhatsApp: (85) 9 9603-2957`;
     }
 
     if (message.includes('pix') || message.includes('pagamento') || message.includes('pagar') || message.includes('boleto')) {
-      return "💳 **Formas de Pagamento:**\n\n• **PIX** - Chave enviada todo mês\n• **Boleto** - Vence todo dia 10\n• **Cartão** - Débito automático\n\n💡 Pagando até o vencimento: **R$ 10 de desconto**!\n\nDúvidas sobre sua fatura? Fale conosco!";
+      return "💳 **Formas de Pagamento:**\n\n• **PIX** - Chave enviada todo mês\n• **Boleto** - Vence todo dia 10\n• **Cartão** - Débito automático\n\nDúvidas sobre sua fatura? Fale conosco!";
     }
 
     if (message.includes('cancelar') || message.includes('cancelamento') || message.includes('sair')) {
@@ -100,11 +102,21 @@ const AIBotWidget = () => {
     }
 
     if (message.includes('upgrade') || message.includes('mudar plano') || message.includes('trocar plano') || message.includes('aumentar')) {
-      return "⬆️ **Upgrade de Plano:**\n\nVocê pode mudar de plano a qualquer momento!\n\n📶 20 Mbps → 30 Mbps: +R$ 10/mês\n📶 30 Mbps → 50 Mbps: +R$ 10/mês\n📶 50 Mbps → 100 Mbps: +R$ 20/mês\n\n✅ Mudança sem custo adicional\n✅ Ativação imediata\n\nQuer fazer upgrade agora?";
+      const upgrades = PUBLIC_PLANS.slice(0, -1).map((p, i) => {
+        const next = PUBLIC_PLANS[i + 1];
+        const diff = next.priceMonthly - p.priceMonthly;
+        return `📶 ${p.name} → ${next.name}: +R$ ${formatBrl(diff)}/mês`;
+      });
+      return `⬆️ **Upgrade de Plano:**\n\nVocê pode mudar de plano a qualquer momento!\n\n${upgrades.join('\n')}\n\n✅ Mudança sem custo adicional\n✅ Ativação imediata\n\nQuer fazer upgrade agora?`;
     }
 
     if (message.includes('velocidade') || message.includes('lento') || message.includes('rapido') || message.includes('mbps')) {
-      return "🚀 **Sobre Velocidades:**\n\n• **20 Mbps** - Navegação, e-mail, redes sociais\n• **30 Mbps** - Streaming SD, videochamadas\n• **50 Mbps** - Streaming HD, jogos online\n• **100 Mbps** - 4K, home office, múltiplos dispositivos\n\n💡 Para família com 3+ pessoas, recomendamos 50 Mbps ou mais!\n\nQual seu uso principal?";
+      const lines = PUBLIC_PLANS.map((p) => `• **${p.name}** - ${p.tagline}`);
+      return `🚀 **Sobre Velocidades:**\n\n${lines.join('\n')}\n\n💡 Para família com 3+ pessoas, recomendamos 500 Mega ou mais!\n\nQual seu uso principal?`;
+    }
+
+    if (message.includes('tv') || message.includes('canal') || message.includes('filme')) {
+      return `📺 **Canais e Filmes:**\n\nPacote adicional por R$ ${formatBrl(TV_ADDON_PRICE)}/mês.\n\nCombine com qualquer plano de fibra. Quer incluir no seu contrato?`;
     }
 
     if (message.includes('fibra') || message.includes('fttx') || message.includes('cabo')) {

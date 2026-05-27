@@ -1,35 +1,13 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import PlanCard from "@/components/PlanCard";
 import { Button } from "@/components/ui/button";
-import { Wifi, Check } from "lucide-react";
+import { Wifi } from "lucide-react";
 import { useAIBot } from "@/contexts/AIBotContext";
+import { formatBrl, INSTALLATION_FEE, PUBLIC_PLANS, TV_ADDON_PRICE } from "@/data/plans";
 
 const Plans = () => {
   const { setIsOpen } = useAIBot();
-  const plans = [
-    {
-      name: "400 Mega",
-      speed: 400,
-      price: "89,99",
-      discountPrice: "79,99",
-      features: ["Fibra Óptica Ilimitado", "WiFi incluso", "Suporte IA 24h", "Taxa de instalação R$ 50", "Streaming e home office"],
-    },
-    {
-      name: "500 Mega",
-      speed: 500,
-      price: "99,99",
-      discountPrice: "89,99",
-      features: ["Fibra Óptica Ilimitado", "WiFi incluso", "Suporte prioritário", "Taxa de instalação R$ 50", "HD, jogos e família"],
-      popular: true,
-    },
-    {
-      name: "700 Mega",
-      speed: 700,
-      price: "119,99",
-      discountPrice: "109,99",
-      features: ["Fibra Óptica Ilimitado", "WiFi premium", "Suporte VIP", "Taxa de instalação R$ 50", "4K, gaming e vários dispositivos"],
-    },
-  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -53,35 +31,19 @@ const Plans = () => {
       <section className="py-16">
         <div className="container mx-auto px-4">
           <div className="text-center mb-8">
-            <p className="text-lg text-accent font-semibold">💰 Desconto de R$ 10,00 pagando até o vencimento!</p>
+            <p className="text-lg text-muted-foreground">
+              Taxa de instalação R$ {formatBrl(INSTALLATION_FEE)} · Canais e filmes adicional R${' '}
+              {formatBrl(TV_ADDON_PRICE)}/mês
+            </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {plans.map((plan, i) => (
-              <div key={i} className={`bg-card rounded-lg p-8 ${plan.popular ? 'border-2 border-accent' : 'border border-accent/20'} relative hover:shadow-card-hover transition-all`}>
-                {plan.popular && (
-                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-accent text-accent-foreground rounded-full text-sm font-bold">
-                    Mais Popular
-                  </div>
-                )}
-                <div className="text-center mb-6">
-                  <Wifi className="h-12 w-12 text-accent mx-auto mb-4" />
-                  <h3 className="text-2xl font-heading font-bold text-card-foreground mb-2">{plan.name}</h3>
-                  <div className="text-4xl font-bold text-accent mb-1">R$ {plan.discountPrice}</div>
-                  <p className="text-sm text-muted-foreground line-through">R$ {plan.price}</p>
-                  <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
-                </div>
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((f, j) => (
-                    <li key={j} className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Check className="h-4 w-4 text-accent flex-shrink-0" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button variant={plan.popular ? "cta" : "outline"} className="w-full" onClick={() => setIsOpen(true)}>
-                  Contratar Agora
-                </Button>
-              </div>
+            {PUBLIC_PLANS.map((plan) => (
+              <PlanCard
+                key={plan.speedMbps}
+                plan={plan}
+                variant="page"
+                onContract={() => setIsOpen(true)}
+              />
             ))}
           </div>
 
@@ -103,7 +65,8 @@ const Plans = () => {
               <li className="flex gap-3">
                 <span className="flex-shrink-0 w-8 h-8 bg-accent text-accent-foreground rounded-full flex items-center justify-center font-bold text-sm">3</span>
                 <div>
-                  <strong className="text-foreground">Upsell opcional</strong> - Adicione TV, telefone etc
+                  <strong className="text-foreground">Pacote opcional</strong> — Canais e filmes por R${' '}
+                  {formatBrl(TV_ADDON_PRICE)}/mês
                 </div>
               </li>
               <li className="flex gap-3">
