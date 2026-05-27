@@ -48,7 +48,13 @@ describe('classifySession — default', () => {
   it('returns default for generic greeting', () => {
     expect(classifySession('oi bom dia', activeCustomer, 'open')).toBe('default');
   });
+  it('returns default for existing customer asking about own plan', () => {
+    expect(classifySession('queria entender meu plano', activeCustomer, 'open')).toBe('default');
+  });
   it('returns default when customer not found', () => {
     expect(classifySession('oi', notFound, undefined)).toBe('default');
+  });
+  it('returns prospect when not found and explicit contract intent exists', () => {
+    expect(classifySession('quero contratar internet', notFound, undefined)).toBe('prospect');
   });
 });

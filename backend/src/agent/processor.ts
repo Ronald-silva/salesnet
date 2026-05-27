@@ -8,12 +8,13 @@ import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
-import { classifySession } from './session-classifier';
+import { classifySession, type SessionMode } from './session-classifier';
 import { sanitizeUserInput } from './sanitize';
 import { quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
 import { randomUUID } from 'crypto';
+import { withPhoneLock } from '../utils/phone-mutex';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -36,6 +37,20 @@ type DeepSeekMessage = {
       arguments: string;
     };
   }>;
+};
+
+type SessionDisambiguationResult = {
+  mode: SessionMode;
+  confidence: 'low' | 'medium' | 'high';
+  reason: string;
+};
+
+type SessionModeDecision = {
+  baseMode: SessionMode;
+  finalMode: SessionMode;
+  source: 'regex' | 'llm';
+  confidence: 'none' | 'low' | 'medium' | 'high';
+  reason: string;
 };
 
 const DEEPSEEK_TOOLS = TOOL_DEFINITIONS.map((tool) => ({
@@ -248,8 +263,163 @@ function resolveTieredRouting(message: string): { provider: Provider; options: R
   return { tier, provider: pickProviderForCheapTier(), options: simpleTierRunOptions() };
 }
 
-export async function processMessage(phone: string, message: string): Promise<void> {
+function isSessionDisambiguationCandidate(baseMode: SessionMode, message: string): boolean {
+  if (baseMode === 'billing' || baseMode === 'support') return false;
+  if (baseMode === 'prospect' || baseMode === 'commercial') return true;
+  return /\b(plano|planos|cancel|entender|d[uú]vida|quero|internet|fatura|pagar|lenta|caiu|suporte|t[eé]cnico)\b/i.test(message);
+}
+
+function parseSessionDisambiguation(raw: string): SessionDisambiguationResult | null {
+  const trimmed = raw.trim();
+  const objectMatch = trimmed.match(/\{[\s\S]*\}/);
+  const payload = objectMatch ? objectMatch[0] : trimmed;
+  try {
+    const parsed = JSON.parse(payload) as Partial<SessionDisambiguationResult>;
+    const mode = parsed.mode;
+    const confidence = parsed.confidence;
+    if (
+      (mode === 'billing' || mode === 'support' || mode === 'commercial' || mode === 'prospect' || mode === 'default')
+      && (confidence === 'low' || confidence === 'medium' || confidence === 'high')
+    ) {
+      return {
+        mode,
+        confidence,
+        reason: typeof parsed.reason === 'string' ? parsed.reason : '',
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function disambiguateSessionMode(
+  message: string,
+  customerData: unknown,
+  invoiceStatus: string | undefined,
+  baseMode: SessionMode,
+): Promise<SessionModeDecision> {
+  if (!isSessionDisambiguationCandidate(baseMode, message)) {
+    return {
+      baseMode,
+      finalMode: baseMode,
+      source: 'regex',
+      confidence: 'none',
+      reason: 'not_candidate',
+    };
+  }
+
+  const provider = pickProviderForCheapTier();
+  const compactCustomer = JSON.stringify(customerData).slice(0, 1200);
+  const prompt = [
+    'Classifique a intenção da mensagem em UM modo de sessão.',
+    'Responda APENAS JSON válido sem markdown.',
+    'Schema: {"mode":"billing|support|commercial|prospect|default","confidence":"low|medium|high","reason":"texto curto"}',
+    'Regras:',
+    '- billing: cobrança, pagamento, suspensão por débito',
+    '- support: problema técnico, internet lenta/instável/sem sinal',
+    '- commercial: cliente com baixa velocidade insatisfeito, possível upgrade após suporte',
+    '- prospect: intenção explícita de contratar/instalar como novo cliente',
+    '- default: dúvidas gerais, inclusive cliente perguntando sobre o próprio plano',
+    '',
+    `base_mode=${baseMode}`,
+    `invoice_status=${invoiceStatus ?? 'unknown'}`,
+    `customer_data=${compactCustomer}`,
+    `message=${message}`,
+  ].join('\n');
+
+  try {
+    if (provider === 'anthropic') {
+      const response = await anthropic.messages.create({
+        model: env.ANTHROPIC_MODEL,
+        max_tokens: 160,
+        system: 'Você é um classificador determinístico de intenção. Responda somente JSON.',
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const raw = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? '';
+      const parsed = parseSessionDisambiguation(raw);
+      if (!parsed || parsed.confidence === 'low') {
+        return {
+          baseMode,
+          finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+          source: 'llm',
+          confidence: parsed?.confidence ?? 'low',
+          reason: parsed?.reason ?? 'invalid_or_low_confidence',
+        };
+      }
+      return {
+        baseMode,
+        finalMode: parsed.mode,
+        source: 'llm',
+        confidence: parsed.confidence,
+        reason: parsed.reason,
+      };
+    }
+
+    const baseUrl = env.DEEPSEEK_BASE_URL.replace(/\/$/, '');
+    const { data } = await axios.post(
+      `${baseUrl}/chat/completions`,
+      {
+        model: env.DEEPSEEK_MODEL,
+        max_tokens: 160,
+        messages: [
+          { role: 'system', content: 'Você é um classificador determinístico de intenção. Responda somente JSON.' },
+          { role: 'user', content: prompt },
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    const raw = String(data?.choices?.[0]?.message?.content ?? '');
+    const parsed = parseSessionDisambiguation(raw);
+    if (!parsed || parsed.confidence === 'low') {
+      return {
+        baseMode,
+        finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+        source: 'llm',
+        confidence: parsed?.confidence ?? 'low',
+        reason: parsed?.reason ?? 'invalid_or_low_confidence',
+      };
+    }
+    return {
+      baseMode,
+      finalMode: parsed.mode,
+      source: 'llm',
+      confidence: parsed.confidence,
+      reason: parsed.reason,
+    };
+  } catch (err) {
+    console.warn('[processor] session disambiguation failed:', err);
+    return {
+      baseMode,
+      finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+      source: 'llm',
+      confidence: 'low',
+      reason: 'llm_error',
+    };
+  }
+}
+
+export async function processMessage(phone: string, message: string, rawMessageId?: string): Promise<void> {
+  return withPhoneLock(phone, async () => {
   if (await isHumanMode(phone)) return;
+
+  const messageId = rawMessageId;
+  if (messageId) {
+    const { error } = await supabase
+      .from('processed_message_ids')
+      .insert({ message_id: messageId, phone })
+      .select()
+      .single();
+    if (error?.code === '23505') {
+      console.log('[processor] duplicate message skipped:', messageId);
+      return;
+    }
+  }
 
   const startMs = Date.now();
   const clean = sanitizeUserInput(message);
@@ -322,11 +492,13 @@ export async function processMessage(phone: string, message: string): Promise<vo
       console.warn('[processor] get_fatura_atual failed:', err);
     }
 
-    const sessionMode = classifySession(
+    const baseSessionMode = classifySession(
       clean,
       customerData as { status?: string; plan?: { downloadMbps?: number } },
       invoiceStatus,
     );
+    const sessionModeDecision = await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
+    const sessionMode = sessionModeDecision.finalMode;
 
     const modeContext =
       sessionMode === 'billing'    ? getBillingModeContext() :
@@ -337,6 +509,11 @@ export async function processMessage(phone: string, message: string): Promise<vo
 
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },
+      {
+        name: 'session_classifier',
+        input: { message: clean, invoiceStatus: invoiceStatus ?? null },
+        output: sessionModeDecision,
+      },
     ];
 
     if (invoiceStatus) {
@@ -424,4 +601,5 @@ export async function processMessage(phone: string, message: string): Promise<vo
     console.error(`[processor] error for ${phone}:`, err);
     await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch((e: unknown) => console.error('[processor] failed to send error reply:', e));
   }
+  });
 }

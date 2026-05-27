@@ -6,6 +6,7 @@ export interface CustomerInsights {
   recurring_support: boolean;
   open_negotiation: boolean;
   churn_risk_active: boolean;
+  notes: string | null;
   days_since_first_contact: number;
   campaigns_received: string[];
 }
@@ -16,7 +17,7 @@ export async function getCustomerInsights(phone: string, _tenantId: string): Pro
   const [threadResult, logsResult, negotiationsResult, bnCustomerResult] = await Promise.all([
     supabase
       .from('conversation_threads')
-      .select('churn_risk, created_at')
+      .select('churn_risk, notes, created_at')
       .eq('phone', phone)
       .maybeSingle(),
     supabase
@@ -68,6 +69,7 @@ export async function getCustomerInsights(phone: string, _tenantId: string): Pro
     recurring_support:       supportInWindow >= 2,
     open_negotiation:        (negotiationsResult.data?.length ?? 0) > 0,
     churn_risk_active:       thread?.churn_risk ?? false,
+    notes:                   (thread?.notes as string | null | undefined) ?? null,
     days_since_first_contact: thread?.created_at
       ? Math.floor((Date.now() - new Date(thread.created_at).getTime()) / (1000 * 60 * 60 * 24))
       : 0,
@@ -88,6 +90,9 @@ export function buildInsightsContext(insights: CustomerInsights): string {
   }
   if (insights.days_since_first_contact > 365) {
     lines.push('Cliente há mais de 1 ano. Tratamento preferencial.');
+  }
+  if (insights.notes) {
+    lines.push('Nota do atendimento anterior: ' + insights.notes);
   }
 
   if (lines.length === 0) return '';

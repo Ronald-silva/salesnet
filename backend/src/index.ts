@@ -70,9 +70,9 @@ app.use('/api/admin/reports', apiRateLimiter, reportsRouter);
 app.use('/api/admin', apiRateLimiter, adminRouter);
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────
-eventBus.onIncomingMessage(({ phone, body }) => {
+eventBus.onIncomingMessage(({ phone, body, messageId }) => {
   if (!phone || !body) return;
-  processMessage(phone, body).catch((err: unknown) => {
+  processMessage(phone, body, messageId).catch((err: unknown) => {
     console.error(`[agent] processMessage error for ${phone}:`, err);
   });
 });

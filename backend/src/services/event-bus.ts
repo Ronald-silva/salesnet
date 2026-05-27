@@ -45,6 +45,7 @@ export interface IncomingMessage {
   phone: string;
   body: string;
   profileName?: string;
+  messageId?: string;
 }
 
 // ─── Event Bus ────────────────────────────────────────────────────────────────
@@ -59,6 +60,7 @@ class EventBus extends EventEmitter {
         phone: event.payload.phone,
         body: event.payload.body,
         profileName: event.payload.profileName,
+        messageId: event.payload.messageId,
       });
     });
   }

@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
 import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
+import { env } from '../config/env';
 import { COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
 
 // Derived lookup map for the verificar_cobertura tool (name → coverage %)
@@ -79,16 +80,28 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'listar_chamados_sofia',
+    description: 'Lista os chamados abertos pelo cliente via Sofia. Use quando o cliente perguntar sobre status de chamado, se tem chamado aberto, ou antes de abrir novo chamado para evitar duplicata.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        contrato: { type: 'string', description: 'Número do contrato do cliente' },
+        status: { type: 'string', enum: ['aberto', 'em_andamento', 'resolvido', 'todos'], default: 'aberto' },
+      },
+      required: ['contrato'],
+    },
+  },
+  {
     name: 'abrir_chamado',
     description: 'Abre um chamado de suporte técnico, financeiro ou comercial.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id:  { type: 'string', description: 'ID do contrato no SGP' },
-        type:         { type: 'string', enum: ['tecnico', 'financeiro', 'comercial'] },
-        description:  { type: 'string', description: 'Descrição do problema' },
+        contrato:     { type: 'string', description: 'ID do contrato no SGP' },
+        tipo:         { type: 'string', enum: ['tecnico', 'financeiro', 'comercial'] },
+        descricao:    { type: 'string', description: 'Descrição do problema' },
       },
-      required: ['customer_id', 'type', 'description'],
+      required: ['contrato', 'tipo', 'descricao'],
     },
   },
   {
@@ -219,6 +232,17 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['customer_id', 'condicoes'],
     },
   },
+  {
+    name: 'atualizar_notas_cliente',
+    description: 'Salva uma nota sobre o cliente para consulta em atendimentos futuros. Use ao encerrar sessões com informações relevantes: pedido de upgrade pendente, intenção de cancelamento, problema técnico recorrente, informação pessoal útil (vai se mudar, turno de trabalho, dificuldade específica). Máximo 500 caracteres.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        notes: { type: 'string', description: 'Nota concisa sobre o cliente. Máx 500 chars.' },
+      },
+      required: ['notes'],
+    },
+  },
 ];
 
 export async function markChurnRiskByPhone(phone: string): Promise<void> {
@@ -233,6 +257,8 @@ export async function executeTool(
   input: Record<string, unknown>,
   phone: string,
 ): Promise<unknown> {
+  const tenantId = env.DEFAULT_TENANT_ID;
+
   switch (name) {
     case 'buscar_cliente': {
       try {
@@ -274,20 +300,69 @@ export async function executeTool(
     case 'listar_chamados':
       return sgp.getCustomerTickets(input.customer_id as string);
 
+    case 'listar_chamados_sofia': {
+      const requestedStatus = (input.status as string | undefined) ?? 'aberto';
+      const statusFilter = requestedStatus === 'todos'
+        ? ['aberto', 'em_andamento', 'resolvido']
+        : [requestedStatus];
+
+      const { data, error } = await supabase
+        .from('sofia_tickets')
+        .select('id, tipo, descricao, status, created_at, sgp_chamado_id')
+        .eq('contrato', input.contrato as string)
+        .eq('tenant_id', tenantId)
+        .in('status', statusFilter)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (error) throw new Error('Erro ao buscar chamados: ' + error.message);
+
+      return {
+        total: data.length,
+        chamados: data.map((t) => ({
+          id: t.sgp_chamado_id ?? t.id,
+          tipo: t.tipo,
+          descricao: t.descricao,
+          status: t.status,
+          aberto_em: t.created_at,
+        })),
+      };
+    }
+
     case 'abrir_chamado': {
+      const contrato = String(input.contrato ?? input.customer_id);
+      const tipo = String(input.tipo ?? input.type ?? 'tecnico');
+      const descricao = String(input.descricao ?? input.description ?? '');
       const ticket = await sgp.openTicket(
-        input.customer_id as string,
-        input.type as string,
-        input.description as string,
+        contrato,
+        tipo,
+        descricao,
       );
-      if (input.type === 'tecnico') {
+      try {
+        const { error } = await supabase.from('sofia_tickets').insert({
+          tenant_id: tenantId,
+          phone,
+          contrato,
+          sgp_chamado_id: (ticket as { id?: string } | null)?.id ?? null,
+          tipo,
+          descricao,
+          status: 'aberto',
+        });
+        if (error) {
+          console.error(`[tools] Supabase insert failed [abrir_chamado → sofia_tickets]: ${error.message}`);
+        }
+      } catch (err) {
+        console.error('[tools] Unexpected error [abrir_chamado → sofia_tickets]:', err);
+      }
+
+      if (tipo === 'tecnico') {
         try {
-          const customer = await sgp.getCustomerById(input.customer_id as string);
+          const customer = await sgp.getCustomerById(contrato);
           const neighborhood = customer.address?.neighborhood ?? '';
           if (neighborhood) {
             const { error } = await supabase.from('outage_reports').insert({
               neighborhood,
-              customer_id: input.customer_id as string,
+              customer_id: contrato,
             });
             if (error) throw new Error(`Supabase insert failed [abrir_chamado]: ${error.message}`);
           }
@@ -437,6 +512,16 @@ export async function executeTool(
         status: 'registered',
         message: `Negociação registrada: ${String(input.condicoes)}. Um atendente confirmará em breve.`,
       };
+    }
+
+    case 'atualizar_notas_cliente': {
+      const notes = (input.notes as string).slice(0, 500);
+      const { error } = await supabase
+        .from('conversation_threads')
+        .update({ notes })
+        .eq('phone', phone);
+      if (error) throw new Error('Erro ao salvar nota: ' + error.message);
+      return { success: true, saved_length: notes.length };
     }
 
     default:

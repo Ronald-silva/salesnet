@@ -338,8 +338,8 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
     const rawSig = headers['x-webhook-signature'] ?? '';
     const signature = rawSig.startsWith('sha256=') ? rawSig.slice(7) : rawSig;
-    // Evolution Go may not send a signature — only reject when header is present but wrong
-    if (!signature) return true;
+    // secret configurado + header ausente = rejeitar (não aceitar)
+    if (!signature) return false;
 
     const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
 

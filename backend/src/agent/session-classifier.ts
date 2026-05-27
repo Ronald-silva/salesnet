@@ -9,8 +9,11 @@ const SUPPORT_RE =
 const SPEED_COMPLAINT_RE =
   /\b(videochamada|streaming|netflix|youtube|zoom|bufferizando)\b/i;
 
-const PROSPECT_RE =
-  /\b(contratar?|assinar?|planos?|pre[çc]o|valor|quanto\s+custa|cobertura|atende|quero\s+internet|novo\s+cliente|instala[çc][aã]o|instalar?|fibra|pacote)\b/i;
+const PROSPECT_STRONG_RE =
+  /\b(contratar?|assinar?|quero\s+(contratar|instalar)|novo\s+cliente|instala[çc][aã]o|instalar?|primeira\s+instala[çc][aã]o)\b/i;
+
+const EXISTING_CUSTOMER_CONTEXT_RE =
+  /\b(meu|minha|sou\s+cliente|j[aá]\s*sou\s+cliente|meu\s+plano|minha\s+internet|minha\s+fatura|minha\s+conta)\b/i;
 
 const COMMERCIAL_PLAN_THRESHOLD_MBPS = 50;
 
@@ -24,9 +27,10 @@ export function classifySession(
   customer: CustomerLike | { error: string },
   invoiceStatus: string | undefined,
 ): SessionMode {
-  // Customer not found in SGP — could be a prospect or wrong number
+  // Customer not found in SGP — default to neutral and let the LLM disambiguate intent.
+  // We only mark as prospect on strong, explicit acquisition intent.
   if ('error' in customer) {
-    return 'prospect';
+    return PROSPECT_STRONG_RE.test(message) ? 'prospect' : 'default';
   }
 
   const isSuspended = customer.status === 'suspended';
@@ -39,7 +43,7 @@ export function classifySession(
 
   if (SUPPORT_RE.test(message)) return 'support';
 
-  if (PROSPECT_RE.test(message)) return 'prospect';
+  if (!EXISTING_CUSTOMER_CONTEXT_RE.test(message) && PROSPECT_STRONG_RE.test(message)) return 'prospect';
 
   return 'default';
 }

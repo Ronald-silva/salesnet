@@ -103,6 +103,7 @@ const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contr
 | Listar faturas | `POST /api/central/titulos/` | `contrato`, `status` (1=aberto), `limit` |
 | Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body |
 | Abrir chamado | `POST /api/central/chamado/` | `contrato` |
+| Listar chamados Sofia | Supabase `sofia_tickets` | `contrato`, `tenant_id`, `status` |
 
 ### Normalização de telefone
 
@@ -117,7 +118,7 @@ getCustomerTickets()      // retorna [] — sem token auth
 suspendCustomer()         // stub — endpoint não exposto
 reactivateCustomer()      // stub — endpoint não exposto
 scheduleVisit()           // SGP retorna stub; persiste em scheduled_visits no Supabase
-listar_chamados (tool)    // retorna [] — mesma limitação
+listar_chamados (tool)    // retorna [] — manter por compatibilidade; usar listar_chamados_sofia
 ```
 
 Não tente "corrigir" essas funções chamando outros endpoints — eles não existem.
@@ -281,6 +282,7 @@ Ordem de precedência:
 | `leads` | `tools.ts` (registrar_interesse) | painel admin |
 | `scheduled_visits` | `tools.ts` (agendar_visita) | automations |
 | `outage_reports` | `tools.ts` (abrir_chamado técnico) | `tools.ts` (detectar_apagao_bairro) |
+| `sofia_tickets` | `tools.ts` (abrir_chamado) | `tools.ts` (listar_chamados_sofia) |
 | `billing_notifications` | automações, `registrar_negociacao` | `getHabitualLatePayerIds`, automações |
 | `scheduled_messages` | `nps-flow.ts` | `scheduled-messages.ts` (cron 10 min) |
 
@@ -291,6 +293,8 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `011_nps.sql` — tabela `nps_responses`
 - `012_add_processing_ms.sql` — coluna `processing_ms INTEGER` em `interaction_logs`
 - `013_scheduled_messages.sql` — tabela `scheduled_messages` (mensagens adiadas pós-NPS)
+- `014_client_notes.sql` — coluna `notes TEXT` em `conversation_threads`
+- `015_sofia_tickets.sql` — tabela `sofia_tickets` (chamados abertos via Sofia)
 
 ---
 
@@ -328,6 +332,7 @@ SGP_API_TOKEN=<uuid>
 
 EVOLUTION_API_KEY=<chave_global_admin>
 EVOLUTION_INSTANCE_TOKEN=<token_instancia>
+GEMINI_API_KEY=AIza...   # Google AI Studio — usado em vision.ts para OCR de imagens
 
 BACKEND_URL=https://salesnet-production.up.railway.app
 ```
@@ -337,14 +342,54 @@ BACKEND_URL=https://salesnet-production.up.railway.app
 ## Arquivos mais importantes — leia nesta ordem
 
 1. `backend/src/agent/processor.ts` — orquestração principal
-2. `backend/src/agent/tools.ts` — 18 ferramentas + stubs documentados
+2. `backend/src/agent/tools.ts` — 20 ferramentas + stubs documentados
 3. `backend/src/agent/prompt.ts` — personalidade e regras da Sofia
 4. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
 5. `backend/src/agent/customer-memory.ts` — insights cross-session
 6. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
 7. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
 8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks
-9. `backend/src/routes/reports.ts` — cálculo de métricas ROI
+9. `backend/src/agent/vision.ts` — análise de imagens via Gemini Flash
+
+---
+
+## Atualizações recentes já implementadas (estado atual do branch)
+
+### 1) Classificador híbrido (regex + LLM leve)
+
+- `classifySession` em `session-classifier.ts` deixou de forçar `prospect` quando cliente não é encontrado; agora:
+  - só marca `prospect` em intenção forte de contratação (`PROSPECT_STRONG_RE`)
+  - evita falso positivo para cliente existente com `EXISTING_CUSTOMER_CONTEXT_RE` (ex.: "meu plano")
+- `processor.ts` adicionou uma etapa de desambiguação por LLM (`disambiguateSessionMode`) para casos ambíguos:
+  - candidatos: `prospect`, `commercial` e `default` com palavras sensíveis
+  - não roda para `billing`/`support` óbvios (controle de custo/latência)
+  - parse estrito de JSON com `mode/confidence/reason`
+  - fallback seguro para regex quando confiança baixa ou erro da LLM
+- `sessionModeDecision` entra no `initialToolLog` como `session_classifier` para auditoria.
+
+### 2) Memória semântica com notas de atendimento
+
+- Migration `014_client_notes.sql` criada: `conversation_threads.notes TEXT`.
+- Tool `atualizar_notas_cliente` implementada em `tools.ts` (limite de 500 chars).
+- `customer-memory.ts` passou a ler `notes` e inserir no prompt como:
+  - `Nota do atendimento anterior: ...`
+
+### 3) Chamados Sofia persistidos no Supabase
+
+- Migration `015_sofia_tickets.sql` criada (tabela `sofia_tickets` + índices).
+- `abrir_chamado` agora persiste em `sofia_tickets` (best-effort, sem bloquear fluxo).
+- Nova tool `listar_chamados_sofia` retorna chamados por `contrato + tenant_id + status`.
+- `listar_chamados` (SGP) segue stub por compatibilidade; comentário atualizado em `integrations/sgp/tickets.ts`.
+- `prompt.ts` reforça regra: antes de abrir chamado técnico, consultar `listar_chamados_sofia`.
+
+### 4) Atualização comercial de planos
+
+- `company-data.ts` atualizado para:
+  - 400 Mega (R$ 79,99)
+  - 500 Mega (R$ 89,99, plano popular)
+  - 700 Mega (R$ 109,99)
+- `BUSINESS_INFO.installationFee` alterada para `50`.
+- Frontend público (`src/pages/Home.tsx` e `src/pages/Plans.tsx`) atualizado para refletir os novos planos e taxa de instalação.
 
 ---
 
@@ -352,22 +397,22 @@ BACKEND_URL=https://salesnet-production.up.railway.app
 
 ### 1. Classificador de sessão baseado em LLM
 
-**Hoje:** regex puro em `session-classifier.ts`.
+**Status atual:** modelo híbrido já em produção no código: regex determinístico + desambiguação por LLM leve em casos ambíguos.
 
-**Erros reais:**
-- "Tá um pouco lento às vezes" → `default` (deveria ser `support`)
-- "Queria entender meu plano" → `prospect` (PROSPECT_RE bate em "plano"; deveria ser `default`)
-- "Tenho uma dívida mas quero cancelar" → `billing`, nunca resolve o cancelamento
+**Melhorias já aplicadas:**
+- "Queria entender meu plano" não cai mais em `prospect` automaticamente.
+- Quando `buscar_cliente` falha, mensagens genéricas voltam para `default` (não `prospect` por padrão).
+- Desambiguação por LLM registra `confidence/reason` e tem fallback seguro.
 
-**Direção:** classificação em 2 etapas — regex para `complex` e `billing` óbvio (zero custo), LLM leve para o resto. Ou: incluir classificação como parte do first turn do LLM (zero latência extra, resultado dentro do tool-calling).
+**Próximo passo:** incluir sinais de sessão anterior no classificador (últimos modos) para reduzir troca de contexto em conversas curtas de follow-up.
 
 ### 2. Histórico real de chamados
 
-**Hoje:** `listar_chamados` retorna `[]`. SGP não expõe o endpoint com token auth.
+**Status atual:** `listar_chamados` (SGP) continua retornando `[]` por limitação de endpoint, mas agora existe `listar_chamados_sofia` funcional via Supabase.
 
-**Impacto:** Sofia pode abrir chamado duplicado; não sabe que problema era recorrente.
+**Como funciona hoje:** `abrir_chamado` persiste cada abertura em `sofia_tickets` e `listar_chamados_sofia` consulta por `contrato + tenant_id + status` para evitar duplicidade e informar protocolo/status ao cliente.
 
-**Direção:** persistir ID de chamados criados via Sofia em `outage_reports` (tabela já existe) ou em nova tabela. Criar tool `listar_chamados_sofia` que lê esse dado local.
+**Próximo passo:** ampliar heurística de duplicidade (ex.: comparar similaridade de descrição/tipo e janela de tempo) antes de abrir novo chamado.
 
 ### 3. Suporte a áudio e imagem
 
@@ -396,12 +441,11 @@ BACKEND_URL=https://salesnet-production.up.railway.app
 
 ### 6. Memória semântica cross-session
 
-**Hoje:** `customer-memory.ts` dá sinais binários. Não preserva contexto qualitativo:
-- "Pediu upgrade semana passada e ainda não foi atendido"
-- "Vai se mudar para bairro sem cobertura em 30 dias"
-- "Tem dificuldade de cobertura Wi-Fi no quarto"
+**Status atual:** parcialmente implementado.
+- Já existe `notes` em `conversation_threads` e tool `atualizar_notas_cliente`.
+- `customer-memory.ts` já injeta nota prévia no contexto do prompt.
 
-**Direção:** campo `notes TEXT` em `conversation_threads`, atualizado pela Sofia via tool `atualizar_notas_cliente` ao encerrar sessões relevantes (máx. 500 chars). Lido por `customer-memory.ts` e inserido no prompt.
+**Próximo passo:** definir heurística de atualização/expiração das notas para evitar acúmulo de contexto obsoleto.
 
 ### 7. Cobertura dinâmica via SGP
 

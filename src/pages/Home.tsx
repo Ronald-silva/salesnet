@@ -53,7 +53,7 @@ const Home = () => {
                 Velocidade Ilimitada
               </h3>
               <p className="text-sm text-muted-foreground">
-                Planos de 20 a 100 Mbps para todas as necessidades
+                Planos de 400 a 700 Mega para todas as necessidades
               </p>
             </div>
 
@@ -97,73 +97,56 @@ const Home = () => {
             Planos Populares
           </h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            {/* 20 Mbps */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {/* 400 Mega */}
             <div className="bg-background rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all">
               <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">20 Mbps</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 50,00</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 60,00</p>
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">400 Mega</h3>
+                <div className="text-3xl font-bold text-accent mb-1">R$ 79,99</div>
+                <p className="text-sm text-muted-foreground line-through">R$ 89,99</p>
                 <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
               </div>
               <ul className="space-y-2 mb-6">
                 <li className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Wifi className="h-4 w-4 text-accent" />
-                  Navegação básica
+                  Streaming e home office
                 </li>
               </ul>
               <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
 
-            {/* 30 Mbps */}
-            <div className="bg-background rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all">
-              <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">30 Mbps</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 60,00</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 70,00</p>
-                <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
-              </div>
-              <ul className="space-y-2 mb-6">
-                <li className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Wifi className="h-4 w-4 text-accent" />
-                  Streaming e redes sociais
-                </li>
-              </ul>
-              <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
-            </div>
-
-            {/* 50 Mbps - Popular */}
+            {/* 500 Mega - Popular */}
             <div className="bg-background rounded-lg p-6 border-2 border-accent hover:shadow-card-hover transition-all relative">
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1 bg-accent text-accent-foreground rounded-full text-sm font-bold">
                 Mais Popular
               </div>
               <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">50 Mbps</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 70,00</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 80,00</p>
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">500 Mega</h3>
+                <div className="text-3xl font-bold text-accent mb-1">R$ 89,99</div>
+                <p className="text-sm text-muted-foreground line-through">R$ 99,99</p>
                 <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
               </div>
               <ul className="space-y-2 mb-6">
                 <li className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Wifi className="h-4 w-4 text-accent" />
-                  Streaming HD e jogos
+                  Streaming HD, jogos e família
                 </li>
               </ul>
               <Button variant="cta" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>
             </div>
 
-            {/* 100 Mbps */}
+            {/* 700 Mega */}
             <div className="bg-background rounded-lg p-6 border border-accent/20 hover:shadow-card-hover transition-all">
               <div className="text-center mb-6">
-                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">100 Mbps</h3>
-                <div className="text-3xl font-bold text-accent mb-1">R$ 90,00</div>
-                <p className="text-sm text-muted-foreground line-through">R$ 100,00</p>
+                <h3 className="text-2xl font-heading font-bold text-foreground mb-2">700 Mega</h3>
+                <div className="text-3xl font-bold text-accent mb-1">R$ 109,99</div>
+                <p className="text-sm text-muted-foreground line-through">R$ 119,99</p>
                 <p className="text-xs text-accent mt-1">Pagando até o vencimento</p>
               </div>
               <ul className="space-y-2 mb-6">
                 <li className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Wifi className="h-4 w-4 text-accent" />
-                  Home office e streaming 4K
+                  4K, gaming e vários dispositivos
                 </li>
               </ul>
               <Button variant="outline" className="w-full" onClick={() => setIsOpen(true)}>Contratar via Bot</Button>

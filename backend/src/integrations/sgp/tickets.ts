@@ -12,6 +12,7 @@ export async function openTicket(
 }
 
 export async function getCustomerTickets(_contratoId: string, _limit = 5): Promise<Ticket[]> {
+  // Stub mantido por compatibilidade; para listagem funcional, usar a tool listar_chamados_sofia (Supabase).
   return [];
 }
 

@@ -1,8 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import axios from 'axios';
 import { env } from '../config/env';
 
-const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+let genai: GoogleGenerativeAI | null = null;
+
+function getGeminiClient(): GoogleGenerativeAI {
+  if (!env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY not configured');
+  if (!genai) genai = new GoogleGenerativeAI(env.GEMINI_API_KEY);
+  return genai;
+}
 
 export interface PaymentProofResult {
   isPaymentProof: boolean;
@@ -13,38 +19,40 @@ export interface PaymentProofResult {
 }
 
 export async function analyzeImage(imageUrl: string): Promise<PaymentProofResult> {
-  try {
-    const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 10_000 });
-    const base64 = Buffer.from(response.data as ArrayBuffer).toString('base64');
-    const contentType = (response.headers['content-type'] as string | undefined) ?? 'image/jpeg';
-    const mediaType = contentType.split(';')[0]?.trim() as
-      | 'image/jpeg'
-      | 'image/png'
-      | 'image/gif'
-      | 'image/webp';
+  if (!env.GEMINI_API_KEY) {
+    console.warn('[vision] GEMINI_API_KEY not configured — skipping image analysis');
+    return { isPaymentProof: false, confidence: 'low' };
+  }
 
-    const result = await anthropic.messages.create({
-      model: env.ANTHROPIC_MODEL,
-      max_tokens: 256,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: mediaType, data: base64 },
-            },
-            {
-              type: 'text',
-              text: 'Esta imagem é um comprovante de pagamento ou transferência bancária? Se sim, extraia: valor em reais, data, nome do beneficiário. Responda APENAS com JSON no formato: {"isPaymentProof":bool,"amount":number|null,"date":"string|null","beneficiary":"string|null","confidence":"high"|"low"}. Sem texto fora do JSON.',
-            },
-          ],
-        },
-      ],
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 10_000,
+      headers: { apikey: env.EVOLUTION_INSTANCE_TOKEN },
     });
 
-    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
-    return JSON.parse(text) as PaymentProofResult;
+    const base64 = Buffer.from(response.data).toString('base64');
+    const mimeType = (response.headers['content-type'] as string) ?? 'image/jpeg';
+
+    const model = getGeminiClient().getGenerativeModel({
+      model: 'gemini-2.0-flash',
+    });
+
+    const result = await model.generateContent([
+      {
+        inlineData: { data: base64, mimeType },
+      },
+      'Esta imagem é um comprovante de pagamento ou transferência bancária? ' +
+        'Se sim, extraia: valor em reais, data, nome do beneficiário. ' +
+        'Responda APENAS com JSON no formato: ' +
+        '{"isPaymentProof":bool,"amount":number|null,"date":"string|null",' +
+        '"beneficiary":"string|null","confidence":"high"|"low"}. ' +
+        'Sem texto fora do JSON.',
+    ]);
+
+    const text = result.response.text().trim();
+    const clean = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(clean) as PaymentProofResult;
   } catch (err) {
     console.warn('[vision] image analysis failed:', err);
     return { isPaymentProof: false, confidence: 'low' };

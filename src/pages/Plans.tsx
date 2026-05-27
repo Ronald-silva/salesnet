@@ -8,33 +8,26 @@ const Plans = () => {
   const { setIsOpen } = useAIBot();
   const plans = [
     {
-      name: "20 Mbps",
-      speed: 20,
-      price: "60,00",
-      discountPrice: "50,00",
-      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte IA 24h", "Instalação grátis", "Sem fidelidade"],
+      name: "400 Mega",
+      speed: 400,
+      price: "89,99",
+      discountPrice: "79,99",
+      features: ["Fibra Óptica Ilimitado", "WiFi incluso", "Suporte IA 24h", "Taxa de instalação R$ 50", "Streaming e home office"],
     },
     {
-      name: "30 Mbps",
-      speed: 30,
-      price: "70,00",
-      discountPrice: "60,00",
-      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte IA 24h", "Instalação grátis", "Sem fidelidade"],
-    },
-    {
-      name: "50 Mbps",
-      speed: 50,
-      price: "80,00",
-      discountPrice: "70,00",
-      features: ["FTTX Ilimitado", "WiFi incluso", "Suporte prioritário", "Instalação grátis", "Streaming HD"],
+      name: "500 Mega",
+      speed: 500,
+      price: "99,99",
+      discountPrice: "89,99",
+      features: ["Fibra Óptica Ilimitado", "WiFi incluso", "Suporte prioritário", "Taxa de instalação R$ 50", "HD, jogos e família"],
       popular: true,
     },
     {
-      name: "100 Mbps",
-      speed: 100,
-      price: "100,00",
-      discountPrice: "90,00",
-      features: ["FTTX Ilimitado", "WiFi premium", "Suporte VIP", "Instalação grátis", "Home office e 4K"],
+      name: "700 Mega",
+      speed: 700,
+      price: "119,99",
+      discountPrice: "109,99",
+      features: ["Fibra Óptica Ilimitado", "WiFi premium", "Suporte VIP", "Taxa de instalação R$ 50", "4K, gaming e vários dispositivos"],
     },
   ];
 
@@ -62,7 +55,7 @@ const Plans = () => {
           <div className="text-center mb-8">
             <p className="text-lg text-accent font-semibold">💰 Desconto de R$ 10,00 pagando até o vencimento!</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {plans.map((plan, i) => (
               <div key={i} className={`bg-card rounded-lg p-8 ${plan.popular ? 'border-2 border-accent' : 'border border-accent/20'} relative hover:shadow-card-hover transition-all`}>
                 {plan.popular && (

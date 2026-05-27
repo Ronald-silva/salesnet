@@ -13,10 +13,9 @@ export interface Plan {
 }
 
 export const PLANS: Plan[] = [
-  { name: 'Basic', downloadMbps: 20,  uploadMbps: 10,  priceMonthly: 50  },
-  { name: 'Turbo', downloadMbps: 50,  uploadMbps: 25,  priceMonthly: 70  },
-  { name: 'Ultra', downloadMbps: 100, uploadMbps: 50,  priceMonthly: 90,  popular: true },
-  { name: 'Giga',  downloadMbps: 300, uploadMbps: 150, priceMonthly: 130 },
+  { name: '400 Mega', downloadMbps: 400, uploadMbps: 200, priceMonthly: 79.99 },
+  { name: '500 Mega', downloadMbps: 500, uploadMbps: 250, priceMonthly: 89.99, popular: true },
+  { name: '700 Mega', downloadMbps: 700, uploadMbps: 350, priceMonthly: 109.99 },
 ];
 
 export const COVERED_NEIGHBORHOODS: string[] = [
@@ -29,11 +28,11 @@ export const COVERED_NEIGHBORHOODS: string[] = [
 
 export const BUSINESS_INFO = {
   city:                   'Fortaleza/CE',
-  installationFee:        0,
+  installationFee:        50,
   loyaltyMonths:          12,
   installationDaysMax:    3,
   paymentMethods:         ['PIX', 'boleto'] as string[],
   earlyPaymentDiscount:   10,
   supportHours:           '24h via WhatsApp',
-  popularPlan:            'Ultra 100 Mbps',
+  popularPlan:            '500 Mega',
 };
