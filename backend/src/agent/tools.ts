@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
 import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
-import { COVERED_NEIGHBORHOODS as COVERED_LIST } from './company-data';
+import { COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
 
 // Derived lookup map for the verificar_cobertura tool (name → coverage %)
 const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
@@ -151,8 +151,16 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'get_planos_disponiveis',
+    description: 'Retorna os planos de internet da SalesNet com velocidades e preços. Use SEMPRE que o cliente perguntar sobre planos, preços ou velocidades. NUNCA use verificar_cobertura para responder sobre planos.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {},
+    },
+  },
+  {
     name: 'verificar_cobertura',
-    description: 'Verifica cobertura de fibra óptica da SalesNet. Passe neighborhood="*" para listar TODOS os bairros cobertos. Sempre chame esta tool antes de responder qualquer pergunta sobre cobertura ou bairros atendidos.',
+    description: 'Verifica cobertura de fibra óptica da SalesNet. Passe neighborhood="*" para listar TODOS os bairros cobertos. Sempre chame esta tool antes de responder qualquer pergunta sobre cobertura ou bairros atendidos. NÃO use esta tool para responder sobre planos ou preços.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -400,6 +408,17 @@ export async function executeTool(
       const count = (data ?? []).length;
       return { outage: count >= 2, count, bairro };
     }
+
+    case 'get_planos_disponiveis':
+      return {
+        plans: PLANS.map((p) => ({
+          nome: p.name,
+          velocidadeDown: p.downloadMbps,
+          velocidadeUp: p.uploadMbps,
+          preco: p.priceMonthly,
+          popular: p.popular ?? false,
+        })),
+      };
 
     case 'registrar_negociacao': {
       const { error } = await supabase.from('billing_notifications').insert({
