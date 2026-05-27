@@ -1,4 +1,4 @@
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request, Response } from 'express';
 
 // TODO: migrate to RedisStore when Redis queue is implemented
@@ -9,12 +9,14 @@ export const webhookRateLimiter = rateLimit({
   max: 300,
   keyGenerator: (req: Request) => {
     const instanceName = req.params['instanceName'] ?? 'unknown';
-    const ip = (req.ip ?? req.socket.remoteAddress ?? 'unknown');
+    const rawIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const ip = ipKeyGenerator(rawIp);
     return `${ip}:${instanceName}`;
   },
   handler: (req: Request, res: Response) => {
     const instanceName = req.params['instanceName'] ?? 'unknown';
-    const ip = (req.ip ?? req.socket.remoteAddress ?? 'unknown');
+    const rawIp = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    const ip = ipKeyGenerator(rawIp);
     console.warn(`[rate-limit] webhook blocked — ip=${ip} instance=${instanceName}`);
     res.status(429).json({ error: 'rate_limit_exceeded' });
   },
