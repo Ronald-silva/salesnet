@@ -149,4 +149,18 @@ export const adminApi = {
     request<{ connected: boolean; state: string; phoneNumber?: string }>('/whatsapp/status'),
   getWhatsAppQR: () =>
     request<{ qrCode: string }>('/whatsapp/qr'),
+  getRoiReport: (days: number) =>
+    request<RoiReport>(`/reports/roi?days=${days}`),
 };
+
+export interface RoiReport {
+  period_days: number;
+  taxa_resolucao_sem_humano: number;
+  tempo_medio_resposta_ms: number;
+  sessoes_por_modo: Record<string, number>;
+  pix_gerados: number;
+  leads_qualificados: number;
+  chamados_abertos: number;
+  nps_medio: number | null;
+  nps_total_respostas: number;
+}

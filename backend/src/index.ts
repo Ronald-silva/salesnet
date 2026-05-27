@@ -11,6 +11,7 @@ import { authRouter } from './routes/auth';
 import { clientRouter } from './routes/client';
 import { adminRouter } from './routes/admin';
 import { adminInstancesRouter } from './routes/admin-instances';
+import { reportsRouter } from './routes/reports';
 import { adminAuthMiddleware } from './middleware/adminAuth';
 import { webhookRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import cron from 'node-cron';
@@ -65,6 +66,7 @@ app.use('/api/auth', apiRateLimiter, authRouter);
 app.use('/api/client', apiRateLimiter, clientRouter);
 app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);
 app.use('/api/admin/instances', adminInstancesRouter);
+app.use('/api/admin/reports', apiRateLimiter, reportsRouter);
 app.use('/api/admin', apiRateLimiter, adminRouter);
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────

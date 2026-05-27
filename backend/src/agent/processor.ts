@@ -251,6 +251,7 @@ function resolveTieredRouting(message: string): { provider: Provider; options: R
 export async function processMessage(phone: string, message: string): Promise<void> {
   if (await isHumanMode(phone)) return;
 
+  const startMs = Date.now();
   const clean = sanitizeUserInput(message);
 
   // ── NPS: captura resposta se pergunta estava pendente ────────────────────────
@@ -417,6 +418,7 @@ export async function processMessage(phone: string, message: string): Promise<vo
       session_mode: sessionMode,
       tool_calls: result.toolCallLog,
       response:   finalText,
+      processing_ms: Date.now() - startMs,
     });
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);

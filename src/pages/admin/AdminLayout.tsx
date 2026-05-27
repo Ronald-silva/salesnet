@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { MessageSquare, Users, Megaphone, DollarSign, Wifi, Settings, LogOut, Activity, AlertTriangle } from 'lucide-react';
+import { MessageSquare, Users, Megaphone, DollarSign, Wifi, Settings, LogOut, Activity, AlertTriangle, BarChart2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAdminUser, clearAdminSession } from '@/lib/adminAuth';
 
@@ -11,6 +11,7 @@ const items = [
   { to: '/admin/rede', label: 'Rede', icon: Wifi },
   { to: '/admin/metricas', label: 'Métricas', icon: Activity },
   { to: '/admin/churn-risks', label: 'Churn Risks', icon: AlertTriangle },
+  { to: '/admin/relatorio-roi', label: 'Relatório ROI', icon: BarChart2 },
   { to: '/admin/configuracoes', label: 'Configurações', icon: Settings },
 ];
 
