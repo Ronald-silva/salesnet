@@ -24,6 +24,9 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
   const instanceName = String(req.params['instanceName']);
   const event = (req.body as { event?: string })?.event ?? 'unknown';
   console.log(`[webhook] ▶ ${instanceName} event=${event}`);
+  if (event === 'Message') {
+    console.log('[webhook] raw Message payload:', JSON.stringify(req.body, null, 2));
+  }
 
   // Responder 200 imediatamente (Evolution precisa de resposta rápida)
   res.status(200).json({ ok: true });
