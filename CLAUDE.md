@@ -1,14 +1,16 @@
-# CLAUDE.md — Contexto técnico para IA
+# CLAUDE.md — Guia técnico para assistentes de IA
 
-Este arquivo é lido automaticamente por assistentes de IA (Claude Code, Cursor, etc.) ao entrar no repositório. Contém decisões de arquitetura, comportamentos não óbvios e regras implícitas do negócio que não estão no README.
+Este arquivo é lido automaticamente por Claude Code, Cursor e outros assistentes. Contém as decisões de arquitetura, comportamentos não-óbvios, armadilhas conhecidas e o mapa real do sistema — o que não está visível só lendo o código.
+
+**Objetivo deste documento:** dar contexto suficiente para uma IA especialista em agentes conversacionais identificar o que falta para tornar a Sofia a melhor agente de atendimento ISP via WhatsApp do mercado.
 
 ---
 
 ## O que é este projeto
 
-**SalesNet Telecom** é um provedor de internet fibra óptica em Fortaleza/CE. Esta plataforma é o sistema operacional da empresa: atendimento via WhatsApp (agente IA Sofia), cobrança automática, portal do cliente e painel administrativo.
+**SalesNet Telecom** — provedor de internet fibra óptica em Fortaleza/CE. Esta plataforma é o sistema operacional da empresa: atendimento via WhatsApp (agente IA Sofia), cobrança automática, portal do cliente e painel administrativo.
 
-O repositório é um **monorepo**:
+Monorepo:
 - Raiz `./` → frontend React (Vite) — deploy no **Vercel** (`salesnet-green.vercel.app`)
 - `backend/` → API Node.js + agente IA + automações — deploy no **Railway** (`salesnet-production.up.railway.app`)
 
@@ -16,19 +18,62 @@ O repositório é um **monorepo**:
 
 ## Regras de desenvolvimento
 
-- **TypeScript estrito** — nunca use `any`, prefira type assertions explícitas com `unknown` intermediário
-- **Sem comentários de código** salvo para casos não óbvios (workarounds, invariantes escondidas)
-- **Sem abstrações prematuras** — só extraia helpers quando o trecho repetir 3+ vezes
-- **Commits em português** não — use inglês no estilo Conventional Commits (`feat:`, `fix:`, `docs:`)
-- Antes de qualquer mudança no backend, rode `npx tsc --noEmit -p backend/tsconfig.json`
+- **TypeScript estrito** — nunca use `any`. Use `unknown` como intermediário em type assertions
+- **Sem comentários óbvios** — comente apenas WHY não-óbvio (workaround, invariante escondida)
+- **Sem abstrações prematuras** — 3+ repetições antes de extrair helper
+- **Commits em inglês** — Conventional Commits (`feat:`, `fix:`, `docs:`)
+- **Antes de qualquer mudança no backend:** `npx tsc --noEmit -p backend/tsconfig.json`
 
 ---
 
-## SGP TSMX — Comportamentos críticos da API
+## Arquitetura do agente Sofia
 
-> Se você não ler esta seção, vai quebrar a integração.
+### Ordem exata de execução em `processMessage(phone, message)`
 
-### Autenticação e formato
+```
+1.  isHumanMode(phone)              → abandona silenciosamente se humano ativo
+2.  startMs = Date.now()            → timer para processing_ms
+3.  sanitizeUserInput(message)      → trunca 2000 chars, remove 15 padrões injection PT+EN
+4.  getPendingNps(phone)            → verifica se NPS está pendente para este número
+    4a. NPS não enviado → cancela NPS, continua
+    4b. NPS enviado + resposta numérica → salva, agradece, encerra
+    4c. NPS enviado + resposta não-numérica → descarta NPS, continua
+5.  quickReply(clean, phone)        → FAQ sem LLM
+    5a. plans_list + cliente existente → retorna null (passa para LLM)
+    5b. qualquer outro match → retorna string, salva histórico, envia, encerra
+6.  saveMessage(phone, 'user', clean)
+7.  getThread(phone)                → histórico de conversa do Supabase
+8.  [parallel] buscar_cliente(phone) + getCustomerInsights(phone, tenantId)
+9.  get_fatura_atual(customerId)    → pré-executado se cliente existe (best-effort, não joga)
+10. verificar_cobertura('*')        → pré-executado se mensagem tem keyword de bairro
+11. classifySession(message, customerData, invoiceStatus)
+12. classifyMessageComplexity(message)
+13. monta systemWithContext:
+      getFortalezaContext()          ← hora local (UTC-3)
+      + SYSTEM_PROMPT
+      + "Contexto do cliente atual: telefone, modo, dados JSON (sem senha/login)"
+      + getXxxModeContext()          ← bloco de contexto por modo
+      + coverageContext              ← se relevante
+      + buildInsightsContext()       ← avisos baseados no histórico
+14. resolveTieredRouting(complexity, sessionMode)
+15. runLLMFlow(provider, history, systemWithContext, phone, initialToolLog, options)
+    └── loop tool-calling até cap do tier
+16. shouldSendNps(phone, tenantId)  ← consultado ANTES do insert (reflete sessão anterior)
+    scheduleNps(...)                ← setTimeout de 30min em memória (não persiste no banco)
+17. supabase.interaction_logs.insert({ phone, session_mode, tool_calls, response, processing_ms })
+```
+
+**Ponto crítico:** `shouldSendNps` é chamado ANTES do insert, portanto a query para "última sessão" ainda verifica a sessão anterior. Isso é intencional — evita enviar NPS na mesma sessão que acionou o check.
+
+### Dados sensíveis removidos do prompt
+
+`safeCustomerData` no processor.ts remove `contratoCentralSenha` e `contratoCentralLogin` antes de fazer `JSON.stringify` para o system prompt. Nunca remova esse filtro.
+
+---
+
+## SGP TSMX — Comportamentos críticos
+
+### Formato das chamadas
 
 O SGP **não usa REST/JSON**. Toda chamada é:
 ```
@@ -38,53 +83,50 @@ Content-Type: application/x-www-form-urlencoded
 app=Ronald&token=<uuid>&<params>
 ```
 
-O helper `systemParams()` em `backend/src/integrations/sgp/client.ts` já preenche `app` e `token` automaticamente. **Nunca chame o `sgpClient` diretamente sem usar `systemParams()`.**
+O helper `systemParams()` em `backend/src/integrations/sgp/client.ts` preenche `app` e `token` automaticamente.
 
 ```typescript
 // CORRETO
 const body = systemParams({ contrato: contratoId, status: '1' });
 const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
 
-// ERRADO — vai retornar 401
+// ERRADO — retorna 401
 const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contratoId });
 ```
 
-### Endpoints reais (confirmados)
+### Endpoints reais (confirmados em produção)
 
 | Operação | Endpoint | Parâmetros chave |
 |----------|----------|-----------------|
-| Buscar cliente por telefone | `POST /api/ura/consultacliente/` | `telefone` (sem +55, sem 0) |
+| Buscar cliente por telefone | `POST /api/ura/consultacliente/` | `telefone` (sem +55) |
 | Buscar cliente por contrato | `POST /api/ura/consultacliente/` | `contrato` |
 | Listar faturas | `POST /api/central/titulos/` | `contrato`, `status` (1=aberto), `limit` |
 | Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body |
 | Abrir chamado | `POST /api/central/chamado/` | `contrato` |
 
-### Stubs intencionais (limitação da API)
-
-Estas funções **retornam valores fixos por design** — a API SGP não suporta essas operações:
-
-```typescript
-getOverdueCustomers()     // retorna [] — não há endpoint bulk
-getCustomersDueInDays()   // retorna [] — não há endpoint bulk
-getCustomerTickets()      // retorna [] — não disponível com token auth
-suspendCustomer()         // retorna stub — endpoint não exposto
-reactivateCustomer()      // retorna stub — endpoint não exposto
-scheduleVisit()           // retorna stub — agendamento via Sofia/Supabase, não SGP
-```
-
-Não tente "corrigir" essas funções chamando outros endpoints do SGP — eles não existem.
-
 ### Normalização de telefone
 
-O SGP recebe telefone **sem** código de país e **sem** 9 inicial em alguns casos:
-- `getCustomerByPhone('+5585991993833')` → passa `'85991993833'` para a API (strip do `55`)
-- Isso está implementado em `customers.ts` — não duplique a lógica
+`getCustomerByPhone('+5585991993833')` → passa `'85991993833'` para a API (strip do `55`). Lógica em `customers.ts`. Não duplique.
+
+### Stubs intencionais — esses endpoints não existem no SGP
+
+```typescript
+getOverdueCustomers()     // retorna [] — sem endpoint bulk
+getCustomersDueInDays()   // retorna [] — sem endpoint bulk
+getCustomerTickets()      // retorna [] — sem token auth
+suspendCustomer()         // stub — endpoint não exposto
+reactivateCustomer()      // stub — endpoint não exposto
+scheduleVisit()           // SGP retorna stub; persiste em scheduled_visits no Supabase
+listar_chamados (tool)    // retorna [] — mesma limitação
+```
+
+Não tente "corrigir" essas funções chamando outros endpoints — eles não existem.
 
 ---
 
-## Evolution Go — Comportamentos críticos do webhook
+## Evolution Go — Comportamentos críticos
 
-### Estrutura real do payload de mensagem (confirmada em produção)
+### Estrutura real do payload de webhook (confirmada em produção)
 
 ```json
 {
@@ -109,100 +151,122 @@ O SGP recebe telefone **sem** código de país e **sem** 9 inicial em alguns cas
 }
 ```
 
-**Atenção:** os campos de metadados ficam em `data.Info`, não direto em `data`. O campo `IsFromMe` (não `FromMe`) indica se foi o bot que enviou.
+Metadados em `data.Info`, não direto em `data`. Campo `IsFromMe` (não `FromMe`). O parser tem fallback para formato legado.
 
-O parser em `evolution-go.ts` já lida com isso e também tem fallback para o formato antigo (campos direto em `data`), para compatibilidade com diferentes versões do Evolution Go.
+### Dois níveis de autenticação
 
-### Autenticação da instância
+- **Admin (global):** header `apikey: <EVOLUTION_API_KEY>` — criar/deletar instâncias
+- **Instância:** header `apikey: <EVOLUTION_INSTANCE_TOKEN>` — enviar mensagens
 
-O Evolution Go usa **dois níveis de autenticação**:
-- **Admin (global)**: header `apikey: <EVOLUTION_API_KEY>` — para criar/deletar instâncias
-- **Instância**: header `apikey: <EVOLUTION_INSTANCE_TOKEN>` — para enviar mensagens e conectar
-
-O `instanceHttp(name)` em `evolution-go.ts` resolve automaticamente qual token usar com base no cache interno.
+`instanceHttp(name)` em `evolution-go.ts` resolve qual token usar automaticamente.
 
 ### Re-registro de webhook no startup
 
-O Evolution Go **perde a configuração de webhook** quando reinicia. O `bootstrap.ts` chama `connectInstance()` a cada startup do backend para garantir que o webhook está registrado. Não remova essa chamada.
+O Evolution Go **perde a config de webhook quando reinicia**. `bootstrap.ts` chama `connectInstance()` a cada startup do backend. **Nunca remova essa chamada.**
 
 ---
 
-## Agente Sofia — Arquitetura do processamento
+## Módulo NPS (`nps-flow.ts`)
 
-### Fluxo por mensagem (ordem exata de execução)
+### Lógica de envio
 
-```
-1.  isHumanMode(phone)          → descarta silenciosamente se atendente humano ativo
-2.  sanitizeUserInput(message)  → trunca 2000 chars, remove 15 padrões de injection PT+EN
-3.  quickReply(clean)           → responde FAQ puro SEM LLM (planos, cobertura, instalação...)
-                                   se retornar string: salva histórico + loga + envia + encerra
-4.  saveMessage(phone, 'user')  → persiste input limpo no Supabase
-5.  getThread(phone)            → carrega histórico da conversa
-6.  executeTool('buscar_cliente', { phone })   → pré-executado fora do loop LLM
-7.  executeTool('get_fatura_atual', { id })    → pré-executado se cliente existe (best-effort)
-8.  [condicional] executeTool('verificar_cobertura', { neighborhood: '*' })
-                                → pré-executado se mensagem contém keyword de bairro/cobertura
-9.  classifySession()           → modo: billing | support | commercial | prospect | default
-10. classifyMessageComplexity() → tier: simple | intermediate | complex
-11. monta systemWithContext     → SYSTEM_PROMPT + tempo Fortaleza + dados cliente + modo ativo
-12. resolveTieredRouting()      → provider + limites de tokens e tool rounds
-13. runLLMFlow()                → loop tool-calling até 10 rodadas (ou cap do tier)
-14. saveMessage('assistant') + sendText() + interaction_logs insert
-```
+`shouldSendNps(phone, tenantId): Promise<boolean>` retorna `true` somente se:
+1. Não há NPS pendente em memória para este phone
+2. Existe ao menos uma sessão anterior no `interaction_logs`
+3. A sessão anterior **não** é `prospect`
+4. A sessão anterior foi há 30min–2h (indicador de sessão encerrada recentemente)
+5. Nenhum NPS enviado para este phone nos últimos 2h (guard de deduplicação)
 
-A sanitização acontece **antes** de `saveMessage` — a versão limpa é o que fica no histórico e chega ao LLM. A função está em `backend/src/agent/sanitize.ts`.
-
-### Camada quick-reply — `quick-reply.ts`
-
-Intercepta perguntas puramente informacionais **antes de qualquer chamada ao LLM**. Lê dados de `company-data.ts`. Intents detectados por regex: `plans_list`, `coverage_list`, `coverage_check`, `faq_installation`, `faq_payment`, `faq_support`.
-
-**Limitação crítica:** o quick-reply responde sem contexto do cliente cadastrado. Cliente ativo que pergunta sobre planos recebe resposta de prospect. Para resolver isso: verificar se o cliente está cadastrado antes de acionar quick-reply (passa a ser tarefa de evolução).
-
-### Modo prospect
-
-Quando `buscar_cliente` retorna `{ error: 'Cliente não encontrado' }`, o `session-classifier` retorna `'prospect'`. Sofia segue o fluxo de vendas: pergunta nome e bairro → `verificar_cobertura` → `get_planos_disponiveis` → `registrar_interesse` → confirma que a equipe entrará em contato em 24h.
-
-### Roteamento de LLM
+### Estado em memória (não persistido no banco)
 
 ```typescript
-// complexity-router.ts — heurística regex, sem LLM extra
-'simple'       → DeepSeek (saudações, FAQ curto, ≤ 100 chars)  — tokens/rounds reduzidos
-'intermediate' → DeepSeek (suporte técnico, fatura com PIX)    — limites padrão
-'complex'      → Anthropic Claude (Procon, ação judicial, ameaças) — limites padrão
+const pendingNps = new Map<string, { sessionId, scheduledAt, sent }>()
 ```
 
-O `LLM_ROUTING_MODE=tiered` ativa este roteamento. Com `LLM_ROUTING_MODE=single` usa sempre `LLM_PROVIDER`.
+O setTimeout de 30min não sobrevive a restart do backend. Se o processo reiniciar antes dos 30min, o NPS não é enviado — isso é aceitável.
 
-### Tool get_planos_disponiveis
+### Captura da resposta
 
-- Sem parâmetros obrigatórios
-- Retorna `{ plans: [{ nome, velocidadeDown, velocidadeUp, preco, popular }] }` de `company-data.ts`
-- **Use SEMPRE para perguntas sobre planos dentro do fluxo LLM** — nunca use `verificar_cobertura` para isso
-- Regra explícita no system prompt (seção "Regras críticas") e na descrição da tool
+`parseNpsResponse(message)` aceita apenas `'1'`–`'5'` (1 dígito). Qualquer outra coisa retorna `null` e a mensagem segue para processamento normal.
 
-### Tool verificar_cobertura
+### Tabela `nps_responses`
 
-- Passe `neighborhood="*"` para **listar todos os bairros cobertos** (quando o cliente perguntar quais bairros a SalesNet atende)
-- Sofia **nunca deve listar bairros de memória** — sempre use esta tool para evitar alucinação
-- Os bairros reais são: Jardim Guanabara, Jardim Iracema, Quintino Cunha, Vila Velha, Nova Assunção
-- **NÃO use esta tool para responder sobre planos ou preços** — use `get_planos_disponiveis`
-
-### Modo humano
-
-Quando `transferir_humano` é chamada, `setHumanMode(phone, true)` é gravado no Supabase. A próxima mensagem desse telefone cai na guard `isHumanMode(phone)` em `processor.ts` e retorna imediatamente sem processar. Para reativar o bot, o admin precisa resetar o flag no Supabase.
-
-### Stubs intencionais — limitações da API SGP
-
-```typescript
-listar_chamados()     // retorna [] — endpoint não disponível com token auth
-agendar_visita()      // SGP retorna stub; agendamento real persiste no Supabase
-solicitar_upgrade()   // fila manual — sem endpoint SGP
-aplicar_cortesia()    // fila manual — sem endpoint SGP
-suspendCustomer()     // stub — endpoint não exposto no SGP TSMX
-reactivateCustomer()  // stub — endpoint não exposto no SGP TSMX
+```sql
+CREATE TABLE nps_responses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  score INTEGER CHECK (score BETWEEN 1 AND 5),
+  session_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
 ```
 
-Não tente "corrigir" essas funções chamando outros endpoints do SGP — eles não existem.
+---
+
+## Módulo de memória do cliente (`customer-memory.ts`)
+
+Enriquece o system prompt com alertas baseados em dados históricos do Supabase. Executado em paralelo com `buscar_cliente` antes do LLM.
+
+| Sinal | Condição | Aviso inserido no prompt |
+|-------|----------|--------------------------|
+| `recurring_support` | ≥ 2 sessões `support` nos últimos 30 dias | "Problemas recorrentes. Priorizar resolução, não vender." |
+| `churn_risk_active` | `conversation_threads.churn_risk = true` | "Cliente em risco de churn. Tom cuidadoso." |
+| `days_since_first_contact > 365` | thread criado há > 1 ano | "Cliente há mais de 1 ano. Tratamento preferencial." |
+
+Quando nenhum sinal é positivo, `buildInsightsContext()` retorna `''` (sem ruído no prompt).
+
+---
+
+## Camada quick-reply — comportamento preciso
+
+`quickReply(message, phone): Promise<string | null>`
+
+Para `plans_list`, chama `buscar_cliente(phone)` internamente:
+- Se cliente existe → retorna `null` (LLM responde com contexto do contrato atual)
+- Se não existe → retorna string formatada com lista de planos
+
+Para `coverage_list`, `coverage_check`, `faq_*` → responde diretamente **sem verificar se é cliente**. Limitação conhecida: cliente ativo que pergunta sobre cobertura recebe resposta de prospect.
+
+A função é `async` porque `plans_list` precisa de `buscar_cliente`.
+
+---
+
+## Session classifier — heurísticas regex
+
+`classifySession(message, customer, invoiceStatus): SessionMode`
+
+Ordem de precedência:
+1. `'error' in customer` → `'prospect'`
+2. `suspended` OU `invoiceStatus === 'overdue'` OU `BILLING_RE` → `'billing'`
+3. `isLowPlan (≤50Mbps)` AND `SPEED_COMPLAINT_RE` → `'commercial'`
+4. `SUPPORT_RE` → `'support'`
+5. `PROSPECT_RE` → `'prospect'`
+6. fallback → `'default'`
+
+**Armadilha:** "minha internet caiu, quero cancelar" → classifica como `'support'` (SUPPORT_RE bate antes). Cancelamento é tratado dentro do tool-calling pelo prompt.
+
+---
+
+## Roteamento de LLM — heurísticas regex
+
+`classifyMessageComplexity(message): ComplexityTier`
+
+1. `COMPLEX_RE` (procon, anatel, judicial...) → `'complex'` → **Anthropic**
+2. (`GREETING_RE` OU `FAQ_HINT_RE`) AND `length ≤ 100` → `'simple'` → **DeepSeek** (tokens/rounds reduzidos)
+3. else → `'intermediate'` → **DeepSeek** (limites padrão)
+
+`LLM_ROUTING_MODE=single` ignora tier, usa sempre `LLM_PROVIDER`.
+
+---
+
+## System prompt — regras críticas (não alterar sem análise)
+
+1. Para planos/preços: usar SEMPRE `get_planos_disponiveis` — nunca `verificar_cobertura`
+2. Para bairros: usar `verificar_cobertura('*')` — nunca de memória
+3. PROIBIDO asteriscos `*palavra*` — WhatsApp Web não renderiza negrito assim
+4. Máximo 3-4 parágrafos por resposta
+5. Nunca cancelamento automático — sempre `transferir_humano`
 
 ---
 
@@ -210,85 +274,154 @@ Não tente "corrigir" essas funções chamando outros endpoints do SGP — eles 
 
 | Tabela | Quem escreve | Quem lê |
 |--------|-------------|---------|
-| `conversation_threads` | `memory.ts` (msgs), `tools.ts` (churn_risk, human_mode) | `memory.ts`, `processor.ts` |
-| `interaction_logs` | `processor.ts` (ao final de cada processamento) | painel admin |
+| `conversation_threads` | `memory.ts`, `tools.ts` | `processor.ts`, `admin.ts` |
+| `interaction_logs` | `processor.ts` (inclui `processing_ms`) | `reports.ts`, `customer-memory.ts`, `nps-flow.ts` |
+| `nps_responses` | `nps-flow.ts` | `reports.ts` |
 | `whatsapp_instances` | `instance-manager.ts` | `webhook-router.ts`, `bootstrap.ts` |
-| `leads` | `tools.ts` (`registrar_interesse`) | painel admin |
-| `scheduled_visits` | `tools.ts` (`agendar_visita`) | automations (lembrete 24h antes) |
-| `outage_reports` | `tools.ts` (`abrir_chamado` técnico) | `tools.ts` (`detectar_apagao_bairro`) |
-| `billing_notifications` | automations de cobrança, `registrar_negociacao` | automations (dedup), `getHabitualLatePayerIds` |
+| `leads` | `tools.ts` (registrar_interesse) | painel admin |
+| `scheduled_visits` | `tools.ts` (agendar_visita) | automations |
+| `outage_reports` | `tools.ts` (abrir_chamado técnico) | `tools.ts` (detectar_apagao_bairro) |
+| `billing_notifications` | automações, `registrar_negociacao` | `getHabitualLatePayerIds`, automações |
 
-Para criar todas as tabelas pela primeira vez: `backend/src/agent/schema.sql`
+Migrations em `backend/src/db/migrations/` (executar em ordem):
+- `schema.sql` — tabelas base
+- `002_enable_rls.sql`
+- `003_add_session_mode_to_interaction_logs.sql`
+- `011_nps.sql` — tabela `nps_responses`
+- `012_add_processing_ms.sql` — coluna `processing_ms INTEGER` em `interaction_logs`
 
 ---
 
-## Automações — Cron jobs
+## Automações — onde vivem e quando rodam
 
-Todos os cron jobs ficam em `backend/src/automations/`. São iniciados via `startAutomations()` em `index.ts` (nunca em modo `test`).
+Todas em `backend/src/automations/`. Iniciadas via `startAutomations()` em `index.ts` (nunca em `NODE_ENV=test`).
 
-### Billing (billing-automation.ts)
+### Billing (`billing-automation.ts`)
 
-- **D-5 / D-2 proativo**: só para `getHabitualLatePayerIds()` — clientes que atrasaram ≥2 vezes nos últimos 6 meses
-- **D+3**: para todos os clientes com fatura vencida há 3 dias
-- **D+5**: aviso de suspensão
+- **D-5 / D-2 proativo:** só para `getHabitualLatePayerIds()` — clientes que atrasaram ≥ 2 vezes nos últimos 6 meses
+- **D+3:** todos com fatura vencida há 3 dias
+- **D+5:** aviso de suspensão
 
-`getHabitualLatePayerIds()` consulta `billing_notifications` no Supabase — não o SGP (que não tem endpoint bulk).
-
-### Visit reminders (visit-reminder-automation.ts)
-
-- Lembrete 24h antes da visita: lê `scheduled_visits` com `status='scheduled'` e `visit_date` = amanhã
-- Follow-up 24h após: lê `scheduled_visits` com `visit_date` = ontem, envia pergunta se resolveu
+`getHabitualLatePayerIds()` consulta `billing_notifications` no Supabase — não o SGP.
 
 ### Campanhas
 
-| Arquivo | Quando envia |
-|---------|-------------|
-| `upsell.ts` | Clientes com plano ≤ 30 Mbps sem tickets abertos |
-| `churn-risk.ts` | Clientes com `churn_risk=true` no thread |
-| `referral.ts` | Clientes ativos há > 60 dias |
-| `expansion.ts` | Prospects que perguntaram sobre bairros sem cobertura |
+| Arquivo | Condição |
+|---------|----------|
+| `upsell.ts` | Plano ≤ 30 Mbps sem tickets abertos |
+| `churn-risk.ts` | `churn_risk=true` no thread |
+| `referral.ts` | Cliente ativo > 60 dias |
+| `expansion.ts` | Prospects que consultaram bairros sem cobertura |
 
-Todas verificam `alreadySentCampaign()` antes de enviar para evitar duplicatas.
+Todas verificam `alreadySentCampaign()` antes de enviar.
 
 ---
 
 ## Variáveis de ambiente críticas
 
 ```env
-# SGP — atenção ao formato
-SGP_BASE_URL=https://salesnet.sgp.tsmx.com.br   # URL base real (não docs)
-SGP_APP_NAME=Ronald                              # nome exato do app no painel SGP
-SGP_API_TOKEN=<uuid>                             # token gerado no painel SGP
+SGP_BASE_URL=https://salesnet.sgp.tsmx.com.br
+SGP_APP_NAME=Ronald                          # nome exato no painel SGP
+SGP_API_TOKEN=<uuid>
 
-# Evolution Go — dois tokens diferentes
-EVOLUTION_API_KEY=<chave_global_admin>           # para criar/listar instâncias
-EVOLUTION_INSTANCE_TOKEN=<seu_token_de_instancia>               # para enviar mensagens
+EVOLUTION_API_KEY=<chave_global_admin>
+EVOLUTION_INSTANCE_TOKEN=<token_instancia>
 
-# Backend URL — necessário para o webhook auto-registration no startup
 BACKEND_URL=https://salesnet-production.up.railway.app
 ```
 
 ---
 
-## O que não fazer
+## Arquivos mais importantes — leia nesta ordem
 
-- **Não use `JSON.stringify` para o body das chamadas SGP** — use `URLSearchParams` + `systemParams()`
-- **Não mude a estrutura de `DomainEvent.payload`** para `message_received` — o `onIncomingMessage` espera `{ phone, body, profileName }`
-- **Não remova a chamada `connectInstance()` no bootstrap** — o Evolution Go perde o webhook no restart
-- **Não adicione bairros em `COVERED_NEIGHBORHOODS`** sem confirmar com o usuário — causar alucinação é pior que não ter o bairro
-- **Não implemente cancelamento automático de contratos** — sempre transferir para humano
-- **Não processe mensagens com `phone` ou `body` undefined** — o guard no `index.ts` já bloqueia, não remova
-- **Não remova a chamada `sanitizeUserInput()`** no início de `processMessage` — é a única defesa contra prompt injection; remover expõe o LLM a manipulação direta pelo conteúdo do WhatsApp
+1. `backend/src/agent/processor.ts` — orquestração principal
+2. `backend/src/agent/tools.ts` — 18 ferramentas + stubs documentados
+3. `backend/src/agent/prompt.ts` — personalidade e regras da Sofia
+4. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
+5. `backend/src/agent/customer-memory.ts` — insights cross-session
+6. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
+7. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
+8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks
+9. `backend/src/routes/reports.ts` — cálculo de métricas ROI
 
 ---
 
-## Arquivos mais importantes para entender o sistema
+## Gaps prioritários — briefing para melhoria da Sofia
 
-Leia nesta ordem para ter contexto completo:
+### 1. Classificador de sessão baseado em LLM
 
-1. `backend/src/agent/processor.ts` — orquestração principal
-2. `backend/src/agent/tools.ts` — todas as ações da Sofia
-3. `backend/src/agent/prompt.ts` — personalidade e regras da Sofia
-4. `backend/src/integrations/sgp/client.ts` — como se fala com o SGP
-5. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — como parsear webhooks
-6. `backend/src/automations/billing-automation.ts` — exemplo de automação
+**Hoje:** regex puro em `session-classifier.ts`.
+
+**Erros reais:**
+- "Tá um pouco lento às vezes" → `default` (deveria ser `support`)
+- "Queria entender meu plano" → `prospect` (PROSPECT_RE bate em "plano"; deveria ser `default`)
+- "Tenho uma dívida mas quero cancelar" → `billing`, nunca resolve o cancelamento
+
+**Direção:** classificação em 2 etapas — regex para `complex` e `billing` óbvio (zero custo), LLM leve para o resto. Ou: incluir classificação como parte do first turn do LLM (zero latência extra, resultado dentro do tool-calling).
+
+### 2. Histórico real de chamados
+
+**Hoje:** `listar_chamados` retorna `[]`. SGP não expõe o endpoint com token auth.
+
+**Impacto:** Sofia pode abrir chamado duplicado; não sabe que problema era recorrente.
+
+**Direção:** persistir ID de chamados criados via Sofia em `outage_reports` (tabela já existe) ou em nova tabela. Criar tool `listar_chamados_sofia` que lê esse dado local.
+
+### 3. Suporte a áudio e imagem
+
+**Hoje:** Evolution Go entrega `audioMessage`, `imageMessage`, `documentMessage` no webhook, mas o processor só processa `conversation` (texto puro).
+
+**Impacto:** >40% dos usuários WhatsApp enviam áudio. Comprovante de PIX em imagem é caso crítico (cliente manda foto → Sofia não vê → acredita que não pagou).
+
+**Direção:**
+- Áudio → Whisper API (transcrição) → texto → processamento normal
+- Imagem de pagamento → Anthropic vision para extrair valor/data/beneficiário
+- Documento PDF → parse para confirmar se é boleto da SalesNet
+
+### 4. Script de diagnóstico de velocidade
+
+**Hoje:** Sofia orienta reiniciar roteador e abre chamado se não resolver.
+
+**Impacto:** visita técnica custa ~R$80. Muitos casos resolvidos remotamente com diagnóstico melhor.
+
+**Direção:** tool `solicitar_teste_velocidade` que envia link fast.com + instrução. Tool `interpretar_resultado_velocidade` que compara com plano contratado e decide: problema do cliente (interferência, posição do roteador) vs problema da rede (abrir chamado).
+
+### 5. NPS com ação em score baixo
+
+**Hoje:** score 1-2 salvo no banco + `console.warn`. Nada mais.
+
+**Direção:** score ≤ 2 → `marcar_churn_risk` automático + enfileirar mensagem de recuperação no dia seguinte. Score 3 → soft follow-up. Score 4-5 → trigger de campanha de indicação.
+
+### 6. Memória semântica cross-session
+
+**Hoje:** `customer-memory.ts` dá sinais binários. Não preserva contexto qualitativo:
+- "Pediu upgrade semana passada e ainda não foi atendido"
+- "Vai se mudar para bairro sem cobertura em 30 dias"
+- "Tem dificuldade de cobertura Wi-Fi no quarto"
+
+**Direção:** campo `notes TEXT` em `conversation_threads`, atualizado pela Sofia via tool `atualizar_notas_cliente` ao encerrar sessões relevantes (máx. 500 chars). Lido por `customer-memory.ts` e inserido no prompt.
+
+### 7. Cobertura dinâmica via SGP
+
+**Hoje:** `COVERED_NEIGHBORHOODS` hardcoded em `company-data.ts`. Novo bairro = deploy.
+
+**Direção:** endpoint SGP para bairros cobertos (verificar disponibilidade da API), cache de 1h, fallback para array local.
+
+### 8. Quick-reply com contexto para clientes existentes
+
+**Hoje:** `coverage_list` e `coverage_check` respondem sem saber se é cliente ativo.
+
+**Direção:** para clientes existentes, passar `coverage_check` para o LLM — pode ser pergunta sobre mudança de endereço, extensão de rede, etc.
+
+---
+
+## O que NÃO fazer
+
+- **Não use `JSON.stringify` para body das chamadas SGP** — use `URLSearchParams` + `systemParams()`
+- **Não mude `DomainEvent.payload`** para `message_received` — `onIncomingMessage` espera `{ phone, body, profileName }`
+- **Não remova `connectInstance()` no bootstrap** — Evolution Go perde webhook no restart
+- **Não adicione bairros em `COVERED_NEIGHBORHOODS`** sem confirmar com o usuário
+- **Não implemente cancelamento automático** — sempre `transferir_humano`
+- **Não remova `sanitizeUserInput()`** no início de `processMessage` — única defesa contra prompt injection via WhatsApp
+- **Não processe mensagens com `phone` ou `body` undefined** — guard no `index.ts` já bloqueia, não remova
+- **Não use asteriscos para negrito no texto de resposta** — WhatsApp Web não renderiza `*palavra*` corretamente
