@@ -135,7 +135,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       type: 'object' as const,
       properties: {
         customer_id: { type: 'string', description: 'ID do contrato no SGP' },
-        new_plan:    { type: 'string', description: 'Plano desejado (ex: 50Mbps, 100Mbps, 300Mbps)' },
+        new_plan:    { type: 'string', description: 'Plano desejado (ex: 400 Mega, 500 Mega, 700 Mega)' },
       },
       required: ['customer_id', 'new_plan'],
     },
@@ -245,10 +245,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
 ];
 
-export async function markChurnRiskByPhone(phone: string): Promise<void> {
+export async function markChurnRiskByPhone(phone: string, tenantId: string): Promise<void> {
   const { error } = await supabase
     .from('conversation_threads')
-    .upsert({ phone, churn_risk: true }, { onConflict: 'phone' });
+    .upsert(
+      { phone, tenant_id: tenantId, churn_risk: true },
+      { onConflict: 'tenant_id,phone' },
+    );
   if (error) throw new Error(`Supabase upsert failed [marcar_churn_risk]: ${error.message}`);
 }
 
@@ -256,8 +259,8 @@ export async function executeTool(
   name: string,
   input: Record<string, unknown>,
   phone: string,
+  tenantId: string = env.DEFAULT_TENANT_ID,
 ): Promise<unknown> {
-  const tenantId = env.DEFAULT_TENANT_ID;
 
   switch (name) {
     case 'buscar_cliente': {
@@ -412,7 +415,7 @@ export async function executeTool(
       };
 
     case 'transferir_humano': {
-      await setHumanMode(phone, true);
+      await setHumanMode(phone, true, tenantId);
       return {
         status: 'transferred',
         message: 'Atendimento transferido para um agente humano. Aguarde, por favor.',
@@ -472,7 +475,7 @@ export async function executeTool(
     }
 
     case 'marcar_churn_risk': {
-      await markChurnRiskByPhone(phone);
+      await markChurnRiskByPhone(phone, tenantId);
       return { status: 'marked', customer_id: input.customer_id, reason: input.reason };
     }
 
@@ -521,7 +524,8 @@ export async function executeTool(
       const { error } = await supabase
         .from('conversation_threads')
         .update({ notes })
-        .eq('phone', phone);
+        .eq('phone', phone)
+        .eq('tenant_id', tenantId);
       if (error) throw new Error('Erro ao salvar nota: ' + error.message);
       return { success: true, saved_length: notes.length };
     }

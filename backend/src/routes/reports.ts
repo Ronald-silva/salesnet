@@ -24,6 +24,7 @@ reportsRouter.get('/roi', async (req, res) => {
     supabase
       .from('interaction_logs')
       .select('phone, tool_calls, session_mode, processing_ms')
+      .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .gte('created_at', since),
     supabase
       .from('nps_responses')

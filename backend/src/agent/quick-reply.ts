@@ -7,10 +7,6 @@
  *
  * Retorna null quando a mensagem não é um FAQ simples, indicando
  * que o processador deve prosseguir para o fluxo LLM completo.
- *
- * TEMPORÁRIO: só coverage_list e faq_installation estão ativos.
- * Demais intents (plans_list, coverage_check, faq_payment, faq_support)
- * retornam null até reativação gradual em produção.
  */
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
@@ -26,10 +22,18 @@ type Intent =
   | 'faq_support'
   | null;
 
+/** Perguntas sobre agendamento/status — precisam de LLM + histórico, não FAQ fixo. */
+const INSTALLATION_CONTEXT_RE =
+  /minha\s+instala|instala.{0,30}(agendad|marcad|confirmad)|agendad|amanh[aã]|hoje|tarde|manh[aã]|quero\s+(?:a\s+)?instala|preciso\s+(?:da\s+)?instala/i;
+
+/** Só FAQ genérico de taxa/prazo (sem intenção de agendar). */
+const INSTALLATION_FAQ_RE =
+  /(?:taxa|valor|quanto\s+custa).{0,25}instala|prazo.{0,20}instala|tempo\s+(?:de\s+)?instala|demora\s+(?:da\s+)?instala|quanto\s+tempo\s+demora/i;
+
 export function messageAsksForPlans(message: string): boolean {
   const m = message.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return (
-    /planos?|precos?|valor|quanto custa|velocidade|mbps|pacote|contratar|assinar|internet/.test(m) &&
+    /planos?|precos?|valor|quanto custa|velocidade|mbps|mega|pacote|contratar|assinar|internet/.test(m) &&
     !/fatura|boleto|segunda via|vencimento|pagar minha|meu plano atual|meu contrato/.test(m)
   );
 }
@@ -37,7 +41,6 @@ export function messageAsksForPlans(message: string): boolean {
 function detect(message: string): { intent: Intent; neighborhood?: string } {
   const m = message.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-  // Planos antes de cobertura — "planos disponiveis" contém "disponiv" e não é pergunta de bairro
   if (messageAsksForPlans(message)) {
     return { intent: 'plans_list' };
   }
@@ -46,7 +49,6 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
     return { intent: 'coverage_list' };
   }
 
-  // Coverage check for a specific neighborhood (not "quais bairros atendem")
   const coverageCheckMatch = m.match(
     /(?:voces?|salesnet|tem|cobre|cobertura|fibra).{0,30}(?:no|em|bairro)\s+([a-záàâãéèêíïóôõöúç\s]{3,}?)(?:\?|$|,)/i,
   );
@@ -63,7 +65,7 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
     return { intent: 'coverage_list' };
   }
 
-  if (/instala|prazo|tempo de instala|demora/.test(m)) {
+  if (!INSTALLATION_CONTEXT_RE.test(m) && INSTALLATION_FAQ_RE.test(m)) {
     return { intent: 'faq_installation' };
   }
 
@@ -79,10 +81,11 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
   return { intent: null };
 }
 
-type ActiveQuickReplyIntent = 'coverage_list' | 'faq_installation';
+type ActiveQuickReplyIntent = 'coverage_list' | 'plans_list' | 'faq_installation';
 
 const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
   'coverage_list',
+  'plans_list',
   'faq_installation',
 ]);
 
@@ -104,7 +107,7 @@ function formatPlans(): string {
     `\n\nTodos incluem roteador e suporte ${BUSINESS_INFO.supportHours}.` +
     `\nTaxa de instalação: R$ ${BUSINESS_INFO.installationFee}.` +
     `\nCanais/filmes (opcional): R$ ${BUSINESS_INFO.tvAddonMonthly}/mês.` +
-    `\n\nQuer contratar ou tem alguma dúvida sobre os planos?`
+    `\n\nQual plano te interessa ou quer iniciar a contratação?`
   );
 }
 
@@ -156,6 +159,10 @@ export async function quickReply(message: string, phone: string): Promise<string
   }
 
   switch (intent) {
+    case 'plans_list':
+      console.log('[quick-reply] plans_list → formatPlans()');
+      return formatPlans();
+
     case 'coverage_list':
       console.log('[quick-reply] coverage_list → formatCoverageList()');
       return formatCoverageList();

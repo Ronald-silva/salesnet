@@ -7,9 +7,12 @@ const COMPLEX_RE =
 
 const GREETING_RE = /^(oi|olá|ola|hey|e\s*a[ií]|bom\s+dia|boa\s+tarde|boa\s+noite)\b[!?.…\s]*$/i;
 
-/** Short FAQ-style messages (likely answerable with little context / fewer tools). */
+/** Short FAQ-style messages — sem planos/cobrança (exigem tools). */
 const FAQ_HINT_RE =
-  /\b(planos?|pre[çc]o|valor|quanto\s+custa|cobertura|bairros?|atende|hor[aá]rio|pix|fatura|2fa|segunda\s+via)\b/i;
+  /\b(hor[aá]rio|atende|2fa)\b/i;
+
+const TOOL_HEAVY_RE =
+  /\b(planos?|pre[çc]o|valor|quanto\s+custa|cobertura|bairros?|pix|fatura|segunda\s+via|mbps|mega|contratar|assinar|instala)\b/i;
 
 export function classifyMessageComplexity(message: string): ComplexityTier {
   const text = message.trim();
@@ -19,6 +22,10 @@ export function classifyMessageComplexity(message: string): ComplexityTier {
 
   if (COMPLEX_RE.test(text)) {
     return 'complex';
+  }
+
+  if (TOOL_HEAVY_RE.test(text)) {
+    return 'intermediate';
   }
 
   const short = text.length <= 100;

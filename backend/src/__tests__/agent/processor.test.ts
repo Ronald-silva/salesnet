@@ -39,11 +39,21 @@ jest.mock('../../agent/session-classifier', () => ({
   classifySession: jest.fn().mockReturnValue('default'),
 }));
 
-jest.mock('../../agent/prompt', () => ({
-  SYSTEM_PROMPT: 'test-prompt',
-  getBillingModeContext:    jest.fn().mockReturnValue(''),
-  getSupportModeContext:    jest.fn().mockReturnValue(''),
-  getCommercialModeContext: jest.fn().mockReturnValue(''),
+jest.mock('../../agent/customer-memory', () => ({
+  getCustomerInsights:   jest.fn().mockResolvedValue({ total_interactions: 0 }),
+  buildInsightsContext:  jest.fn().mockReturnValue(''),
+}));
+
+jest.mock('../../agent/skill', () => ({
+  getSkillConfig: jest.fn().mockResolvedValue({
+    tenantId: 'salesnet',
+    business: { providerName: 'Test', agentName: 'Sofia' },
+    plans: [],
+    coveredNeighborhoods: [],
+    erpCapabilities: {},
+  }),
+  buildSystemPrompt: jest.fn().mockReturnValue('test-prompt'),
+  buildModeContext:  jest.fn().mockReturnValue(''),
 }));
 
 jest.mock('../../config/anthropic', () => ({

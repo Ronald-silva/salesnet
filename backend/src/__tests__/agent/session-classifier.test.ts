@@ -38,9 +38,9 @@ describe('classifySession — commercial mode', () => {
   it('returns commercial for low-plan customer complaining about speed', () => {
     expect(classifySession('tá muito lento pra videochamada', activeCustomer, 'open')).toBe('commercial');
   });
-  it('does NOT return commercial for high-plan customer', () => {
-    const highPlan = { status: 'active', plan: { downloadMbps: 100 } };
-    expect(classifySession('tá muito lento pra videochamada', highPlan, 'open')).toBe('support');
+  it('does NOT return commercial for customer above lowest tier', () => {
+    const aboveLowest = { status: 'active', plan: { downloadMbps: 500 } };
+    expect(classifySession('tá muito lento pra videochamada', aboveLowest, 'open')).toBe('support');
   });
 });
 

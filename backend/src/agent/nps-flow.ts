@@ -36,6 +36,7 @@ export async function shouldSendNps(phone: string, tenantId: string): Promise<bo
     .from('interaction_logs')
     .select('created_at, session_mode')
     .eq('phone', phone)
+    .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -106,7 +107,7 @@ async function applyNpsScoreActions(
   score: number,
 ): Promise<void> {
   if (score <= 2) {
-    await markChurnRiskByPhone(phone);
+    await markChurnRiskByPhone(phone, tenantId);
     await scheduleMessage(phone, tenantId, RECOVERY_MESSAGE, MS_24H);
     return;
   }
@@ -163,7 +164,7 @@ export function scheduleNps(
         await sendFn(
           tenantId,
           phone,
-          'Obrigada por falar com a SalesNet! 😊\n\nDe *1 a 5*, como você avalia nosso atendimento?\n\n1 = Muito insatisfeito\n5 = Muito satisfeito',
+          'Obrigada por falar com a SalesNet!\n\nComo você avalia o atendimento de hoje? Responda só com o número:\n1 - Muito ruim\n2 - Ruim\n3 - Regular\n4 - Bom\n5 - Excelente',
         );
         current.sent = true;
       } catch (err) {

@@ -1,4 +1,8 @@
+import { PLANS } from './company-data';
+
 export type SessionMode = 'billing' | 'support' | 'commercial' | 'prospect' | 'default';
+
+const LOWEST_PLAN_DOWNLOAD_MBPS = Math.min(...PLANS.map((p) => p.downloadMbps));
 
 const BILLING_RE =
   /\b(pagar?|pagamento|fatura|boleto|pix|vencimento|vencida?|corte?|cortou|cortad[oa]|suspens[oa]|suspendid[oa]|d[eé]bito|inadimplente)\b/i;
@@ -14,8 +18,6 @@ const PROSPECT_STRONG_RE =
 
 const EXISTING_CUSTOMER_CONTEXT_RE =
   /\b(meu|minha|sou\s+cliente|j[aá]\s*sou\s+cliente|meu\s+plano|minha\s+internet|minha\s+fatura|minha\s+conta)\b/i;
-
-const COMMERCIAL_PLAN_THRESHOLD_MBPS = 50;
 
 interface CustomerLike {
   status?: string;
@@ -35,11 +37,13 @@ export function classifySession(
 
   const isSuspended = customer.status === 'suspended';
   const isOverdue = invoiceStatus === 'overdue';
-  const isLowPlan = (customer.plan?.downloadMbps ?? 999) <= COMMERCIAL_PLAN_THRESHOLD_MBPS;
+  const downloadMbps = customer.plan?.downloadMbps;
+  const isOnLowestTierPlan =
+    downloadMbps != null && downloadMbps <= LOWEST_PLAN_DOWNLOAD_MBPS;
 
   if (isSuspended || isOverdue || BILLING_RE.test(message)) return 'billing';
 
-  if (isLowPlan && SPEED_COMPLAINT_RE.test(message)) return 'commercial';
+  if (isOnLowestTierPlan && SPEED_COMPLAINT_RE.test(message)) return 'commercial';
 
   if (SUPPORT_RE.test(message)) return 'support';
 

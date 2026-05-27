@@ -69,9 +69,9 @@ if (env.SENTRY_DSN) {
 }
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────
-eventBus.onIncomingMessage(({ phone, body, messageId }) => {
+eventBus.onIncomingMessage(({ phone, body, messageId, tenantId }) => {
   if (!phone || !body) return;
-  processMessage(phone, body, messageId).catch((err: unknown) => {
+  processMessage(phone, body, { messageId, tenantId }).catch((err: unknown) => {
     console.error(`[agent] processMessage error for ${phone}:`, err);
   });
 });

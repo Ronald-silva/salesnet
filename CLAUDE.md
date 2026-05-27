@@ -362,17 +362,38 @@ BACKEND_URL=https://salesnet-production.up.railway.app
 
 ---
 
+## ISP Agent Skill
+
+O prompt da Sofia não é mais uma string estática. É gerado em runtime a partir de configuração por tenant.
+
+- **Localização:** `backend/src/agent/skill/`
+  - `types.ts` — interfaces (`ISPSkillConfig`, `ISPPlan`, `ISPBusinessInfo`, …)
+  - `config-loader.ts` — registry de tenants (`getSkillConfig`)
+  - `prompt-builder.ts` — `buildSystemPrompt(config)` e `buildModeContext(mode, config)`
+  - `index.ts` — exports públicos
+- **Integração:** `processor.ts` chama `getSkillConfig(env.DEFAULT_TENANT_ID)` + `buildSystemPrompt` / `buildModeContext`
+- **Compat:** `prompt.ts` reexporta `SYSTEM_PROMPT` e `getXxxModeContext()` delegando à skill (código legado)
+- **Dados canônicos hoje:** `company-data.ts` → `config-loader.ts` (registry `salesnet`, aliases `default`, `salesnet-default`, `test-tenant`)
+- **Override por tenant (Supabase):** coluna `tenants.settings.skill` (JSON partial `ISPSkillConfig`), merge via `getSkillConfig(tenantId)` com cache 60s — ver migration `019_tenant_skill_settings.sql`
+- **tenantId no agente:** webhook → `event.tenantId` → `processMessage(phone, body, { tenantId, messageId })` — usa instância WhatsApp correta e skill do tenant
+- **Isolamento de dados:** `conversation_threads` e `interaction_logs` escopados por `(tenant_id, phone)` — migration `020_tenant_scoped_conversations.sql` (unique composto; admin/reports filtram `DEFAULT_TENANT_ID`)
+- **Novo ISP (código):** `registerSkillConfig(tenantId, config)` ou entrada no `configRegistry`
+- **Novo ISP (só dados):** `UPDATE tenants SET settings = jsonb_set(settings, '{skill}', '...')` + planos/bairros no JSON
+
+---
+
 ## Arquivos mais importantes — leia nesta ordem
 
 1. `backend/src/agent/processor.ts` — orquestração principal
 2. `backend/src/agent/tools.ts` — 20 ferramentas + stubs documentados
-3. `backend/src/agent/prompt.ts` — personalidade e regras da Sofia
+3. `backend/src/agent/skill/` — prompt dinâmico e config por tenant (substitui prompt estático)
 4. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
 5. `backend/src/agent/customer-memory.ts` — insights cross-session
 6. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
 7. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
 8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks
 9. `backend/src/agent/vision.ts` — análise de imagens via Gemini Flash
+10. `backend/src/agent/prompt.ts` — camada de compat (delega à skill)
 
 ---
 

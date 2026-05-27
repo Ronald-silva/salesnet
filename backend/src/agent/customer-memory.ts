@@ -4,6 +4,7 @@ export interface CustomerInsights {
   total_interactions: number;
   last_session_modes: string[];
   recurring_support: boolean;
+  frequent_support_7d: boolean;
   open_negotiation: boolean;
   churn_risk_active: boolean;
   notes: string | null;
@@ -11,19 +12,22 @@ export interface CustomerInsights {
   campaigns_received: string[];
 }
 
-export async function getCustomerInsights(phone: string, _tenantId: string): Promise<CustomerInsights> {
+export async function getCustomerInsights(phone: string, tenantId: string): Promise<CustomerInsights> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const [threadResult, logsResult, negotiationsResult, bnCustomerResult] = await Promise.all([
     supabase
       .from('conversation_threads')
       .select('churn_risk, notes, created_at')
       .eq('phone', phone)
+      .eq('tenant_id', tenantId)
       .maybeSingle(),
     supabase
       .from('interaction_logs')
       .select('session_mode, created_at')
       .eq('phone', phone)
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false }),
     supabase
       .from('billing_notifications')
@@ -53,6 +57,10 @@ export async function getCustomerInsights(phone: string, _tenantId: string): Pro
     (l) => l.session_mode === 'support' && l.created_at >= thirtyDaysAgo,
   ).length;
 
+  const supportLast7Days = logs.filter(
+    (l) => l.session_mode === 'support' && l.created_at >= sevenDaysAgo,
+  ).length;
+
   const customerId = bnCustomerResult.data?.customer_id as string | undefined;
   let campaigns_received: string[] = [];
   if (customerId) {
@@ -67,6 +75,7 @@ export async function getCustomerInsights(phone: string, _tenantId: string): Pro
     total_interactions:      logs.length,
     last_session_modes,
     recurring_support:       supportInWindow >= 2,
+    frequent_support_7d:     supportLast7Days >= 3,
     open_negotiation:        (negotiationsResult.data?.length ?? 0) > 0,
     churn_risk_active:       thread?.churn_risk ?? false,
     notes:                   (thread?.notes as string | null | undefined) ?? null,
@@ -82,6 +91,14 @@ export function buildInsightsContext(insights: CustomerInsights): string {
 
   const lines: string[] = [];
 
+  if (insights.open_negotiation) {
+    lines.push(
+      'Negociação financeira em aberto — não oferecer novo acordo sem resolver o anterior.',
+    );
+  }
+  if (insights.frequent_support_7d) {
+    lines.push('Cliente com problemas técnicos frequentes recentemente.');
+  }
   if (insights.recurring_support) {
     lines.push('⚠️ Cliente com problemas recorrentes de suporte nos últimos 30 dias. Priorizar resolução, não vender.');
   }

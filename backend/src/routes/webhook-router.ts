@@ -8,6 +8,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { env } from '../config/env';
 import { instanceManager } from '../services/instance-manager';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { eventBus } from '../services/event-bus';
@@ -116,11 +117,15 @@ router.post('/', async (req: Request, res: Response) => {
     const parsed = await provider.parseWebhook(req.body, headers);
 
     if (parsed.data.fromPhone && parsed.data.body) {
-      eventBus.emitIncomingMessage({
-        phone: parsed.data.fromPhone,
-        body: parsed.data.body,
-        profileName: parsed.data.profileName,
-      });
+      eventBus.emitIncomingMessage(
+        {
+          phone: parsed.data.fromPhone,
+          body: parsed.data.body,
+          tenantId: env.DEFAULT_TENANT_ID,
+          profileName: parsed.data.profileName,
+        },
+        env.DEFAULT_TENANT_ID,
+      );
     }
   } catch (err) {
     console.error('[webhook:twilio] Error:', err);

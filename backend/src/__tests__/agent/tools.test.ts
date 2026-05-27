@@ -25,8 +25,8 @@ import { setHumanMode } from '../../agent/memory';
 const PHONE = '+5585999990000';
 
 describe('TOOL_DEFINITIONS', () => {
-  it('exports exactly 15 tools', () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(15);
+  it('exports exactly 20 tools', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(20);
   });
 
   it('every tool has name, description, and input_schema', () => {
@@ -62,7 +62,7 @@ describe('executeTool — transferir_humano', () => {
 
     const result = await executeTool('transferir_humano', { reason: 'Cliente solicitou' }, PHONE);
 
-    expect(setHumanMode).toHaveBeenCalledWith(PHONE, true);
+    expect(setHumanMode).toHaveBeenCalledWith(PHONE, true, expect.any(String));
     expect(result).toMatchObject({ status: 'transferred' });
   });
 });
@@ -84,11 +84,16 @@ describe('executeTool — marcar_churn_risk', () => {
     const mockUpsert = jest.fn().mockResolvedValue({ error: null });
     mockFrom.mockReturnValue({ upsert: mockUpsert });
 
-    await executeTool('marcar_churn_risk', { customer_id: 'c1', reason: 'Reclamações recorrentes' }, PHONE);
+    await executeTool(
+      'marcar_churn_risk',
+      { customer_id: 'c1', reason: 'Reclamações recorrentes' },
+      PHONE,
+      'salesnet-default',
+    );
 
     expect(mockUpsert).toHaveBeenCalledWith(
-      { phone: PHONE, churn_risk: true },
-      { onConflict: 'phone' },
+      { phone: PHONE, tenant_id: 'salesnet-default', churn_risk: true },
+      { onConflict: 'tenant_id,phone' },
     );
   });
 });

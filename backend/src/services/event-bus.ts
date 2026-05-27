@@ -44,6 +44,7 @@ export interface WhatsAppMessagePayload {
 export interface IncomingMessage {
   phone: string;
   body: string;
+  tenantId: string;
   profileName?: string;
   messageId?: string;
 }
@@ -59,6 +60,7 @@ class EventBus extends EventEmitter {
       handler({
         phone: event.payload.phone,
         body: event.payload.body,
+        tenantId: event.tenantId,
         profileName: event.payload.profileName,
         messageId: event.payload.messageId,
       });
@@ -66,12 +68,13 @@ class EventBus extends EventEmitter {
   }
 
   /** Compatibilidade retroativa com message-bus.ts */
-  emitIncomingMessage(msg: IncomingMessage, tenantId = 'default'): void {
+  emitIncomingMessage(msg: IncomingMessage, tenantId?: string): void {
+    const resolvedTenantId = tenantId ?? msg.tenantId ?? 'default';
     this.emitEvent({
       id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       type: 'whatsapp.message.received',
-      tenantId,
-      payload: msg,
+      tenantId: resolvedTenantId,
+      payload: { ...msg, tenantId: resolvedTenantId },
       timestamp: new Date(),
     });
   }

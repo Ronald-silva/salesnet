@@ -6,10 +6,14 @@ describe('classifyMessageComplexity', () => {
     expect(classifyMessageComplexity('Quero falar com meu advogado')).toBe('complex');
   });
 
-  it('classifies short greetings and FAQ hints as simple', () => {
+  it('classifies short greetings as simple', () => {
     expect(classifyMessageComplexity('Oi')).toBe('simple');
     expect(classifyMessageComplexity('Bom dia!')).toBe('simple');
-    expect(classifyMessageComplexity('Quais os planos?')).toBe('simple');
+  });
+
+  it('classifies plan and billing hints as intermediate (need tools)', () => {
+    expect(classifyMessageComplexity('Quais os planos?')).toBe('intermediate');
+    expect(classifyMessageComplexity('querop o plano de 500mb')).toBe('intermediate');
   });
 
   it('defaults longer or ambiguous text to intermediate', () => {

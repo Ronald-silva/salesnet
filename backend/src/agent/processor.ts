@@ -3,7 +3,9 @@ import axios from 'axios';
 import { anthropic } from '../config/anthropic';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
-import { SYSTEM_PROMPT, getBillingModeContext, getSupportModeContext, getCommercialModeContext, getProspectModeContext } from './prompt';
+import { getSkillConfig, buildSystemPrompt, buildModeContext } from './skill';
+import { parseProcessMessageOptions } from './process-message-options';
+import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
@@ -113,6 +115,7 @@ async function runAnthropicFlow(
   history: Anthropic.MessageParam[],
   systemWithContext: string,
   phone: string,
+  tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
@@ -140,7 +143,12 @@ async function runAnthropicFlow(
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
-      const result = await executeTool(block.name, block.input as Record<string, unknown>, phone);
+      const result = await executeTool(
+        block.name,
+        block.input as Record<string, unknown>,
+        phone,
+        tenantId,
+      );
       toolCallLog.push({ name: block.name, input: block.input, output: result });
       toolResults.push({
         type:        'tool_result',
@@ -163,7 +171,7 @@ async function runAnthropicFlow(
 
   const finalText =
     response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ??
-    'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
+    LLM_EMPTY_RESPONSE_FALLBACK;
 
   return { finalText, toolCallLog, usage };
 }
@@ -172,6 +180,7 @@ async function runDeepSeekFlow(
   history: Anthropic.MessageParam[],
   systemWithContext: string,
   phone: string,
+  tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
@@ -219,7 +228,7 @@ async function runDeepSeekFlow(
       const finalText =
         typeof message.content === 'string' && message.content.trim().length > 0
           ? message.content
-          : 'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
+          : LLM_EMPTY_RESPONSE_FALLBACK;
       return { finalText, toolCallLog, usage };
     }
 
@@ -237,7 +246,7 @@ async function runDeepSeekFlow(
         parsedInput = {};
       }
 
-      const result = await executeTool(call.function.name, parsedInput, phone);
+      const result = await executeTool(call.function.name, parsedInput, phone, tenantId);
       toolCallLog.push({ name: call.function.name, input: parsedInput, output: result });
       messages.push({
         role:         'tool',
@@ -248,7 +257,7 @@ async function runDeepSeekFlow(
   }
 
   return {
-    finalText: 'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.',
+    finalText: LLM_EMPTY_RESPONSE_FALLBACK,
     toolCallLog,
     usage,
   };
@@ -259,14 +268,15 @@ async function runLLMFlow(
   history: Anthropic.MessageParam[],
   systemWithContext: string,
   phone: string,
+  tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   if (provider === 'deepseek') {
-    return runDeepSeekFlow(history, systemWithContext, phone, initialToolLog, options);
+    return runDeepSeekFlow(history, systemWithContext, phone, tenantId, initialToolLog, options);
   }
 
-  return runAnthropicFlow(history, systemWithContext, phone, initialToolLog, options);
+  return runAnthropicFlow(history, systemWithContext, phone, tenantId, initialToolLog, options);
 }
 
 function getFortalezaContext(): string {
@@ -279,6 +289,9 @@ function getFortalezaContext(): string {
 }
 
 const DEFAULT_TOOL_ROUNDS = 10;
+
+const LLM_EMPTY_RESPONSE_FALLBACK =
+  'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
 
 function defaultRunOptions(): RunOptions {
   return {
@@ -478,15 +491,22 @@ async function disambiguateSessionMode(
   }
 }
 
-export async function processMessage(phone: string, message: string, rawMessageId?: string): Promise<void> {
-  return withPhoneLock(phone, async () => {
-  if (await isHumanMode(phone)) return;
+export async function processMessage(
+  phone: string,
+  message: string,
+  options?: string | ProcessMessageOptions,
+): Promise<void> {
+  const { messageId, tenantId: tenantIdOpt } = parseProcessMessageOptions(options);
+  const tenantId = tenantIdOpt ?? env.DEFAULT_TENANT_ID;
 
-  const messageId = rawMessageId;
+  const lockKey = `${tenantId}::${phone}`;
+
+  return withPhoneLock(lockKey, async () => {
+  if (await isHumanMode(phone, tenantId)) return;
   if (messageId) {
     const { error } = await supabase
       .from('processed_message_ids')
-      .insert({ message_id: messageId, phone })
+      .insert({ message_id: messageId, phone, tenant_id: tenantId })
       .select()
       .single();
     if (error?.code === '23505') {
@@ -508,10 +528,10 @@ export async function processMessage(phone: string, message: string, rawMessageI
       const score = parseNpsResponse(clean);
       if (score !== null) {
         try {
-          await saveNpsResponse(phone, env.DEFAULT_TENANT_ID, score, nps.sessionId);
+          await saveNpsResponse(phone, tenantId, score, nps.sessionId);
           if (score <= 2) console.warn(`[processor] nps low score: phone=${phone} score=${score}`);
           await whatsappService.sendText(
-            env.DEFAULT_TENANT_ID,
+            tenantId,
             phone,
             'Muito obrigada pela sua avaliação! 🙏 Sua opinião nos ajuda a melhorar o atendimento.',
           );
@@ -530,10 +550,15 @@ export async function processMessage(phone: string, message: string, rawMessageI
   const faqResponse = await quickReply(clean, phone);
   if (faqResponse) {
     try {
-      await saveMessage(phone, 'user', clean);
-      await saveMessage(phone, 'assistant', faqResponse);
-      await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, formatOutgoingWhatsApp(faqResponse));
-      await supabase.from('interaction_logs').insert({ phone, tool_calls: [], response: faqResponse });
+      await saveMessage(phone, 'user', clean, tenantId);
+      await saveMessage(phone, 'assistant', faqResponse, tenantId);
+      await whatsappService.sendText(tenantId, phone, formatOutgoingWhatsApp(faqResponse));
+      await supabase.from('interaction_logs').insert({
+        phone,
+        tenant_id: tenantId,
+        tool_calls: [],
+        response: faqResponse,
+      });
     } catch (err) {
       console.error(`[processor] quick-reply send error for ${phone}:`, err);
     }
@@ -541,25 +566,31 @@ export async function processMessage(phone: string, message: string, rawMessageI
   }
 
   try {
-    await saveMessage(phone, 'user', clean);
+    await saveMessage(phone, 'user', clean, tenantId);
 
-    const thread = await getThread(phone);
+    const thread = await getThread(phone, tenantId);
     const history: Anthropic.MessageParam[] = thread.messages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
 
     // Call buscar_cliente and fetch customer history in parallel
-    const [customerData, insights] = await Promise.all([
-      executeTool('buscar_cliente', { phone }, phone),
-      getCustomerInsights(phone, env.DEFAULT_TENANT_ID),
+    const [customerData, insights, skillConfig] = await Promise.all([
+      executeTool('buscar_cliente', { phone }, phone, tenantId),
+      getCustomerInsights(phone, tenantId),
+      getSkillConfig(tenantId),
     ]);
 
     let invoiceStatus: string | undefined;
     try {
       const customerId = (customerData as { id?: string }).id;
       if (customerId) {
-        const invoice = await executeTool('get_fatura_atual', { customer_id: customerId }, phone);
+        const invoice = await executeTool(
+          'get_fatura_atual',
+          { customer_id: customerId },
+          phone,
+          tenantId,
+        );
         invoiceStatus = (invoice as { status?: string }).status;
       }
     } catch (err) {
@@ -575,12 +606,8 @@ export async function processMessage(phone: string, message: string, rawMessageI
       await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
     const sessionMode = sessionModeDecision.finalMode;
 
-    const modeContext =
-      sessionMode === 'billing'    ? getBillingModeContext() :
-      sessionMode === 'support'    ? getSupportModeContext() :
-      sessionMode === 'commercial' ? getCommercialModeContext() :
-      sessionMode === 'prospect'   ? getProspectModeContext() :
-      '';
+    const systemPrompt = buildSystemPrompt(skillConfig);
+    const modeContext = buildModeContext(sessionMode, skillConfig);
 
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },
@@ -603,7 +630,12 @@ export async function processMessage(phone: string, message: string, rawMessageI
       !/\bplanos?\b/i.test(clean)
     ) {
       try {
-        const coverageData = await executeTool('verificar_cobertura', { neighborhood: '*' }, phone);
+        const coverageData = await executeTool(
+          'verificar_cobertura',
+          { neighborhood: '*' },
+          phone,
+          tenantId,
+        );
         initialToolLog.push({ name: 'verificar_cobertura', input: { neighborhood: '*' }, output: coverageData });
         coverageContext = `\n\n## Bairros atendidos (fonte oficial — use SOMENTE estes)\n${JSON.stringify(coverageData)}`;
       } catch (err) {
@@ -613,7 +645,15 @@ export async function processMessage(phone: string, message: string, rawMessageI
 
     const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
     const insightsContext = buildInsightsContext(insights);
-    const systemWithContext = `${getFortalezaContext()}\n\n${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}${insightsContext}`;
+    const systemWithContext =
+      `${getFortalezaContext()}\n\n${systemPrompt}` +
+      `\n\n## Contexto do cliente atual` +
+      `\nTelefone: ${phone}` +
+      `\nModo: ${sessionMode}` +
+      `\nDados: ${JSON.stringify(safeCustomerData)}` +
+      modeContext +
+      coverageContext +
+      insightsContext;
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
@@ -634,7 +674,15 @@ export async function processMessage(phone: string, message: string, rawMessageI
     let llmUsage = disambiguationUsage;
 
     try {
-      result = await runLLMFlow(primaryProvider, history, systemWithContext, phone, initialToolLog, runOptions);
+      result = await runLLMFlow(
+        primaryProvider,
+        history,
+        systemWithContext,
+        phone,
+        tenantId,
+        initialToolLog,
+        runOptions,
+      );
       llmUsage = mergeUsage(llmUsage, result.usage);
     } catch (providerErr) {
       if (!env.LLM_FALLBACK_PROVIDER || env.LLM_FALLBACK_PROVIDER === primaryProvider) {
@@ -647,6 +695,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
         history,
         systemWithContext,
         phone,
+        tenantId,
         initialToolLog,
         runOptions,
       );
@@ -655,15 +704,22 @@ export async function processMessage(phone: string, message: string, rawMessageI
 
     const finalText = formatOutgoingWhatsApp(result.finalText);
 
-    await saveMessage(phone, 'assistant', finalText);
-    await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, finalText);
+    if (finalText === LLM_EMPTY_RESPONSE_FALLBACK) {
+      console.warn(
+        `[processor] LLM empty response phone=${phone} tenant=${tenantId} tools=${result.toolCallLog.length}`,
+        result.toolCallLog.map((t) => t.name).join(','),
+      );
+    }
+
+    await saveMessage(phone, 'assistant', finalText, tenantId);
+    await whatsappService.sendText(tenantId, phone, finalText);
 
     // Schedule NPS before inserting the log so shouldSendNps sees the previous session
     if (sessionMode !== 'prospect') {
       try {
-        const shouldAsk = await shouldSendNps(phone, env.DEFAULT_TENANT_ID);
+        const shouldAsk = await shouldSendNps(phone, tenantId);
         if (shouldAsk) {
-          scheduleNps(phone, env.DEFAULT_TENANT_ID, randomUUID(), async (tid, p, text) => {
+          scheduleNps(phone, tenantId, randomUUID(), async (tid, p, text) => {
             await whatsappService.sendText(tid, p, text);
           });
         }
@@ -674,6 +730,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
 
     await supabase.from('interaction_logs').insert({
       phone,
+      tenant_id: tenantId,
       session_mode: sessionMode,
       tool_calls: result.toolCallLog,
       response:   finalText,
@@ -687,7 +744,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
     await warnIfDailyBudgetExceeded();
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);
-    await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch((e: unknown) => console.error('[processor] failed to send error reply:', e));
+    await whatsappService.sendText(tenantId, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch((e: unknown) => console.error('[processor] failed to send error reply:', e));
   }
   });
 }

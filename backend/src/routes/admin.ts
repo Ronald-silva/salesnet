@@ -85,6 +85,7 @@ adminRouter.get('/conversations', async (req, res) => {
   let query = supabase
     .from('conversation_threads')
     .select('id, phone, messages, human_mode, churn_risk, updated_at')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .order('updated_at', { ascending: false })
     .limit(100);
 
@@ -241,8 +242,14 @@ adminRouter.get('/metrics', async (_req, res) => {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   const [threadsRes, interactionRes, billingRes, churnRes, campaignsRes] = await Promise.all([
-    supabase.from('conversation_threads').select('id, human_mode, created_at'),
-    supabase.from('interaction_logs').select('id, created_at'),
+    supabase
+      .from('conversation_threads')
+      .select('id, human_mode, created_at')
+      .eq('tenant_id', env.DEFAULT_TENANT_ID),
+    supabase
+      .from('interaction_logs')
+      .select('id, created_at')
+      .eq('tenant_id', env.DEFAULT_TENANT_ID),
     supabase.from('billing_notifications').select('id, status, sent_at'),
     supabase.from('churn_risks').select('id, created_at'),
     supabase.from('campaign_sends').select('id, type, sent_at'),
