@@ -197,6 +197,15 @@ async function runLLMFlow(
   return runAnthropicFlow(history, systemWithContext, phone, initialToolLog, options);
 }
 
+function getFortalezaContext(): string {
+  const now = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const hour = now.getUTCHours();
+  const minutes = String(now.getUTCMinutes()).padStart(2, '0');
+  const period = hour < 5 ? 'madrugada' : hour < 12 ? 'manhã' : hour < 18 ? 'tarde' : 'noite';
+  const weekdays = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+  return `Agora são ${String(hour).padStart(2, '0')}:${minutes}, ${weekdays[now.getUTCDay()]}, ${period}.`;
+}
+
 const DEFAULT_TOOL_ROUNDS = 10;
 
 function defaultRunOptions(): RunOptions {
@@ -311,13 +320,8 @@ export async function processMessage(phone: string, message: string): Promise<vo
       }
     }
 
-    const nowBRT = new Date().toLocaleString('pt-BR', {
-      timeZone: 'America/Fortaleza',
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
     const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}`;
+    const systemWithContext = `${getFortalezaContext()}\n\n${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}`;
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
