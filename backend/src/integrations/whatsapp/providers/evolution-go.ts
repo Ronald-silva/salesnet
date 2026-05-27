@@ -83,7 +83,7 @@ function phoneToJid(phone: string): string {
 }
 
 function mapEventType(event: string): WebhookEventType {
-  switch (event) {
+  switch (event.toUpperCase()) {
     case 'MESSAGE':     return 'message_received';
     case 'CONNECTION':  return 'connection_update';
     case 'QRCODE':      return 'qrcode_update';
