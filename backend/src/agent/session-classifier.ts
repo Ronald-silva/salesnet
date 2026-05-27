@@ -1,4 +1,4 @@
-export type SessionMode = 'billing' | 'support' | 'commercial' | 'default';
+export type SessionMode = 'billing' | 'support' | 'commercial' | 'prospect' | 'default';
 
 const BILLING_RE =
   /\b(pagar?|pagamento|fatura|boleto|pix|vencimento|vencida?|corte?|cortou|cortad[oa]|suspens[oa]|suspendid[oa]|d[eé]bito|inadimplente)\b/i;
@@ -9,7 +9,10 @@ const SUPPORT_RE =
 const SPEED_COMPLAINT_RE =
   /\b(videochamada|streaming|netflix|youtube|zoom|bufferizando)\b/i;
 
-const COMMERCIAL_PLAN_THRESHOLD_MBPS = 30;
+const PROSPECT_RE =
+  /\b(contratar?|assinar?|planos?|pre[çc]o|valor|quanto\s+custa|cobertura|atende|quero\s+internet|novo\s+cliente|instala[çc][aã]o|instalar?|fibra|pacote)\b/i;
+
+const COMMERCIAL_PLAN_THRESHOLD_MBPS = 50;
 
 interface CustomerLike {
   status?: string;
@@ -21,7 +24,10 @@ export function classifySession(
   customer: CustomerLike | { error: string },
   invoiceStatus: string | undefined,
 ): SessionMode {
-  if ('error' in customer) return 'default';
+  // Customer not found in SGP — could be a prospect or wrong number
+  if ('error' in customer) {
+    return 'prospect';
+  }
 
   const isSuspended = customer.status === 'suspended';
   const isOverdue = invoiceStatus === 'overdue';
@@ -32,6 +38,8 @@ export function classifySession(
   if (isLowPlan && SPEED_COMPLAINT_RE.test(message)) return 'commercial';
 
   if (SUPPORT_RE.test(message)) return 'support';
+
+  if (PROSPECT_RE.test(message)) return 'prospect';
 
   return 'default';
 }

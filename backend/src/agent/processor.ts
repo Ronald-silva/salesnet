@@ -3,7 +3,7 @@ import axios from 'axios';
 import { anthropic } from '../config/anthropic';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
-import { SYSTEM_PROMPT, getBillingModeContext, getSupportModeContext, getCommercialModeContext } from './prompt';
+import { SYSTEM_PROMPT, getBillingModeContext, getSupportModeContext, getCommercialModeContext, getProspectModeContext } from './prompt';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
@@ -270,6 +270,7 @@ export async function processMessage(phone: string, message: string): Promise<vo
       sessionMode === 'billing'    ? getBillingModeContext() :
       sessionMode === 'support'    ? getSupportModeContext() :
       sessionMode === 'commercial' ? getCommercialModeContext() :
+      sessionMode === 'prospect'   ? getProspectModeContext() :
       '';
 
     const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(customerData)}${modeContext}`;

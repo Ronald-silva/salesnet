@@ -4,17 +4,24 @@ import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
 
 const COVERED_NEIGHBORHOODS: Record<string, number> = {
-  'jardim guanabara': 95,
-  'jardim iracema':   90,
-  'quintino cunha':   85,
-  'vila velha':       88,
-  'nova assunção':    92,
+  'jardim guanabara':      95,
+  'jardim iracema':        90,
+  'quintino cunha':        85,
+  'vila velha':            88,
+  'nova assunção':         92,
+  'autran nunes':          80,
+  'granja lisboa':         82,
+  'granja portugal':       83,
+  'bom jardim':            78,
+  'conjunto esperança':    75,
+  'joão xxiii':            77,
+  'genibaú':               76,
 };
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'buscar_cliente',
-    description: 'Busca dados do cliente pelo telefone. Sempre chame esta tool primeiro para ter contexto.',
+    description: 'Busca dados do cliente pelo telefone. Chame esta tool primeiro para ter contexto sobre o cliente.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -25,11 +32,22 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'get_fatura_atual',
-    description: 'Retorna a fatura atual do cliente com valor, vencimento e status de pagamento.',
+    description: 'Retorna a fatura atual (em aberto ou mais recente) do cliente com valor, vencimento e status.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
+      },
+      required: ['customer_id'],
+    },
+  },
+  {
+    name: 'listar_faturas',
+    description: 'Lista as últimas faturas do cliente (pagas e em aberto). Use quando o cliente pedir histórico de pagamentos ou segunda via de meses anteriores.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
       },
       required: ['customer_id'],
     },
@@ -47,12 +65,24 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'confirmar_pagamento',
+    description: 'Verifica se o pagamento de uma fatura foi confirmado no sistema. Use quando o cliente disser que já pagou.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
+        invoice_id:  { type: 'string', description: 'ID da fatura (opcional, para verificar uma fatura específica)' },
+      },
+      required: ['customer_id'],
+    },
+  },
+  {
     name: 'listar_chamados',
     description: 'Lista os últimos chamados de suporte do cliente.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
       },
       required: ['customer_id'],
     },
@@ -63,7 +93,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id:  { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id:  { type: 'string', description: 'ID do contrato no SGP' },
         type:         { type: 'string', enum: ['tecnico', 'financeiro', 'comercial'] },
         description:  { type: 'string', description: 'Descrição do problema' },
       },
@@ -76,32 +106,32 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         date:        { type: 'string', description: 'Data no formato YYYY-MM-DD' },
-        period:      { type: 'string', enum: ['morning', 'afternoon'] },
+        period:      { type: 'string', enum: ['morning', 'afternoon'], description: 'morning = manhã (8h-12h), afternoon = tarde (13h-18h)' },
       },
       required: ['customer_id', 'date', 'period'],
     },
   },
   {
     name: 'status_conexao',
-    description: 'Verifica se a conexão do cliente está online e a velocidade atual.',
+    description: 'Verifica se a conexão do cliente está online e a qualidade do sinal.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
       },
       required: ['customer_id'],
     },
   },
   {
     name: 'solicitar_upgrade',
-    description: 'Registra solicitação de upgrade de plano para análise.',
+    description: 'Registra solicitação de upgrade de plano para análise e ativação.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
-        new_plan:    { type: 'string', description: 'Plano desejado (ex: 50Mbps, 100Mbps)' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
+        new_plan:    { type: 'string', description: 'Plano desejado (ex: 50Mbps, 100Mbps, 300Mbps)' },
       },
       required: ['customer_id', 'new_plan'],
     },
@@ -112,7 +142,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         reason:      { type: 'string', description: 'Motivo da cortesia' },
       },
       required: ['customer_id', 'reason'],
@@ -141,12 +171,27 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'marcar_churn_risk',
-    description: 'Registra o cliente como risco de cancelamento para acompanhamento pelo time.',
+    name: 'registrar_interesse',
+    description: 'Registra interesse de um novo cliente (prospect) que quer contratar o serviço. Use quando o prospect confirmar interesse em algum plano.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        phone:        { type: 'string', description: 'Número de telefone do prospect' },
+        name:         { type: 'string', description: 'Nome do prospect' },
+        neighborhood: { type: 'string', description: 'Bairro onde mora' },
+        desired_plan: { type: 'string', description: 'Plano de interesse (ex: 100Mbps, Turbo, Ultra)' },
+        notes:        { type: 'string', description: 'Observações adicionais do prospect' },
+      },
+      required: ['phone', 'name', 'neighborhood'],
+    },
+  },
+  {
+    name: 'marcar_churn_risk',
+    description: 'Registra o cliente como risco de cancelamento para acompanhamento pelo time. Use quando o cliente mencionar cancelamento.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         reason:      { type: 'string', description: 'Motivo do risco de cancelamento' },
       },
       required: ['customer_id', 'reason'],
@@ -169,21 +214,10 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object' as const,
       properties: {
-        customer_id: { type: 'string', description: 'ID do cliente no SGP' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         condicoes:   { type: 'string', description: 'Descrição das condições acordadas (ex: entrada 50% hoje, restante em 15 dias)' },
       },
       required: ['customer_id', 'condicoes'],
-    },
-  },
-  {
-    name: 'confirmar_pagamento',
-    description: 'Verifica se o pagamento de uma fatura foi confirmado no sistema.',
-    input_schema: {
-      type: 'object' as const,
-      properties: {
-        invoice_id: { type: 'string', description: 'ID da fatura no SGP' },
-      },
-      required: ['invoice_id'],
     },
   },
 ];
@@ -205,8 +239,28 @@ export async function executeTool(
     case 'get_fatura_atual':
       return sgp.getCurrentInvoice(input.customer_id as string);
 
+    case 'listar_faturas':
+      return sgp.getCustomerInvoices(input.customer_id as string);
+
     case 'gerar_pix':
       return sgp.generatePixKey(input.invoice_id as string, input.customer_id as string | undefined);
+
+    case 'confirmar_pagamento': {
+      try {
+        const invoices = await sgp.getCustomerInvoices(input.customer_id as string);
+        // If specific invoice_id given, find it; otherwise check if any open invoice exists
+        if (input.invoice_id) {
+          const target = invoices.find((inv) => inv.id === String(input.invoice_id));
+          if (target) return { paid: target.status === 'paid', status: target.status };
+        }
+        // No specific invoice: check if the most recent non-cancelled is paid
+        const latest = invoices.find((inv) => inv.status !== 'cancelled');
+        if (!latest) return { paid: true, message: 'Nenhuma fatura em aberto encontrada.' };
+        return { paid: latest.status === 'paid', status: latest.status };
+      } catch {
+        return { error: 'Não foi possível verificar o pagamento agora.' };
+      }
+    }
 
     case 'listar_chamados':
       return sgp.getCustomerTickets(input.customer_id as string);
@@ -262,14 +316,14 @@ export async function executeTool(
       return {
         status: 'queued',
         new_plan: input.new_plan,
-        message: `Solicitação de upgrade para o plano ${String(input.new_plan)} registrada. Um atendente confirmará em até 24h.`,
+        message: `Solicitação de upgrade para ${String(input.new_plan)} registrada. Um atendente confirmará em até 24h.`,
       };
 
     case 'aplicar_cortesia':
       return {
         status: 'queued',
         reason: input.reason,
-        message: 'Solicitação de cortesia registrada para análise. Você receberá uma confirmação em breve.',
+        message: 'Solicitação de cortesia registrada para análise. Você receberá confirmação em breve.',
       };
 
     case 'transferir_humano': {
@@ -281,12 +335,40 @@ export async function executeTool(
     }
 
     case 'verificar_cobertura': {
-      const key = (input.neighborhood as string).toLowerCase();
-      const coverage = COVERED_NEIGHBORHOODS[key];
-      if (coverage !== undefined) {
-        return { covered: true, neighborhood: input.neighborhood, coverage_percent: coverage };
+      const key = (input.neighborhood as string)
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '');
+      // Try exact match then partial match
+      const exact = Object.entries(COVERED_NEIGHBORHOODS).find(
+        ([k]) => k.normalize('NFD').replace(/[̀-ͯ]/g, '') === key,
+      );
+      if (exact) {
+        return { covered: true, neighborhood: input.neighborhood, coverage_percent: exact[1] };
+      }
+      const partial = Object.entries(COVERED_NEIGHBORHOODS).find(([k]) =>
+        k.normalize('NFD').replace(/[̀-ͯ]/g, '').includes(key) ||
+        key.includes(k.normalize('NFD').replace(/[̀-ͯ]/g, '')),
+      );
+      if (partial) {
+        return { covered: true, neighborhood: input.neighborhood, coverage_percent: partial[1] };
       }
       return { covered: false, neighborhood: input.neighborhood };
+    }
+
+    case 'registrar_interesse': {
+      await supabase.from('leads').insert({
+        phone:        input.phone as string,
+        name:         input.name as string,
+        neighborhood: input.neighborhood as string,
+        desired_plan: (input.desired_plan as string | undefined) ?? null,
+        notes:        (input.notes as string | undefined) ?? null,
+        status:       'new',
+      });
+      return {
+        status: 'registered',
+        message: 'Interesse registrado com sucesso. Nossa equipe entrará em contato em até 24h.',
+      };
     }
 
     case 'marcar_churn_risk': {
@@ -320,11 +402,6 @@ export async function executeTool(
         status: 'registered',
         message: `Negociação registrada: ${String(input.condicoes)}. Um atendente confirmará em breve.`,
       };
-    }
-
-    case 'confirmar_pagamento': {
-      const invoice = await sgp.getCurrentInvoice(input.invoice_id as string);
-      return { paid: invoice.status === 'paid', status: invoice.status };
     }
 
     default:
