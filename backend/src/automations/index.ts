@@ -4,6 +4,7 @@ import { startCampaigns, expansionRouter as campaignExpansionRouter } from './ca
 import { runBillingCadenceD5, runBillingCadenceD2 } from './billing-cadence';
 import { sendVisitReminders, sendVisitFollowups } from './visit-followup';
 import { processScheduledMessages } from './scheduled-messages';
+import { runDataCleanup } from './data-cleanup';
 
 export function startAutomations(): void {
   // D-3: every day at 08:00
@@ -49,6 +50,11 @@ export function startAutomations(): void {
   // Scheduled messages (NPS follow-ups, etc.): every 10 minutes
   cron.schedule('*/10 * * * *', () => {
     processScheduledMessages().catch((err) => console.error('[cron:scheduled-messages]', err));
+  });
+
+  // LGPD retention purge: 03:00 Fortaleza (UTC-3) = 06:00 UTC
+  cron.schedule('0 6 * * *', () => {
+    runDataCleanup().catch((err) => console.error('[cron:data-cleanup]', err));
   });
 
   startCampaigns();

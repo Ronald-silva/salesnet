@@ -295,6 +295,24 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `013_scheduled_messages.sql` — tabela `scheduled_messages` (mensagens adiadas pós-NPS)
 - `014_client_notes.sql` — coluna `notes TEXT` em `conversation_threads`
 - `015_sofia_tickets.sql` — tabela `sofia_tickets` (chamados abertos via Sofia)
+- `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez)
+- `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (só via psql, uma statement por vez)
+
+---
+
+## Política de retenção de dados
+
+Purge automático via `data-cleanup.ts` (cron 06:00 UTC = 03:00 Fortaleza):
+
+| Tabela | Retenção | Purge automático |
+|--------|----------|------------------|
+| `processed_message_ids` | 24 horas | Sim |
+| `interaction_logs` | 90 dias | Sim |
+| `nps_responses` | 90 dias | Sim |
+| `billing_notifications` | 180 dias (`sent_at`) | Sim |
+| `leads` | 365 dias | Não (obrigação fiscal; retenção documentada) |
+| `sofia_tickets` | 365 dias | Não |
+| `scheduled_visits` | 365 dias | Não |
 
 ---
 
@@ -309,6 +327,11 @@ Todas em `backend/src/automations/`. Iniciadas via `startAutomations()` em `inde
 - **D+5:** aviso de suspensão
 
 `getHabitualLatePayerIds()` consulta `billing_notifications` no Supabase — não o SGP.
+
+### Retenção LGPD (`data-cleanup.ts`)
+
+- **03:00 Fortaleza (06:00 UTC):** apaga `processed_message_ids` > 24h, `interaction_logs` e `nps_responses` > 90 dias, `billing_notifications` > 180 dias (por `sent_at`)
+- **Não apaga:** `leads`, `scheduled_visits`, `sofia_tickets` (manter ≥ 1 ano por obrigação fiscal)
 
 ### Campanhas
 
