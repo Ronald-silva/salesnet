@@ -54,15 +54,22 @@ interface EvoGoWebhookPayload {
   event: string;
   instanceName?: string;
   instanceId?: string;
+  instanceToken?: string;
   data?: {
-    ID?: string;
-    Timestamp?: number;
-    Chat?: string;
-    Sender?: string;
-    PushName?: string;
-    FromMe?: boolean;
-    Type?: string;
+    // Message events: metadata nested under Info
+    Info?: {
+      ID?: string;
+      Timestamp?: string;   // ISO date string e.g. "2026-05-26T22:40:36-03:00"
+      Chat?: string;        // JID e.g. "558591993833@s.whatsapp.net"
+      Sender?: string;
+      PushName?: string;
+      IsFromMe?: boolean;
+      IsGroup?: boolean;
+      Type?: string;
+    };
+    // Message events: message body at data.Message
     Message?: Record<string, unknown> | string;
+    // Connection/QR events
     qrcode?: string;
     code?: string;
     state?: string;
@@ -293,7 +300,10 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const eventType: WebhookEventType = mapEventType(event);
     const instanceName = body.instanceName ?? '';
     const data = body.data ?? {};
-    const timestamp = data.Timestamp ? new Date(data.Timestamp * 1000) : new Date();
+
+    // Message events: metadata in data.Info, body in data.Message
+    const info = data.Info ?? {};
+    const timestamp = info.Timestamp ? new Date(info.Timestamp) : new Date();
 
     if (eventType === 'qrcode_update') {
       return {
@@ -314,17 +324,17 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       };
     }
 
-    if (eventType === 'message_received' && !data.FromMe) {
-      const jid = data.Chat ?? data.Sender ?? '';
+    if (eventType === 'message_received' && !info.IsFromMe) {
+      const jid = info.Chat ?? info.Sender ?? '';
       return {
         type: 'message_received',
         instanceName,
         data: {
           from: jid,
           fromPhone: jid ? jidToPhone(jid) : undefined,
-          profileName: data.PushName,
+          profileName: info.PushName,
           body: extractMessageText(data.Message as Record<string, unknown> | string | undefined),
-          messageId: data.ID,
+          messageId: info.ID,
           raw: rawBody,
         },
         timestamp,
