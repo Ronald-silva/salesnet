@@ -154,11 +154,11 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'verificar_cobertura',
-    description: 'Verifica se um bairro em Fortaleza/CE tem cobertura de fibra óptica da SalesNet.',
+    description: 'Verifica cobertura de fibra óptica da SalesNet. Passe neighborhood="*" para listar TODOS os bairros cobertos. Sempre chame esta tool antes de responder qualquer pergunta sobre cobertura ou bairros atendidos.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        neighborhood: { type: 'string', description: 'Nome do bairro' },
+        neighborhood: { type: 'string', description: 'Nome do bairro a verificar, ou "*" para listar todos os bairros com cobertura' },
       },
       required: ['neighborhood'],
     },
@@ -328,21 +328,35 @@ export async function executeTool(
     }
 
     case 'verificar_cobertura': {
-      const key = (input.neighborhood as string)
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[̀-ͯ]/g, '');
-      // Try exact match then partial match
+      const raw = (input.neighborhood as string).trim();
+
+      // List all covered neighborhoods
+      if (raw === '*' || /todos|lista|quais/i.test(raw)) {
+        return {
+          covered_neighborhoods: Object.entries(COVERED_NEIGHBORHOODS).map(([name, pct]) => ({
+            name: name
+              .split(' ')
+              .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+              .join(' '),
+            coverage_percent: pct,
+          })),
+        };
+      }
+
+      const normalize = (s: string) =>
+        s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+      const key = normalize(raw);
       const exact = Object.entries(COVERED_NEIGHBORHOODS).find(
-        ([k]) => k.normalize('NFD').replace(/[̀-ͯ]/g, '') === key,
+        ([k]) => normalize(k) === key,
       );
       if (exact) {
         return { covered: true, neighborhood: input.neighborhood, coverage_percent: exact[1] };
       }
-      const partial = Object.entries(COVERED_NEIGHBORHOODS).find(([k]) =>
-        k.normalize('NFD').replace(/[̀-ͯ]/g, '').includes(key) ||
-        key.includes(k.normalize('NFD').replace(/[̀-ͯ]/g, '')),
-      );
+      const partial = Object.entries(COVERED_NEIGHBORHOODS).find(([k]) => {
+        const nk = normalize(k);
+        return nk.includes(key) || key.includes(nk);
+      });
       if (partial) {
         return { covered: true, neighborhood: input.neighborhood, coverage_percent: partial[1] };
       }
