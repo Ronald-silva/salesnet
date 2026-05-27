@@ -12,6 +12,8 @@ import { classifySession } from './session-classifier';
 import { sanitizeUserInput } from './sanitize';
 import { quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
+import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
+import { randomUUID } from 'crypto';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -251,6 +253,34 @@ export async function processMessage(phone: string, message: string): Promise<vo
 
   const clean = sanitizeUserInput(message);
 
+  // ── NPS: captura resposta se pergunta estava pendente ────────────────────────
+  const nps = getPendingNps(phone);
+  if (nps) {
+    if (!nps.sent) {
+      // User sent a new message before the 30-min timer fired — cancel NPS
+      clearPendingNps(phone);
+    } else {
+      const score = parseNpsResponse(clean);
+      if (score !== null) {
+        try {
+          await saveNpsResponse(phone, env.DEFAULT_TENANT_ID, score, nps.sessionId);
+          if (score <= 2) console.warn(`[processor] nps low score: phone=${phone} score=${score}`);
+          await whatsappService.sendText(
+            env.DEFAULT_TENANT_ID,
+            phone,
+            'Muito obrigada pela sua avaliação! 🙏 Sua opinião nos ajuda a melhorar o atendimento.',
+          );
+        } catch (err) {
+          console.error('[processor] nps save error:', err);
+        }
+        clearPendingNps(phone);
+        return;
+      }
+      // Non-numeric reply while NPS is pending — clear and process normally
+      clearPendingNps(phone);
+    }
+  }
+
   // ── Quick reply: FAQ direto, sem LLM ────────────────────────────────────────
   const faqResponse = await quickReply(clean, phone);
   if (faqResponse) {
@@ -367,6 +397,20 @@ export async function processMessage(phone: string, message: string): Promise<vo
 
     await saveMessage(phone, 'assistant', finalText);
     await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, finalText);
+
+    // Schedule NPS before inserting the log so shouldSendNps sees the previous session
+    if (sessionMode !== 'prospect') {
+      try {
+        const shouldAsk = await shouldSendNps(phone, env.DEFAULT_TENANT_ID);
+        if (shouldAsk) {
+          scheduleNps(phone, env.DEFAULT_TENANT_ID, randomUUID(), async (tid, p, text) => {
+            await whatsappService.sendText(tid, p, text);
+          });
+        }
+      } catch (err) {
+        console.warn('[processor] nps check failed:', err);
+      }
+    }
 
     await supabase.from('interaction_logs').insert({
       phone,
