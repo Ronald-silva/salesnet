@@ -123,7 +123,7 @@ export class TwilioLegacyProvider implements WhatsAppProvider {
     );
   }
 
-  parseWebhook(rawBody: unknown, _headers: Record<string, string>): ParsedWebhookEvent {
+  async parseWebhook(rawBody: unknown, _headers: Record<string, string>): Promise<ParsedWebhookEvent> {
     const body = rawBody as Record<string, string>;
     const From = body['From'] ?? '';
     const Body = body['Body'] ?? '';

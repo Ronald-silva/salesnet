@@ -10,6 +10,7 @@ const envSchema = z.object({
   LLM_PROVIDER: z.enum(['anthropic', 'deepseek']).default('anthropic'),
   LLM_FALLBACK_PROVIDER: z.enum(['anthropic', 'deepseek']).optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
   DEEPSEEK_API_KEY: z.string().optional(),
   DEEPSEEK_BASE_URL: z.string().url().default('https://api.deepseek.com'),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-5'),

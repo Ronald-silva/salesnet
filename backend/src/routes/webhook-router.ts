@@ -50,8 +50,8 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
     console.log(`[webhook] ▶ ${instanceName} event=${webhookEventType}`);
     res.status(200).json({ ok: true });
 
-    // Normalizar payload → evento de domínio
-    const parsed: ParsedWebhookEvent = provider.parseWebhook(req.body, headers);
+    // Normalizar payload → evento de domínio (pode fazer I/O: transcrição de áudio, visão)
+    const parsed: ParsedWebhookEvent = await provider.parseWebhook(req.body, headers);
 
     // Atualizar status de conexão no banco
     if (parsed.type === 'connection_update' && parsed.data.connectionState) {
@@ -110,7 +110,7 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const parsed = provider.parseWebhook(req.body, headers);
+    const parsed = await provider.parseWebhook(req.body, headers);
 
     if (parsed.data.fromPhone && parsed.data.body) {
       eventBus.emitIncomingMessage({

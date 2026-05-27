@@ -15,6 +15,8 @@ import axios, { AxiosInstance } from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
 import { normalizePhone } from '../../../lib/phone';
+import { transcribeAudio } from '../../../agent/transcribe';
+import { analyzeImage } from '../../../agent/vision';
 import type {
   WhatsAppProvider,
   InstanceConfig,
@@ -96,16 +98,6 @@ function mapEventType(event: string): WebhookEventType {
   }
 }
 
-function extractMessageText(msg: Record<string, unknown> | string | undefined): string | undefined {
-  if (!msg) return undefined;
-  if (typeof msg === 'string') return msg;
-  return (
-    (msg['conversation'] as string | undefined) ??
-    ((msg['extendedTextMessage'] as Record<string, unknown> | undefined)?.text as string | undefined) ??
-    ((msg['imageMessage'] as Record<string, unknown> | undefined)?.caption as string | undefined)
-  );
-}
-
 // QR code vem como "data:image/png;base64,...|rawCode" — retorna só a parte da imagem
 function parseQrCode(raw: string): string {
   return raw.split('|')[0] ?? raw;
@@ -123,6 +115,55 @@ export interface EvolutionGoConfig {
 interface InstanceCache {
   token: string;
   webhookUrl?: string;
+}
+
+// ─── Message body resolver ────────────────────────────────────────────────────
+
+async function resolveMessageBody(
+  msgType: string,
+  msg: Record<string, unknown> | undefined,
+): Promise<string | undefined> {
+  if (!msg) return undefined;
+
+  if (msgType === 'text' || msgType === '') {
+    return (
+      (msg['conversation'] as string | undefined) ??
+      ((msg['extendedTextMessage'] as Record<string, unknown> | undefined)?.text as
+        | string
+        | undefined)
+    );
+  }
+
+  if (msgType === 'audio' || msgType === 'ptt') {
+    const audioUrl = (msg['audioMessage'] as Record<string, unknown> | undefined)?.url as
+      | string
+      | undefined;
+    if (audioUrl) return '[áudio] ' + (await transcribeAudio(audioUrl));
+    return '[áudio não processado]';
+  }
+
+  if (msgType === 'image') {
+    const imageMsg = msg['imageMessage'] as Record<string, unknown> | undefined;
+    const caption = imageMsg?.caption as string | undefined;
+    if (caption) return caption;
+    const imageUrl = imageMsg?.url as string | undefined;
+    if (imageUrl) {
+      const result = await analyzeImage(imageUrl);
+      if (result.isPaymentProof && result.confidence === 'high') {
+        return (
+          '[imagem: comprovante de pagamento' +
+          (result.amount != null ? ` de R$${result.amount}` : '') +
+          (result.date ? ` em ${result.date}` : '') +
+          (result.beneficiary ? ` para ${result.beneficiary}` : '') +
+          ']'
+        );
+      }
+      return '[imagem enviada]';
+    }
+    return '[imagem não processada]';
+  }
+
+  return `[mensagem do tipo ${msgType} não suportada — responda pedindo para enviar em texto]`;
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -312,7 +353,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
   }
 
-  parseWebhook(rawBody: unknown, _headers: Record<string, string>): ParsedWebhookEvent {
+  async parseWebhook(rawBody: unknown, _headers: Record<string, string>): Promise<ParsedWebhookEvent> {
     const body = rawBody as EvoGoWebhookPayload;
     const event = body.event ?? '';
     const eventType: WebhookEventType = mapEventType(event);
@@ -322,13 +363,13 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     // Evolution Go nests message metadata under data.Info in some versions;
     // other versions (or media events) put fields directly on data.
     const info = data.Info ?? {};
-    const chatJid    = info.Chat     ?? (data as unknown as { Chat?: string }).Chat     ?? '';
-    const senderJid  = info.Sender   ?? (data as unknown as { Sender?: string }).Sender ?? '';
-    const pushName   = info.PushName ?? (data as unknown as { PushName?: string }).PushName;
-    const msgId      = info.ID       ?? (data as unknown as { ID?: string }).ID;
-    const isFromMe   = info.IsFromMe ?? (data as unknown as { IsFromMe?: boolean }).IsFromMe ?? false;
-    const rawTs      = info.Timestamp ?? (data as unknown as { Timestamp?: string }).Timestamp;
-    const timestamp  = rawTs ? new Date(rawTs) : new Date();
+    const chatJid   = info.Chat     ?? (data as unknown as { Chat?: string }).Chat     ?? '';
+    const senderJid = info.Sender   ?? (data as unknown as { Sender?: string }).Sender ?? '';
+    const pushName  = info.PushName ?? (data as unknown as { PushName?: string }).PushName;
+    const msgId     = info.ID       ?? (data as unknown as { ID?: string }).ID;
+    const isFromMe  = info.IsFromMe ?? (data as unknown as { IsFromMe?: boolean }).IsFromMe ?? false;
+    const rawTs     = info.Timestamp ?? (data as unknown as { Timestamp?: string }).Timestamp;
+    const timestamp = rawTs ? new Date(rawTs) : new Date();
 
     if (eventType === 'qrcode_update') {
       return {
@@ -351,6 +392,11 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
     if (eventType === 'message_received' && !isFromMe) {
       const jid = chatJid || senderJid;
+      const msg = data.Message as Record<string, unknown> | undefined;
+      const msgType = info.Type ?? '';
+
+      const messageBody = await resolveMessageBody(msgType, msg);
+
       return {
         type: 'message_received',
         instanceName,
@@ -358,7 +404,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
           from: jid,
           fromPhone: jid ? normalizePhone(jid) : undefined,
           profileName: pushName,
-          body: extractMessageText(data.Message as Record<string, unknown> | string | undefined),
+          body: messageBody,
           messageId: msgId,
           raw: rawBody,
         },
