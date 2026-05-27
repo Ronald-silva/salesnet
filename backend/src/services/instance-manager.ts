@@ -119,12 +119,46 @@ class InstanceManager {
   }
 
   async findByName(instanceName: string): Promise<StoredInstance | null> {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('whatsapp_instances')
       .select('*')
       .eq('instance_name', instanceName)
       .maybeSingle();
+    if (error) console.error(`[instance-manager] findByName error for "${instanceName}":`, error.message);
     return data ? rowToInstance(data as InstanceRow) : null;
+  }
+
+  /**
+   * Registra uma instância existente no Supabase usando um token já conhecido.
+   * Usado no bootstrap quando a instância existe no Evolution Go mas não no banco.
+   */
+  async registerFromToken(
+    tenantId: string,
+    instanceName: string,
+    token: string,
+    webhookUrl?: string,
+  ): Promise<StoredInstance | null> {
+    const { data, error } = await supabase
+      .from('whatsapp_instances')
+      .upsert(
+        {
+          tenant_id: tenantId,
+          instance_name: instanceName,
+          provider: 'evolution-go',
+          status: 'disconnected',
+          webhook_url: webhookUrl,
+          instance_token: token,
+        },
+        { onConflict: 'instance_name' },
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error(`[instance-manager] registerFromToken error for "${instanceName}":`, error.message);
+      return null;
+    }
+    return rowToInstance(data as InstanceRow);
   }
 
   async listByTenant(tenantId: string): Promise<StoredInstance[]> {

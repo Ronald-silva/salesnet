@@ -57,20 +57,37 @@ export async function ensureDefaultInstance(): Promise<void> {
   const instanceName = env.EVOLUTION_INSTANCE_NAME;
   const tenantId = env.DEFAULT_TENANT_ID;
 
+  const webhookUrl = env.BACKEND_URL
+    ? `${env.BACKEND_URL}/webhook/whatsapp/${instanceName}`
+    : undefined;
+
   try {
-    const existing = await instanceManager.findByName(instanceName);
+    let existing = await instanceManager.findByName(instanceName);
+
+    if (!existing && env.EVOLUTION_INSTANCE_TOKEN) {
+      // Instance missing from Supabase but token is known — upsert the row directly.
+      // Avoids calling Evolution Go createInstance (which would fail: instance already exists).
+      existing = await instanceManager.registerFromToken(
+        tenantId,
+        instanceName,
+        env.EVOLUTION_INSTANCE_TOKEN,
+        webhookUrl,
+      );
+      if (existing) {
+        console.log(`✅ WhatsApp instance "${instanceName}" registrada no Supabase a partir do EVOLUTION_INSTANCE_TOKEN.`);
+      }
+    }
+
     if (existing) {
       console.log(`✅ WhatsApp instance: "${instanceName}" (${existing.status})`);
 
       if (env.BACKEND_URL && env.EVOLUTION_INSTANCE_TOKEN) {
-        const webhookUrl = `${env.BACKEND_URL}/webhook/whatsapp/${instanceName}`;
-
         // Populate local cache (needed for outgoing messages)
         const provider = providerRegistry.get('evolution-go') as unknown as {
           setInstanceToken(name: string, token: string, url: string): void;
           connectInstance(name: string): Promise<unknown>;
         };
-        provider.setInstanceToken(instanceName, env.EVOLUTION_INSTANCE_TOKEN, webhookUrl);
+        provider.setInstanceToken(instanceName, env.EVOLUTION_INSTANCE_TOKEN, webhookUrl!);
 
         // Re-register webhook URL with Evolution Go on every startup
         // (Evolution Go may lose webhook config after its own restart)
@@ -84,11 +101,7 @@ export async function ensureDefaultInstance(): Promise<void> {
       return;
     }
 
-    // Instância não existe — provisionar no Evolution Go e registrar no Supabase
-    const webhookUrl = env.BACKEND_URL
-      ? `${env.BACKEND_URL}/webhook/whatsapp/${instanceName}`
-      : undefined;
-
+    // Last resort: provision a brand-new instance via Evolution Go API
     await instanceManager.provisionInstance(tenantId, {
       instanceName,
       webhookUrl,
