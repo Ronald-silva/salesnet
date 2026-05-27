@@ -70,8 +70,9 @@ function formatPlans(): string {
   return (
     `Planos de fibra óptica da SalesNet em ${BUSINESS_INFO.city}:\n\n` +
     lines.join('\n') +
-    `\n\nTodos incluem roteador, instalação gratuita e suporte ${BUSINESS_INFO.supportHours}.` +
-    `\nDesconto de R$ ${BUSINESS_INFO.earlyPaymentDiscount} pagando até o vencimento.` +
+    `\n\nTodos incluem roteador e suporte ${BUSINESS_INFO.supportHours}.` +
+    `\nTaxa de instalação: R$ ${BUSINESS_INFO.installationFee}.` +
+    `\nCanais/filmes (opcional): R$ ${BUSINESS_INFO.tvAddonMonthly}/mês.` +
     `\n\nQuer contratar ou tem alguma dúvida sobre os planos?`
   );
 }
@@ -130,7 +131,7 @@ export async function quickReply(message: string, phone: string): Promise<string
 
     case 'faq_installation':
       return (
-        `A instalação da fibra é gratuita e o prazo é de até ${BUSINESS_INFO.installationDaysMax} dias úteis ` +
+        `A taxa de instalação é R$ ${BUSINESS_INFO.installationFee} e o prazo é de até ${BUSINESS_INFO.installationDaysMax} dias úteis ` +
         `após a assinatura do contrato. O roteador já está incluso no plano.`
       );
 

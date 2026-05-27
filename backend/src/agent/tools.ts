@@ -3,7 +3,7 @@ import * as sgp from '../integrations/sgp';
 import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
-import { COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
+import { BUSINESS_INFO, COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
 
 // Derived lookup map for the verificar_cobertura tool (name → coverage %)
 const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
@@ -497,6 +497,8 @@ export async function executeTool(
           preco: p.priceMonthly,
           popular: p.popular ?? false,
         })),
+        taxaInstalacao: BUSINESS_INFO.installationFee,
+        pacoteCanaisFilmesOpcional: BUSINESS_INFO.tvAddonMonthly,
       };
 
     case 'registrar_negociacao': {

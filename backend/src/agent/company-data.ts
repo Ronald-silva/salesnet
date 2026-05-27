@@ -29,6 +29,7 @@ export const COVERED_NEIGHBORHOODS: string[] = [
 export const BUSINESS_INFO = {
   city:                   'Fortaleza/CE',
   installationFee:        50,
+  tvAddonMonthly:         30,
   loyaltyMonths:          12,
   installationDaysMax:    3,
   paymentMethods:         ['PIX', 'boleto'] as string[],

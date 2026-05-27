@@ -10,7 +10,8 @@ function buildPlansSection(): string {
     '|----------|----------|----------|-----------|',
     ...rows,
     '',
-    `- Desconto de R$ ${BUSINESS_INFO.earlyPaymentDiscount} para pagamento até a data de vencimento`,
+    `- Taxa de instalação: R$ ${BUSINESS_INFO.installationFee}`,
+    `- Pacote canais/filmes (opcional): R$ ${BUSINESS_INFO.tvAddonMonthly}/mês`,
     '- Primeiro mês proporcional ao dia da instalação',
   ].join('\n');
 }
@@ -47,7 +48,8 @@ ${buildPlansSection()}
 ${buildCoverageSection()}
 
 ## Informações comerciais (FAQ)
-- Instalação: GRATUITA nos bairros atendidos
+- Instalação: taxa única de R$ ${BUSINESS_INFO.installationFee} nos bairros atendidos
+- Pacote canais/filmes (opcional): R$ ${BUSINESS_INFO.tvAddonMonthly}/mês
 - Fidelidade: ${BUSINESS_INFO.loyaltyMonths} meses (sem multa após este período)
 - Prazo para instalação: até ${BUSINESS_INFO.installationDaysMax} dias úteis após assinatura do contrato
 - Formas de pagamento: ${BUSINESS_INFO.paymentMethods.join(' ou ')}
@@ -169,7 +171,8 @@ Fluxo se JÁ FOR CLIENTE com outro número:
 4. Se não encontrar: transfira para humano
 
 Informações importantes para responder:
-- Instalação: GRATUITA nos bairros atendidos
+- Instalação: taxa única de R$ ${BUSINESS_INFO.installationFee} nos bairros atendidos
+- Pacote canais/filmes (opcional): R$ ${BUSINESS_INFO.tvAddonMonthly}/mês
 - Prazo: até 3 dias úteis após assinatura do contrato
 - Fidelidade: 12 meses
 - Equipamento (roteador Wi-Fi): incluso, sem custo adicional
