@@ -90,7 +90,7 @@ O SGP recebe telefone **sem** código de país e **sem** 9 inicial em alguns cas
 {
   "event": "Message",
   "instanceName": "salesnet",
-  "instanceToken": "salesnet-token-2026",
+  "instanceToken": "<EVOLUTION_INSTANCE_TOKEN>",
   "data": {
     "Info": {
       "Chat": "558591993833@s.whatsapp.net",
@@ -133,14 +133,17 @@ O Evolution Go **perde a configuração de webhook** quando reinicia. O `bootstr
 
 ```
 1. processMessage(phone, body) — processor.ts
-2. Chama buscar_cliente(phone) para ter contexto
-3. Chama get_fatura_atual se o cliente existir (best-effort)
-4. classifySession() → modo: billing | support | commercial | prospect | default
-5. Monta system prompt com contexto do cliente + modo ativo
-6. Escolhe LLM via resolveTieredRouting() baseado na complexidade da mensagem
-7. Loop de tool-calling (até 10 rodadas)
-8. Envia resposta + salva no histórico + loga no Supabase
+2. sanitizeUserInput() — trunca em 2000 chars, remove padrões de prompt injection (PT+EN)
+3. Chama buscar_cliente(phone) para ter contexto
+4. Chama get_fatura_atual se o cliente existir (best-effort)
+5. classifySession() → modo: billing | support | commercial | prospect | default
+6. Monta system prompt com contexto do cliente + modo ativo
+7. Escolhe LLM via resolveTieredRouting() baseado na complexidade da mensagem
+8. Loop de tool-calling (até 10 rodadas)
+9. Envia resposta + salva no histórico + loga no Supabase
 ```
+
+A sanitização acontece **antes** de `saveMessage` — a versão limpa é o que fica no histórico e chega ao LLM. A função está em `backend/src/agent/sanitize.ts` e é exportada por `processor.ts`.
 
 ### Modo prospect
 
@@ -225,7 +228,7 @@ SGP_API_TOKEN=<uuid>                             # token gerado no painel SGP
 
 # Evolution Go — dois tokens diferentes
 EVOLUTION_API_KEY=<chave_global_admin>           # para criar/listar instâncias
-EVOLUTION_INSTANCE_TOKEN=salesnet-token-2026     # para enviar mensagens
+EVOLUTION_INSTANCE_TOKEN=<seu_token_de_instancia>               # para enviar mensagens
 
 # Backend URL — necessário para o webhook auto-registration no startup
 BACKEND_URL=https://salesnet-production.up.railway.app
@@ -241,6 +244,7 @@ BACKEND_URL=https://salesnet-production.up.railway.app
 - **Não adicione bairros em `COVERED_NEIGHBORHOODS`** sem confirmar com o usuário — causar alucinação é pior que não ter o bairro
 - **Não implemente cancelamento automático de contratos** — sempre transferir para humano
 - **Não processe mensagens com `phone` ou `body` undefined** — o guard no `index.ts` já bloqueia, não remova
+- **Não remova a chamada `sanitizeUserInput()`** no início de `processMessage` — é a única defesa contra prompt injection; remover expõe o LLM a manipulação direta pelo conteúdo do WhatsApp
 
 ---
 

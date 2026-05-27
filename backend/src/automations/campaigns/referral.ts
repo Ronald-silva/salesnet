@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
+import { env } from '../../config/env';
 import { getCustomersByActivationDays, getCustomerTickets } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
 import { alreadySentCampaign, logCampaignSend } from './shared';
 
@@ -27,9 +28,10 @@ export async function runReferralCampaign(): Promise<void> {
       );
 
       const link = `salesnet.com.br/indicar?ref=${code}`;
-      await sendMessage(
+      await whatsappService.sendText(
+        env.DEFAULT_TENANT_ID,
         customer.phone,
-        `Oi ${customer.name}! Curtindo a internet? 😊 Indique um amigo e ganhe 1 mês de desconto! Seu link: ${link}`
+        `Oi ${customer.name}! Curtindo a internet? 😊 Indique um amigo e ganhe 1 mês de desconto! Seu link: ${link}`,
       );
       await logCampaignSend(customer.id, 'referral');
     } catch (err) {

@@ -12,6 +12,7 @@ import { clientRouter } from './routes/client';
 import { adminRouter } from './routes/admin';
 import { adminInstancesRouter } from './routes/admin-instances';
 import { adminAuthMiddleware } from './middleware/adminAuth';
+import { webhookRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import cron from 'node-cron';
 import { instanceManager } from './services/instance-manager';
 
@@ -26,7 +27,9 @@ const app = express();
 
 app.set('trust proxy', 1);
 app.use(cors({
-  origin: env.CORS_ORIGIN ?? '*',
+  origin: env.NODE_ENV === 'production'
+    ? (env.CORS_ORIGIN ?? false)
+    : (env.CORS_ORIGIN ?? '*'),
   credentials: true,
 }));
 app.use(express.json({
@@ -50,7 +53,7 @@ app.get('/health', (_req, res) => {
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 // Evolution Go: POST /webhook/whatsapp/:instanceName
-app.use('/webhook/whatsapp', webhookRouter);
+app.use('/webhook/whatsapp', webhookRateLimiter, webhookRouter);
 // Twilio legacy compat: POST /webhook/twilio
 app.use('/webhook/twilio', twilioLegacyRouter);
 // SGP
@@ -58,11 +61,11 @@ app.use('/webhook/sgp', paymentWebhookRouter);
 
 // ── API Routes ─────────────────────────────────────────────────────────────
 app.use('/api/campaigns', campaignExpansionRouter);
-app.use('/api/auth', authRouter);
-app.use('/api/client', clientRouter);
+app.use('/api/auth', apiRateLimiter, authRouter);
+app.use('/api/client', apiRateLimiter, clientRouter);
 app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);
 app.use('/api/admin/instances', adminInstancesRouter);
-app.use('/api/admin', adminRouter);
+app.use('/api/admin', apiRateLimiter, adminRouter);
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────
 eventBus.onIncomingMessage(({ phone, body }) => {

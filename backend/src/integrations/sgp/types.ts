@@ -208,8 +208,3 @@ export function extractDownloadMbps(planName: string): number | undefined {
   const m = planName.match(/(\d+)\s*(?:mb|mbps|mega)/i);
   return m ? parseInt(m[1], 10) : undefined;
 }
-
-/** Strip formatting from a Brazilian phone string → digits only. */
-export function stripPhone(phone: string): string {
-  return phone.replace(/\D/g, '');
-}

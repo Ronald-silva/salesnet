@@ -9,6 +9,7 @@ import { getThread, saveMessage, isHumanMode } from './memory';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession } from './session-classifier';
+import { sanitizeUserInput } from './sanitize';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -237,8 +238,10 @@ function resolveTieredRouting(message: string): { provider: Provider; options: R
 export async function processMessage(phone: string, message: string): Promise<void> {
   if (await isHumanMode(phone)) return;
 
+  const clean = sanitizeUserInput(message);
+
   try {
-    await saveMessage(phone, 'user', message);
+    await saveMessage(phone, 'user', clean);
 
     const thread = await getThread(phone);
     const history: Anthropic.MessageParam[] = thread.messages.map((m) => ({
@@ -256,12 +259,12 @@ export async function processMessage(phone: string, message: string): Promise<vo
         const invoice = await executeTool('get_fatura_atual', { customer_id: customerId }, phone);
         invoiceStatus = (invoice as { status?: string }).status;
       }
-    } catch {
-      // invoice lookup is best-effort
+    } catch (err) {
+      console.warn('[processor] get_fatura_atual failed:', err);
     }
 
     const sessionMode = classifySession(
-      message,
+      clean,
       customerData as { status?: string; plan?: { downloadMbps?: number } },
       invoiceStatus,
     );
@@ -278,7 +281,8 @@ export async function processMessage(phone: string, message: string): Promise<vo
       dateStyle: 'short',
       timeStyle: 'short',
     });
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(customerData)}${modeContext}`;
+    const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}`;
 
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },
@@ -292,7 +296,7 @@ export async function processMessage(phone: string, message: string): Promise<vo
     let runOptions: RunOptions;
 
     if (env.LLM_ROUTING_MODE === 'tiered') {
-      const routed = resolveTieredRouting(message);
+      const routed = resolveTieredRouting(clean);
       primaryProvider = routed.provider;
       runOptions = routed.options;
       console.log(
@@ -335,6 +339,6 @@ export async function processMessage(phone: string, message: string): Promise<vo
     });
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);
-    await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch(() => undefined);
+    await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch((e: unknown) => console.error('[processor] failed to send error reply:', e));
   }
 }

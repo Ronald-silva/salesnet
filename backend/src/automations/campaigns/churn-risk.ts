@@ -1,5 +1,6 @@
+import { env } from '../../config/env';
 import { getAllActiveCustomers, getCustomerTickets, type Ticket } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
 import { alreadySentCampaign, logCampaignSend } from './shared';
 
@@ -85,10 +86,11 @@ export async function runChurnRiskCampaign(): Promise<void> {
       if (signal.level === 'high') {
         const alreadySent = await alreadySentCampaign(customer.id, 'churn_risk_high', 7);
         if (!alreadySent) {
-          await sendMessage(
+          await whatsappService.sendText(
+            env.DEFAULT_TENANT_ID,
             customer.phone,
             `Oi ${customer.name}, percebemos que você teve algumas dificuldades ultimamente. ` +
-            `Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`
+            `Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`,
           );
           await logCampaignSend(customer.id, 'churn_risk_high');
         }

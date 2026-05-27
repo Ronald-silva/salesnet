@@ -4,8 +4,11 @@ jest.mock('../../integrations/sgp', () => ({
   getCustomersByPlan: jest.fn(),
   getCustomerTickets: jest.fn(),
 }));
-jest.mock('../../integrations/twilio', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: { sendText: jest.fn() },
+}));
+jest.mock('../../config/env', () => ({
+  env: { DEFAULT_TENANT_ID: 'default' },
 }));
 jest.mock('../../automations/campaigns/shared', () => ({
   alreadySentCampaign: jest.fn(),
@@ -13,7 +16,7 @@ jest.mock('../../automations/campaigns/shared', () => ({
 }));
 
 import { getCustomersByPlan, getCustomerTickets } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { alreadySentCampaign, logCampaignSend } from '../../automations/campaigns/shared';
 
 beforeEach(() => jest.clearAllMocks());
@@ -21,12 +24,6 @@ beforeEach(() => jest.clearAllMocks());
 const activatedAt61DaysAgo = (() => {
   const d = new Date();
   d.setDate(d.getDate() - 61);
-  return d.toISOString();
-})();
-
-const activatedAt30DaysAgo = (() => {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
   return d.toISOString();
 })();
 
@@ -46,13 +43,14 @@ describe('runUpsellCampaign', () => {
     (getCustomerTickets as jest.Mock).mockResolvedValue([]);
     (alreadySentCampaign as jest.Mock).mockResolvedValue(false);
     (logCampaignSend as jest.Mock).mockResolvedValue(undefined);
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
     await runUpsellCampaign();
 
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      'default',
       customer.phone,
-      expect.stringContaining('30Mbps')
+      expect.stringContaining('30Mbps'),
     );
     expect(logCampaignSend).toHaveBeenCalledWith('c1', 'upsell');
   });
@@ -73,7 +71,7 @@ describe('runUpsellCampaign', () => {
 
     await runUpsellCampaign();
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 
   it('skips customer with open support tickets', async () => {
@@ -95,6 +93,6 @@ describe('runUpsellCampaign', () => {
 
     await runUpsellCampaign();
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 });

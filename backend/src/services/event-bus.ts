@@ -7,6 +7,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { env } from '../config/env';
 
 // ─── Tipos de Eventos ─────────────────────────────────────────────────────────
 
@@ -84,7 +85,7 @@ class EventBus extends EventEmitter {
   emitEvent<T>(event: DomainEvent<T>): void {
     this.emit(event.type, event);
     // Log detalhado em dev
-    if (process.env['NODE_ENV'] !== 'production') {
+    if (env.NODE_ENV !== 'production') {
       console.debug(`[event-bus] ${event.type} tenant=${event.tenantId} instance=${event.instanceName ?? '-'}`);
     }
   }

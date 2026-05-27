@@ -4,8 +4,11 @@ jest.mock('../../integrations/sgp', () => ({
   getCustomersByActivationDays: jest.fn(),
   getCustomerTickets: jest.fn(),
 }));
-jest.mock('../../integrations/twilio', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: { sendText: jest.fn() },
+}));
+jest.mock('../../config/env', () => ({
+  env: { DEFAULT_TENANT_ID: 'default' },
 }));
 jest.mock('../../automations/campaigns/shared', () => ({
   alreadySentCampaign: jest.fn(),
@@ -16,7 +19,7 @@ jest.mock('../../config/supabase', () => ({
 }));
 
 import { getCustomersByActivationDays, getCustomerTickets } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { alreadySentCampaign, logCampaignSend } from '../../automations/campaigns/shared';
 import { supabase } from '../../config/supabase';
 
@@ -44,7 +47,7 @@ describe('runReferralCampaign', () => {
     (getCustomerTickets as jest.Mock).mockResolvedValue([]);
     (alreadySentCampaign as jest.Mock).mockResolvedValue(false);
     (logCampaignSend as jest.Mock).mockResolvedValue(undefined);
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
     const chain = mockSupabaseChain();
 
     await runReferralCampaign();
@@ -52,11 +55,12 @@ describe('runReferralCampaign', () => {
     expect(getCustomersByActivationDays).toHaveBeenCalledWith(30);
     expect(chain.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ customer_id: 'c1' }),
-      expect.objectContaining({ onConflict: 'customer_id' })
+      expect.objectContaining({ onConflict: 'customer_id' }),
     );
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      'default',
       customer.phone,
-      expect.stringContaining('indicar')
+      expect.stringContaining('indicar'),
     );
     expect(logCampaignSend).toHaveBeenCalledWith('c1', 'referral');
   });
@@ -67,7 +71,7 @@ describe('runReferralCampaign', () => {
 
     await runReferralCampaign();
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 
   it('skips customer with open tickets', async () => {
@@ -79,7 +83,7 @@ describe('runReferralCampaign', () => {
 
     await runReferralCampaign();
 
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 
   it('generates deterministic referral code for the same customer_id', async () => {

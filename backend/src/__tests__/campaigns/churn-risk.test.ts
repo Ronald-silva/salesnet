@@ -4,8 +4,11 @@ jest.mock('../../integrations/sgp', () => ({
   getAllActiveCustomers: jest.fn(),
   getCustomerTickets: jest.fn(),
 }));
-jest.mock('../../integrations/twilio', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: { sendText: jest.fn() },
+}));
+jest.mock('../../config/env', () => ({
+  env: { DEFAULT_TENANT_ID: 'default' },
 }));
 jest.mock('../../config/supabase', () => ({
   supabase: { from: jest.fn() },
@@ -16,9 +19,8 @@ jest.mock('../../automations/campaigns/shared', () => ({
 }));
 
 import { getAllActiveCustomers, getCustomerTickets } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
-import { alreadySentCampaign, logCampaignSend } from '../../automations/campaigns/shared';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -55,7 +57,6 @@ function setupSupabaseMock(billingRows: { sent_at: string }[] = []) {
         gte: jest.fn().mockResolvedValue({ data: billingRows, error: null }),
       };
     }
-    // churn_risks table
     return {
       insert: jest.fn().mockResolvedValue({ error: null }),
     };
@@ -77,9 +78,10 @@ describe('runChurnRiskCampaign', () => {
     await runChurnRiskCampaign();
 
     expect(supabase.from).toHaveBeenCalledWith('churn_risks');
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      'default',
       baseCustomer.phone,
-      expect.stringContaining('técnico')
+      expect.stringContaining('técnico'),
     );
   });
 
@@ -93,7 +95,7 @@ describe('runChurnRiskCampaign', () => {
     await runChurnRiskCampaign();
 
     expect(supabase.from).toHaveBeenCalledWith('churn_risks');
-    expect(sendMessage).toHaveBeenCalled();
+    expect(whatsappService.sendText).toHaveBeenCalled();
   });
 
   it('does not message customer with medium churn risk (3-4 tickets)', async () => {
@@ -108,7 +110,7 @@ describe('runChurnRiskCampaign', () => {
     await runChurnRiskCampaign();
 
     expect(supabase.from).toHaveBeenCalledWith('churn_risks');
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 
   it('skips customer with no risk factors', async () => {
@@ -119,6 +121,6 @@ describe('runChurnRiskCampaign', () => {
     await runChurnRiskCampaign();
 
     expect(supabase.from).not.toHaveBeenCalledWith('churn_risks');
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
+import { env } from '../../config/env';
 import { getCustomersByPlan, getCustomerTickets } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 import { alreadySentCampaign, logCampaignSend } from './shared';
 
 const NEXT_PLAN: Record<number, { mbps: number; priceDiff: number }> = {
@@ -34,7 +35,7 @@ export async function runUpsellCampaign(): Promise<void> {
       `Por R$${next.priceDiff}/mês a mais você vai para ${next.mbps}Mbps. Quer testar 7 dias grátis? Responda SIM.`;
 
     try {
-      await sendMessage(customer.phone, message);
+      await whatsappService.sendText(env.DEFAULT_TENANT_ID, customer.phone, message);
       await logCampaignSend(customer.id, 'upsell');
     } catch (err) {
       console.error(`[campaigns:upsell] failed for ${customer.id}:`, err);

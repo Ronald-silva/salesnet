@@ -229,7 +229,7 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
     .update({ messages: updatedMessages, updated_at: new Date().toISOString() })
     .eq('id', req.params.id);
 
-  await whatsappService.sendText(process.env['DEFAULT_TENANT_ID'] ?? 'default', row.phone, message);
+  await whatsappService.sendText(env.DEFAULT_TENANT_ID, row.phone, message);
   res.status(200).json({ ok: true });
 });
 
@@ -367,7 +367,7 @@ adminRouter.post('/campaigns/churn-outreach/:id', async (req, res) => {
   const targetName = customer?.name?.split(' ')[0] ?? 'Cliente';
 
   await whatsappService.sendText(
-    process.env['DEFAULT_TENANT_ID'] ?? 'default',
+    env.DEFAULT_TENANT_ID,
     targetPhone,
     `Oi ${targetName}, percebemos que você teve algumas dificuldades ultimamente. Posso te ajudar? Um técnico pode ir até você amanhã sem custo adicional.`
   );

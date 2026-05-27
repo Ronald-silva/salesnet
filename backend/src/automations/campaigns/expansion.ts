@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { env } from '../../config/env';
 import { supabase } from '../../config/supabase';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 
 export const expansionRouter = Router();
 
@@ -11,7 +12,7 @@ async function sendBatch(phones: string[], message: string): Promise<number> {
   let sent = 0;
   for (let i = 0; i < phones.length; i++) {
     try {
-      await sendMessage(phones[i], message);
+      await whatsappService.sendText(env.DEFAULT_TENANT_ID, phones[i], message);
       sent++;
     } catch (err) {
       console.error(`[campaigns:expansion] failed to send to ${phones[i]}:`, err);

@@ -1,26 +1,47 @@
+import { createHmac } from 'crypto';
 import request from 'supertest';
 import express from 'express';
-import { paymentWebhookRouter } from '../../automations/payment-webhook';
+import type { IncomingMessage } from 'http';
+
+const mockEnv = {
+  SGP_WEBHOOK_SECRET: undefined as string | undefined,
+  DEFAULT_TENANT_ID: 'default',
+};
+
+jest.mock('../../config/env', () => ({
+  env: mockEnv,
+}));
 
 jest.mock('../../integrations/sgp', () => ({
   reactivateCustomer: jest.fn(),
 }));
-jest.mock('../../integrations/twilio', () => ({
-  sendMessage: jest.fn(),
+jest.mock('../../services/whatsapp-service', () => ({
+  whatsappService: { sendText: jest.fn() },
 }));
 
+import { paymentWebhookRouter } from '../../automations/payment-webhook';
 import { reactivateCustomer } from '../../integrations/sgp';
-import { sendMessage } from '../../integrations/twilio';
+import { whatsappService } from '../../services/whatsapp-service';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockEnv.SGP_WEBHOOK_SECRET = undefined;
 });
 
 function buildApp() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({
+    verify: (req: IncomingMessage, _res, buf: Buffer) => {
+      (req as IncomingMessage & { rawBody?: Buffer }).rawBody = buf;
+    },
+  }));
   app.use('/webhook/sgp', paymentWebhookRouter);
   return app;
+}
+
+function signBody(body: Record<string, unknown>, secret: string): string {
+  const raw = Buffer.from(JSON.stringify(body));
+  return createHmac('sha256', secret).update(raw).digest('hex');
 }
 
 describe('POST /webhook/sgp/payment-confirmed', () => {
@@ -30,7 +51,7 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
       status: 'active',
       updatedAt: '2026-05-07T10:00:00Z',
     });
-    (sendMessage as jest.Mock).mockResolvedValue(undefined);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
     const res = await request(buildApp())
       .post('/webhook/sgp/payment-confirmed')
@@ -39,9 +60,10 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
     expect(reactivateCustomer).toHaveBeenCalledWith('cust1');
-    expect(sendMessage).toHaveBeenCalledWith(
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      'default',
       '+5585999990001',
-      expect.stringContaining('pagamento')
+      expect.stringContaining('pagamento'),
     );
   });
 
@@ -67,13 +89,57 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
     expect(res.body.error).toBe('SGP timeout');
   });
 
-  it('returns 500 when sendMessage fails', async () => {
+  it('returns 401 when secret is set and signature is missing', async () => {
+    mockEnv.SGP_WEBHOOK_SECRET = 'test-secret';
+    const body = { customerId: 'cust1', phone: '+5585999990001', amount: 70 };
+
+    const res = await request(buildApp())
+      .post('/webhook/sgp/payment-confirmed')
+      .send(body);
+
+    expect(res.status).toBe(401);
+    expect(reactivateCustomer).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when secret is set and signature is invalid', async () => {
+    mockEnv.SGP_WEBHOOK_SECRET = 'test-secret';
+    const body = { customerId: 'cust1', phone: '+5585999990001', amount: 70 };
+
+    const res = await request(buildApp())
+      .post('/webhook/sgp/payment-confirmed')
+      .set('x-sgp-signature', 'invalid')
+      .send(body);
+
+    expect(res.status).toBe(401);
+    expect(reactivateCustomer).not.toHaveBeenCalled();
+  });
+
+  it('accepts request when secret is set and signature is valid', async () => {
+    mockEnv.SGP_WEBHOOK_SECRET = 'test-secret';
+    const body = { customerId: 'cust1', phone: '+5585999990001', amount: 70 };
+    (reactivateCustomer as jest.Mock).mockResolvedValue({
+      customerId: 'cust1',
+      status: 'active',
+      updatedAt: '2026-05-07T10:00:00Z',
+    });
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
+
+    const res = await request(buildApp())
+      .post('/webhook/sgp/payment-confirmed')
+      .set('x-sgp-signature', signBody(body, 'test-secret'))
+      .send(body);
+
+    expect(res.status).toBe(200);
+    expect(reactivateCustomer).toHaveBeenCalledWith('cust1');
+  });
+
+  it('returns 500 when sendText fails', async () => {
     (reactivateCustomer as jest.Mock).mockResolvedValue({
       customerId: 'cust3',
       status: 'active',
       updatedAt: '2026-05-07T10:00:00Z',
     });
-    (sendMessage as jest.Mock).mockRejectedValue(new Error('Twilio unavailable'));
+    (whatsappService.sendText as jest.Mock).mockRejectedValue(new Error('WhatsApp unavailable'));
 
     const res = await request(buildApp())
       .post('/webhook/sgp/payment-confirmed')

@@ -134,7 +134,8 @@ Evolution Go (WhatsApp API)
 
 | Arquivo | Responsabilidade |
 |---------|-----------------|
-| `agent/processor.ts` | Loop principal: contexto → LLM → tools → resposta |
+| `agent/processor.ts` | Loop principal: sanitização → contexto → LLM → tools → resposta |
+| `agent/sanitize.ts` | Sanitização de input: trunca em 2000 chars, remove padrões de prompt injection (PT+EN) |
 | `agent/tools.ts` | Implementação das 17 ferramentas |
 | `agent/prompt.ts` | System prompt + contexto por modo |
 | `agent/session-classifier.ts` | Classifica modo (billing/support/commercial/prospect/default) |
@@ -180,7 +181,7 @@ WHATSAPP_PROVIDER=evolution-go
 EVOLUTION_API_URL=https://evolution-go-production-xxxx.up.railway.app
 EVOLUTION_API_KEY=<global_apikey>
 EVOLUTION_INSTANCE_NAME=salesnet
-EVOLUTION_INSTANCE_TOKEN=salesnet-token-2026
+EVOLUTION_INSTANCE_TOKEN=<seu_token_de_instancia>
 
 # ── ERP (SGP TSMX) ────────────────────────────────────
 SGP_BASE_URL=https://salesnet.sgp.tsmx.com.br

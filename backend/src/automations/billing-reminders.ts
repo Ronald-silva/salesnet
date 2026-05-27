@@ -1,4 +1,5 @@
 import { supabase } from '../config/supabase';
+import { env } from '../config/env';
 import {
   getCustomersDueInDays,
   getOverdueCustomers,
@@ -49,7 +50,7 @@ export async function runBillingJobD3(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_reminder_d3' as BillingTemplateName, {
+      await whatsappService.sendTemplate(env.DEFAULT_TENANT_ID, customer.phone, 'billing_reminder_d3' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
@@ -69,7 +70,7 @@ export async function runBillingJobD0(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_reminder_d0' as BillingTemplateName, {
+      await whatsappService.sendTemplate(env.DEFAULT_TENANT_ID, customer.phone, 'billing_reminder_d0' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amount.toFixed(2),
         data_vencimento: customer.dueDate,
@@ -89,7 +90,7 @@ export async function runBillingJobOverdueD3(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_overdue_d3' as BillingTemplateName, {
+      await whatsappService.sendTemplate(env.DEFAULT_TENANT_ID, customer.phone, 'billing_overdue_d3' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,
@@ -108,7 +109,7 @@ export async function runBillingJobSuspendD5(): Promise<void> {
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
-      await whatsappService.sendTemplate(process.env['DEFAULT_TENANT_ID'] ?? 'default', customer.phone, 'billing_suspended_d5' as BillingTemplateName, {
+      await whatsappService.sendTemplate(env.DEFAULT_TENANT_ID, customer.phone, 'billing_suspended_d5' as BillingTemplateName, {
         nome: customer.name,
         valor: customer.amountDue.toFixed(2),
         chave_pix: pix.pixKey,

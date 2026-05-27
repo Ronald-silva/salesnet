@@ -1,10 +1,46 @@
-import { Router } from 'express';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { Router, Request } from 'express';
+import { env } from '../config/env';
 import { reactivateCustomer } from '../integrations/sgp';
-import { sendMessage } from '../integrations/twilio';
+import { whatsappService } from '../services/whatsapp-service';
+
+type RawRequest = Request & { rawBody?: Buffer };
+
+function validateSgpWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
+  const secret = env.SGP_WEBHOOK_SECRET;
+  if (!secret) return true;
+
+  if (!(rawBody instanceof Buffer)) return false;
+
+  const rawSig = headers['x-sgp-signature'] ?? '';
+  const signature = rawSig.startsWith('sha256=') ? rawSig.slice(7) : rawSig;
+  if (!signature) return false;
+
+  const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+
+  try {
+    const expectedBuf = Buffer.from(expected, 'utf8');
+    const receivedBuf = Buffer.from(signature, 'utf8');
+    if (expectedBuf.byteLength !== receivedBuf.byteLength) return false;
+    return timingSafeEqual(expectedBuf, receivedBuf);
+  } catch {
+    return false;
+  }
+}
 
 export const paymentWebhookRouter = Router();
 
 paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
+  const headers = req.headers as Record<string, string>;
+  const rawBody = (req as RawRequest).rawBody ?? Buffer.alloc(0);
+
+  if (!validateSgpWebhook(rawBody, headers)) {
+    const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+    console.warn(`[payment-webhook] Invalid HMAC signature from ${ip}`);
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
+
   const { customerId, phone, amount } = req.body as {
     customerId?: string;
     phone?: string;
@@ -19,10 +55,11 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
   try {
     await reactivateCustomer(customerId);
     const amountStr = amount !== undefined ? `R$ ${Number(amount).toFixed(2)}` : 'seu pagamento';
-    await sendMessage(
+    await whatsappService.sendText(
+      env.DEFAULT_TENANT_ID,
       phone,
       `Olá! Recebemos seu pagamento de ${amountStr} com sucesso. ` +
-      `Sua conexão foi reativada. Obrigado por estar conosco!`
+      `Sua conexão foi reativada. Obrigado por estar conosco!`,
     );
     res.status(200).json({ ok: true });
   } catch (err) {

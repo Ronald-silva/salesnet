@@ -4,20 +4,10 @@ import {
   CustomerSchema,
   normalizeStatus,
   extractDownloadMbps,
-  stripPhone,
   type Customer,
   type Contrato,
 } from './types';
-
-/** Convert E.164 / any format → bare digits (DDD+number, no country code). */
-function toSgpPhone(phone: string): string {
-  const digits = stripPhone(phone);
-  // Strip leading 55 (Brazil country code) if present and result would be 10-11 digits
-  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
-    return digits.slice(2);
-  }
-  return digits;
-}
+import { normalizePhone } from '../../lib/phone';
 
 /** Map a raw SGP Contrato to our normalized Customer shape. */
 function contratoToCustomer(c: Contrato, rawPhone: string): Customer {
@@ -58,7 +48,7 @@ async function consultacliente(params: Record<string, string>): Promise<Contrato
 }
 
 export async function getCustomerByPhone(phone: string): Promise<Customer> {
-  const sgpPhone = toSgpPhone(phone);
+  const sgpPhone = normalizePhone(phone).replace(/^\+55/, '');
   const contratos = await consultacliente({ telefone: sgpPhone });
   if (!contratos.length) throw new Error(`Cliente não encontrado para o telefone ${phone}`);
   // Prefer active contracts; fall back to first

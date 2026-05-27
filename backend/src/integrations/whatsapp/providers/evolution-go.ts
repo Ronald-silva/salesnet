@@ -14,6 +14,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
+import { normalizePhone } from '../../../lib/phone';
 import type {
   WhatsAppProvider,
   InstanceConfig,
@@ -79,10 +80,6 @@ interface EvoGoWebhookPayload {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function jidToPhone(jid: string): string {
-  return `+${jid.replace(/@[^@]+$/, '').replace(/[^0-9]/g, '')}`;
-}
 
 function phoneToJid(phone: string): string {
   const digits = phone.replace(/\D/g, '');
@@ -216,7 +213,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     return {
       connected,
       state: connected ? 'open' : 'close',
-      phoneNumber: jid ? jidToPhone(jid) : undefined,
+      phoneNumber: jid ? normalizePhone(jid) : undefined,
     };
   }
 
@@ -300,8 +297,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
     const rawSig = headers['x-webhook-signature'] ?? '';
     const signature = rawSig.startsWith('sha256=') ? rawSig.slice(7) : rawSig;
-    // If secret is set but Evolution Go didn't send a signature, allow through
-    if (!signature) return true;
+    if (!signature) return false;
 
     const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
 
@@ -359,7 +355,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
         instanceName,
         data: {
           from: jid,
-          fromPhone: jid ? jidToPhone(jid) : undefined,
+          fromPhone: jid ? normalizePhone(jid) : undefined,
           profileName: pushName,
           body: extractMessageText(data.Message as Record<string, unknown> | string | undefined),
           messageId: msgId,

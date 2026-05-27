@@ -1,20 +1,15 @@
 import { Router } from 'express';
-import { randomUUID } from 'crypto';
+import { randomInt, randomUUID } from 'crypto';
+import { normalizePhone } from '../lib/phone';
 import { getCustomerByPhone } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 import { supabase } from '../config/supabase';
+import { env } from '../config/env';
 
 export const authRouter = Router();
 
-function normalizePhone(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('55')) return `+${digits}`;
-  if (digits.length === 10 || digits.length === 11) return `+55${digits}`;
-  return `+${digits}`;
-}
-
 function generateOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 authRouter.post('/request-otp', async (req, res) => {
@@ -40,7 +35,7 @@ authRouter.post('/request-otp', async (req, res) => {
 
   try {
     await whatsappService.sendText(
-      process.env['DEFAULT_TENANT_ID'] ?? 'default',
+      env.DEFAULT_TENANT_ID,
       normalized,
       `Seu código de acesso SalesNet é: ${code}\nVálido por 10 minutos.`
     );

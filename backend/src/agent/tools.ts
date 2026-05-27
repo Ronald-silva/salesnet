@@ -272,10 +272,11 @@ export async function executeTool(
           const customer = await sgp.getCustomerById(input.customer_id as string);
           const neighborhood = customer.address?.neighborhood ?? '';
           if (neighborhood) {
-            await supabase.from('outage_reports').insert({
+            const { error } = await supabase.from('outage_reports').insert({
               neighborhood,
               customer_id: input.customer_id as string,
             });
+            if (error) throw new Error(`Supabase insert failed [abrir_chamado]: ${error.message}`);
           }
         } catch {
           // best-effort — não bloqueia o chamado
@@ -367,7 +368,7 @@ export async function executeTool(
     }
 
     case 'registrar_interesse': {
-      await supabase.from('leads').insert({
+      const { error } = await supabase.from('leads').insert({
         phone:        input.phone as string,
         name:         input.name as string,
         neighborhood: input.neighborhood as string,
@@ -375,6 +376,7 @@ export async function executeTool(
         notes:        (input.notes as string | undefined) ?? null,
         status:       'new',
       });
+      if (error) throw new Error(`Supabase insert failed [registrar_interesse]: ${error.message}`);
       return {
         status: 'registered',
         message: 'Interesse registrado com sucesso. Nossa equipe entrará em contato em até 24h.',
@@ -382,9 +384,10 @@ export async function executeTool(
     }
 
     case 'marcar_churn_risk': {
-      await supabase
+      const { error } = await supabase
         .from('conversation_threads')
         .upsert({ phone, churn_risk: true }, { onConflict: 'phone' });
+      if (error) throw new Error(`Supabase insert failed [marcar_churn_risk]: ${error.message}`);
       return { status: 'marked', customer_id: input.customer_id, reason: input.reason };
     }
 
@@ -401,13 +404,14 @@ export async function executeTool(
     }
 
     case 'registrar_negociacao': {
-      await supabase.from('billing_notifications').insert({
+      const { error } = await supabase.from('billing_notifications').insert({
         customer_id: input.customer_id as string,
         phone,
         type: 'negociacao',
         status: 'registered',
         notes: input.condicoes as string,
       });
+      if (error) throw new Error(`Supabase insert failed [registrar_negociacao]: ${error.message}`);
       return {
         status: 'registered',
         message: `Negociação registrada: ${String(input.condicoes)}. Um atendente confirmará em breve.`,

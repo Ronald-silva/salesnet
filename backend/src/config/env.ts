@@ -46,6 +46,8 @@ const envSchema = z.object({
   SGP_BASE_URL: z.string().url('SGP_BASE_URL must be a valid URL'),
   SGP_API_TOKEN: z.string().min(1, 'SGP_API_TOKEN is required'),
   SGP_APP_NAME: z.string().min(1, 'SGP_APP_NAME is required'),
+  /** Segredo HMAC-SHA256 para validar webhooks de confirmação de pagamento do SGP */
+  SGP_WEBHOOK_SECRET: z.string().optional(),
 
   // ── Database ──────────────────────────────────────────────────────────────
   SUPABASE_URL: z.string().url('SUPABASE_URL must be a valid URL'),
@@ -54,7 +56,7 @@ const envSchema = z.object({
   // ── Server ────────────────────────────────────────────────────────────────
   PORT: z.coerce.number().default(3001),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  CORS_ORIGIN: z.string().optional(),
+  CORS_ORIGIN: z.string().url().optional(),
 }).superRefine((data, ctx) => {
   // LLM
   if (data.LLM_PROVIDER === 'anthropic' && !data.ANTHROPIC_API_KEY) {
@@ -76,6 +78,14 @@ const envSchema = z.object({
     // Set it to enable HMAC validation once Evolution Go is configured to sign requests
   }
   // Twilio é legado — variáveis opcionais, validação apenas em runtime
+
+  if (data.NODE_ENV === 'production' && !data.CORS_ORIGIN) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['CORS_ORIGIN'],
+      message: 'CORS_ORIGIN is required in production (set to your frontend URL, e.g. https://salesnet-green.vercel.app)',
+    });
+  }
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -89,3 +99,15 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (env.NODE_ENV === 'production' && !env.EVOLUTION_WEBHOOK_SECRET) {
+  console.warn(
+    '[env] EVOLUTION_WEBHOOK_SECRET is not set in production — Evolution Go webhook HMAC validation is disabled',
+  );
+}
+
+if (env.NODE_ENV === 'production' && !env.SGP_WEBHOOK_SECRET) {
+  console.warn(
+    '[env] SGP_WEBHOOK_SECRET is not set in production — SGP payment webhook HMAC validation is disabled',
+  );
+}
