@@ -62,11 +62,24 @@ export async function ensureDefaultInstance(): Promise<void> {
     if (existing) {
       console.log(`✅ WhatsApp instance: "${instanceName}" (${existing.status})`);
 
-      // Re-register webhook URL in provider cache so outgoing messages use it
       if (env.BACKEND_URL && env.EVOLUTION_INSTANCE_TOKEN) {
         const webhookUrl = `${env.BACKEND_URL}/webhook/whatsapp/${instanceName}`;
-        const provider = providerRegistry.get('evolution-go') as unknown as { setInstanceToken(name: string, token: string, url: string): void };
+
+        // Populate local cache (needed for outgoing messages)
+        const provider = providerRegistry.get('evolution-go') as unknown as {
+          setInstanceToken(name: string, token: string, url: string): void;
+          connectInstance(name: string): Promise<unknown>;
+        };
         provider.setInstanceToken(instanceName, env.EVOLUTION_INSTANCE_TOKEN, webhookUrl);
+
+        // Re-register webhook URL with Evolution Go on every startup
+        // (Evolution Go may lose webhook config after its own restart)
+        try {
+          await provider.connectInstance(instanceName);
+          console.log(`   ✅ Webhook re-registrado: ${webhookUrl}`);
+        } catch (err) {
+          console.warn(`   ⚠️  Falha ao re-registrar webhook:`, (err as Error).message);
+        }
       }
       return;
     }
