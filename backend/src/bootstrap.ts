@@ -61,6 +61,13 @@ export async function ensureDefaultInstance(): Promise<void> {
     const existing = await instanceManager.findByName(instanceName);
     if (existing) {
       console.log(`✅ WhatsApp instance: "${instanceName}" (${existing.status})`);
+
+      // Re-register webhook URL in provider cache so outgoing messages use it
+      if (env.BACKEND_URL && env.EVOLUTION_INSTANCE_TOKEN) {
+        const webhookUrl = `${env.BACKEND_URL}/webhook/whatsapp/${instanceName}`;
+        const provider = providerRegistry.get('evolution-go') as unknown as { setInstanceToken(name: string, token: string, url: string): void };
+        provider.setInstanceToken(instanceName, env.EVOLUTION_INSTANCE_TOKEN, webhookUrl);
+      }
       return;
     }
 
