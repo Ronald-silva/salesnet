@@ -7,6 +7,10 @@
  *
  * Retorna null quando a mensagem não é um FAQ simples, indicando
  * que o processador deve prosseguir para o fluxo LLM completo.
+ *
+ * TEMPORÁRIO: só coverage_list e faq_installation estão ativos.
+ * Demais intents (plans_list, coverage_check, faq_payment, faq_support)
+ * retornam null até reativação gradual em produção.
  */
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
@@ -75,6 +79,17 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
   return { intent: null };
 }
 
+type ActiveQuickReplyIntent = 'coverage_list' | 'faq_installation';
+
+const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
+  'coverage_list',
+  'faq_installation',
+]);
+
+function isQuickReplyEnabled(intent: Intent): intent is ActiveQuickReplyIntent {
+  return intent !== null && ENABLED_QUICK_REPLY_INTENTS.has(intent as ActiveQuickReplyIntent);
+}
+
 // ─── Formatters ───────────────────────────────────────────────────────────────
 
 function formatPlans(): string {
@@ -133,9 +148,11 @@ export async function quickReply(message: string, phone: string): Promise<string
     `[quick-reply] phone=${phone} intent=${intent ?? 'null'} neighborhood=${neighborhood ?? '-'}`,
   );
 
-  if (intent === 'plans_list') {
-    console.log('[quick-reply] plans_list → formatPlans() (não usa verificar_cobertura)');
-    return formatPlans();
+  if (!isQuickReplyEnabled(intent)) {
+    if (intent) {
+      console.log(`[quick-reply] intent=${intent} desabilitado temporariamente → LLM`);
+    }
+    return null;
   }
 
   switch (intent) {
@@ -143,25 +160,12 @@ export async function quickReply(message: string, phone: string): Promise<string
       console.log('[quick-reply] coverage_list → formatCoverageList()');
       return formatCoverageList();
 
-    case 'coverage_check':
-      console.log(`[quick-reply] coverage_check → formatCoverageCheck(${neighborhood ?? 'list'})`);
-      return neighborhood ? formatCoverageCheck(neighborhood) : formatCoverageList();
-
     case 'faq_installation':
+      console.log('[quick-reply] faq_installation → installation FAQ');
       return (
         `A taxa de instalação é R$ ${BUSINESS_INFO.installationFee} e o prazo é de até ${BUSINESS_INFO.installationDaysMax} dias úteis ` +
         `após a assinatura do contrato. O roteador já está incluso no plano.`
       );
-
-    case 'faq_payment':
-      return (
-        `Aceitamos ${BUSINESS_INFO.paymentMethods.join(' e ')}. ` +
-        `Tem desconto de R$ ${BUSINESS_INFO.earlyPaymentDiscount} para quem paga até a data de vencimento. ` +
-        `O dia de vencimento é escolhido por você na hora do contrato.`
-      );
-
-    case 'faq_support':
-      return `Nosso suporte é ${BUSINESS_INFO.supportHours}. É só mandar mensagem aqui pelo WhatsApp mesmo!`;
 
     default:
       return null;
