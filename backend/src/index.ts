@@ -1,3 +1,5 @@
+import './instrument';
+import * as Sentry from '@sentry/node';
 import express from 'express';
 import cors from 'cors';
 import type { IncomingMessage } from 'http';
@@ -16,6 +18,7 @@ import { adminAuthMiddleware } from './middleware/adminAuth';
 import { webhookRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import cron from 'node-cron';
 import { instanceManager } from './services/instance-manager';
+import { healthRouter } from './routes/health';
 
 // ── Bootstrap providers ────────────────────────────────────────────────────
 bootstrapProviders();
@@ -42,15 +45,7 @@ app.use(express.json({
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Health ─────────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => {
-  res.json({
-    status:    'ok',
-    service:   'salesnet-backend',
-    provider:  env.WHATSAPP_PROVIDER,
-    timestamp: new Date().toISOString(),
-    env:       env.NODE_ENV,
-  });
-});
+app.use('/health', healthRouter);
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 // Evolution Go: POST /webhook/whatsapp/:instanceName
@@ -68,6 +63,10 @@ app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);
 app.use('/api/admin/instances', adminInstancesRouter);
 app.use('/api/admin/reports', apiRateLimiter, reportsRouter);
 app.use('/api/admin', apiRateLimiter, adminRouter);
+
+if (env.SENTRY_DSN) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────
 eventBus.onIncomingMessage(({ phone, body, messageId }) => {

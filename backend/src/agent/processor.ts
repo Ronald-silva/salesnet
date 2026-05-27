@@ -15,10 +15,57 @@ import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
 import { randomUUID } from 'crypto';
 import { withPhoneLock } from '../utils/phone-mutex';
+import { warnIfDailyBudgetExceeded } from './llm-budget';
 
 type Provider = 'anthropic' | 'deepseek';
 
 type ToolCallLog = { name: string; input: unknown; output: unknown };
+
+type LlmUsageTotals = {
+  inputTokens: number;
+  outputTokens: number;
+  provider: Provider;
+  model: string;
+};
+
+function emptyUsage(provider: Provider): LlmUsageTotals {
+  return {
+    inputTokens:  0,
+    outputTokens: 0,
+    provider,
+    model:        provider === 'deepseek' ? env.DEEPSEEK_MODEL : env.ANTHROPIC_MODEL,
+  };
+}
+
+function mergeUsage(base: LlmUsageTotals, extra: LlmUsageTotals): LlmUsageTotals {
+  return {
+    inputTokens:  base.inputTokens + extra.inputTokens,
+    outputTokens: base.outputTokens + extra.outputTokens,
+    provider:     extra.provider,
+    model:        extra.model,
+  };
+}
+
+function usageFromAnthropicResponse(response: Anthropic.Message, provider: Provider): LlmUsageTotals {
+  return {
+    inputTokens:  response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
+    provider,
+    model:        env.ANTHROPIC_MODEL,
+  };
+}
+
+function usageFromDeepSeekResponse(
+  data: { usage?: { prompt_tokens?: number; completion_tokens?: number } },
+  provider: Provider,
+): LlmUsageTotals {
+  return {
+    inputTokens:  data.usage?.prompt_tokens ?? 0,
+    outputTokens: data.usage?.completion_tokens ?? 0,
+    provider,
+    model:        env.DEEPSEEK_MODEL,
+  };
+}
 
 type RunOptions = {
   maxTokens: number;
@@ -68,9 +115,10 @@ async function runAnthropicFlow(
   phone: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
-): Promise<{ finalText: string; toolCallLog: ToolCallLog[] }> {
+): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   let messages: Anthropic.MessageParam[] = [...history];
   const toolCallLog = [...initialToolLog];
+  let usage = emptyUsage('anthropic');
   let response = await anthropic.messages.create({
     model:      env.ANTHROPIC_MODEL,
     max_tokens: options.maxTokens,
@@ -78,6 +126,7 @@ async function runAnthropicFlow(
     tools:      TOOL_DEFINITIONS,
     messages,
   });
+  usage = mergeUsage(usage, usageFromAnthropicResponse(response, 'anthropic'));
 
   let iterations = 0;
 
@@ -109,13 +158,14 @@ async function runAnthropicFlow(
       tools:      TOOL_DEFINITIONS,
       messages,
     });
+    usage = mergeUsage(usage, usageFromAnthropicResponse(response, 'anthropic'));
   }
 
   const finalText =
     response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ??
     'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
 
-  return { finalText, toolCallLog };
+  return { finalText, toolCallLog, usage };
 }
 
 async function runDeepSeekFlow(
@@ -124,9 +174,10 @@ async function runDeepSeekFlow(
   phone: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
-): Promise<{ finalText: string; toolCallLog: ToolCallLog[] }> {
+): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   const baseUrl = env.DEEPSEEK_BASE_URL.replace(/\/$/, '');
   const toolCallLog = [...initialToolLog];
+  let usage = emptyUsage('deepseek');
   const historyMessages: DeepSeekMessage[] = history.map((m) => ({
     role:    m.role,
     content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
@@ -154,6 +205,8 @@ async function runDeepSeekFlow(
       },
     );
 
+    usage = mergeUsage(usage, usageFromDeepSeekResponse(data, 'deepseek'));
+
     const choice = data?.choices?.[0];
     const message = choice?.message as DeepSeekMessage | undefined;
     if (!message) {
@@ -167,7 +220,7 @@ async function runDeepSeekFlow(
         typeof message.content === 'string' && message.content.trim().length > 0
           ? message.content
           : 'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
-      return { finalText, toolCallLog };
+      return { finalText, toolCallLog, usage };
     }
 
     messages.push({
@@ -197,6 +250,7 @@ async function runDeepSeekFlow(
   return {
     finalText: 'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.',
     toolCallLog,
+    usage,
   };
 }
 
@@ -207,7 +261,7 @@ async function runLLMFlow(
   phone: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
-): Promise<{ finalText: string; toolCallLog: ToolCallLog[] }> {
+): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   if (provider === 'deepseek') {
     return runDeepSeekFlow(history, systemWithContext, phone, initialToolLog, options);
   }
@@ -298,14 +352,17 @@ async function disambiguateSessionMode(
   customerData: unknown,
   invoiceStatus: string | undefined,
   baseMode: SessionMode,
-): Promise<SessionModeDecision> {
+): Promise<{ decision: SessionModeDecision; usage: LlmUsageTotals }> {
   if (!isSessionDisambiguationCandidate(baseMode, message)) {
     return {
-      baseMode,
-      finalMode: baseMode,
-      source: 'regex',
-      confidence: 'none',
-      reason: 'not_candidate',
+      decision: {
+        baseMode,
+        finalMode: baseMode,
+        source: 'regex',
+        confidence: 'none',
+        reason: 'not_candidate',
+      },
+      usage: emptyUsage(pickProviderForCheapTier()),
     };
   }
 
@@ -336,23 +393,30 @@ async function disambiguateSessionMode(
         system: 'Você é um classificador determinístico de intenção. Responda somente JSON.',
         messages: [{ role: 'user', content: prompt }],
       });
+      const usage = usageFromAnthropicResponse(response, 'anthropic');
       const raw = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text')?.text ?? '';
       const parsed = parseSessionDisambiguation(raw);
       if (!parsed || parsed.confidence === 'low') {
         return {
-          baseMode,
-          finalMode: baseMode === 'prospect' ? 'default' : baseMode,
-          source: 'llm',
-          confidence: parsed?.confidence ?? 'low',
-          reason: parsed?.reason ?? 'invalid_or_low_confidence',
+          decision: {
+            baseMode,
+            finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+            source: 'llm',
+            confidence: parsed?.confidence ?? 'low',
+            reason: parsed?.reason ?? 'invalid_or_low_confidence',
+          },
+          usage,
         };
       }
       return {
-        baseMode,
-        finalMode: parsed.mode,
-        source: 'llm',
-        confidence: parsed.confidence,
-        reason: parsed.reason,
+        decision: {
+          baseMode,
+          finalMode: parsed.mode,
+          source: 'llm',
+          confidence: parsed.confidence,
+          reason: parsed.reason,
+        },
+        usage,
       };
     }
 
@@ -374,32 +438,42 @@ async function disambiguateSessionMode(
         },
       },
     );
+    const usage = usageFromDeepSeekResponse(data, 'deepseek');
     const raw = String(data?.choices?.[0]?.message?.content ?? '');
     const parsed = parseSessionDisambiguation(raw);
     if (!parsed || parsed.confidence === 'low') {
       return {
-        baseMode,
-        finalMode: baseMode === 'prospect' ? 'default' : baseMode,
-        source: 'llm',
-        confidence: parsed?.confidence ?? 'low',
-        reason: parsed?.reason ?? 'invalid_or_low_confidence',
+        decision: {
+          baseMode,
+          finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+          source: 'llm',
+          confidence: parsed?.confidence ?? 'low',
+          reason: parsed?.reason ?? 'invalid_or_low_confidence',
+        },
+        usage,
       };
     }
     return {
-      baseMode,
-      finalMode: parsed.mode,
-      source: 'llm',
-      confidence: parsed.confidence,
-      reason: parsed.reason,
+      decision: {
+        baseMode,
+        finalMode: parsed.mode,
+        source: 'llm',
+        confidence: parsed.confidence,
+        reason: parsed.reason,
+      },
+      usage,
     };
   } catch (err) {
     console.warn('[processor] session disambiguation failed:', err);
     return {
-      baseMode,
-      finalMode: baseMode === 'prospect' ? 'default' : baseMode,
-      source: 'llm',
-      confidence: 'low',
-      reason: 'llm_error',
+      decision: {
+        baseMode,
+        finalMode: baseMode === 'prospect' ? 'default' : baseMode,
+        source: 'llm',
+        confidence: 'low',
+        reason: 'llm_error',
+      },
+      usage: emptyUsage(provider),
     };
   }
 }
@@ -497,7 +571,8 @@ export async function processMessage(phone: string, message: string, rawMessageI
       customerData as { status?: string; plan?: { downloadMbps?: number } },
       invoiceStatus,
     );
-    const sessionModeDecision = await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
+    const { decision: sessionModeDecision, usage: disambiguationUsage } =
+      await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
     const sessionMode = sessionModeDecision.finalMode;
 
     const modeContext =
@@ -551,10 +626,12 @@ export async function processMessage(phone: string, message: string, rawMessageI
       runOptions = defaultRunOptions();
     }
 
-    let result: { finalText: string; toolCallLog: ToolCallLog[] };
+    let result: { finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals };
+    let llmUsage = disambiguationUsage;
 
     try {
       result = await runLLMFlow(primaryProvider, history, systemWithContext, phone, initialToolLog, runOptions);
+      llmUsage = mergeUsage(llmUsage, result.usage);
     } catch (providerErr) {
       if (!env.LLM_FALLBACK_PROVIDER || env.LLM_FALLBACK_PROVIDER === primaryProvider) {
         throw providerErr;
@@ -569,6 +646,7 @@ export async function processMessage(phone: string, message: string, rawMessageI
         initialToolLog,
         runOptions,
       );
+      llmUsage = mergeUsage(llmUsage, result.usage);
     }
 
     const finalText = result.finalText;
@@ -596,7 +674,13 @@ export async function processMessage(phone: string, message: string, rawMessageI
       tool_calls: result.toolCallLog,
       response:   finalText,
       processing_ms: Date.now() - startMs,
+      input_tokens:  llmUsage.inputTokens > 0 ? llmUsage.inputTokens : null,
+      output_tokens: llmUsage.outputTokens > 0 ? llmUsage.outputTokens : null,
+      llm_provider:  llmUsage.inputTokens > 0 ? llmUsage.provider : null,
+      llm_model:     llmUsage.inputTokens > 0 ? llmUsage.model : null,
     });
+
+    await warnIfDailyBudgetExceeded();
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);
     await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.').catch((e: unknown) => console.error('[processor] failed to send error reply:', e));

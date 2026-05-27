@@ -19,6 +19,10 @@ const envSchema = z.object({
   LLM_MAX_TOKENS: z.coerce.number().int().positive().default(1024),
   LLM_SIMPLE_MAX_TOKENS: z.coerce.number().int().positive().default(512),
   LLM_SIMPLE_MAX_TOOL_ROUNDS: z.coerce.number().int().min(1).max(10).default(3),
+  LLM_DAILY_BUDGET_USD: z.coerce.number().positive().default(10),
+
+  // ── Observability ─────────────────────────────────────────────────────────
+  SENTRY_DSN: z.string().url().optional(),
 
   // ── WhatsApp Provider ─────────────────────────────────────────────────────
   /** Provider principal de WhatsApp */
