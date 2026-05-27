@@ -14,13 +14,13 @@ const COVERED_NEIGHBORHOODS: Record<string, number> = {
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'buscar_cliente',
-    description: 'Busca dados do cliente pelo telefone. Chame esta tool primeiro para ter contexto sobre o cliente.',
+    description: 'Busca dados do cliente pelo telefone OU pelo CPF. Chame esta tool primeiro para ter contexto. Se o cliente informar um CPF (11 dígitos), passe no campo cpf. Se informar telefone, passe no campo phone.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        phone: { type: 'string', description: 'Número de telefone E.164 (ex: +5585999990000)' },
+        phone: { type: 'string', description: 'Número de telefone E.164 (ex: +5585999990000) — use quando o cliente informar o telefone' },
+        cpf:   { type: 'string', description: 'CPF do cliente com ou sem formatação (ex: 049.763.013-38 ou 04976301338) — use quando o cliente informar o CPF' },
       },
-      required: ['phone'],
     },
   },
   {
@@ -223,6 +223,9 @@ export async function executeTool(
   switch (name) {
     case 'buscar_cliente': {
       try {
+        if (input.cpf) {
+          return await sgp.getCustomerByCpf(input.cpf as string);
+        }
         return await sgp.getCustomerByPhone(input.phone as string);
       } catch {
         return { error: 'Cliente não encontrado' };

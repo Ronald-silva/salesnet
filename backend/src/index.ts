@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import type { IncomingMessage } from 'http';
 import { env } from './config/env';
 import { bootstrapProviders, ensureDefaultInstance } from './bootstrap';
 import { webhookRouter, twilioLegacyRouter } from './routes/webhook-router';
@@ -28,7 +29,12 @@ app.use(cors({
   origin: env.CORS_ORIGIN ?? '*',
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req: IncomingMessage, _res, buf: Buffer) => {
+    (req as IncomingMessage & { rawBody?: Buffer }).rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ── Health ─────────────────────────────────────────────────────────────────

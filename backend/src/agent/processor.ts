@@ -273,7 +273,12 @@ export async function processMessage(phone: string, message: string): Promise<vo
       sessionMode === 'prospect'   ? getProspectModeContext() :
       '';
 
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(customerData)}${modeContext}`;
+    const nowBRT = new Date().toLocaleString('pt-BR', {
+      timeZone: 'America/Fortaleza',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(customerData)}${modeContext}`;
 
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },

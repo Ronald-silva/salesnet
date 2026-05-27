@@ -66,6 +66,14 @@ export async function getCustomerByPhone(phone: string): Promise<Customer> {
   return contratoToCustomer(active!, phone);
 }
 
+export async function getCustomerByCpf(cpf: string): Promise<Customer> {
+  const clean = cpf.replace(/\D/g, '');
+  const contratos = await consultacliente({ cpf: clean });
+  if (!contratos.length) throw new Error(`Cliente não encontrado para o CPF ${cpf}`);
+  const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
+  return contratoToCustomer(active!, cpf);
+}
+
 export async function getCustomerById(id: string): Promise<Customer> {
   // id = contratoId — look up via CPF/CNPJ is not possible without it,
   // so we search by contrato param (supported by consultacliente)

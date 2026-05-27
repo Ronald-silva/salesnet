@@ -14,6 +14,8 @@ import { eventBus } from '../services/event-bus';
 import type { DomainEvent } from '../services/event-bus';
 import type { ParsedWebhookEvent } from '../integrations/whatsapp/whatsapp-provider';
 
+type RawRequest = Request & { rawBody?: Buffer };
+
 const router = Router();
 
 /**
@@ -22,27 +24,31 @@ const router = Router();
  */
 router.post('/:instanceName', async (req: Request, res: Response) => {
   const instanceName = String(req.params['instanceName']);
-  const event = (req.body as { event?: string })?.event ?? 'unknown';
-  console.log(`[webhook] ▶ ${instanceName} event=${event}`);
-
-  // Responder 200 imediatamente (Evolution precisa de resposta rápida)
-  res.status(200).json({ ok: true });
+  const headers = req.headers as Record<string, string>;
 
   try {
     const instance = await instanceManager.findByName(instanceName);
     if (!instance) {
       console.warn(`[webhook] Unknown instance: ${instanceName}`);
+      res.status(404).json({ ok: false });
       return;
     }
 
     const provider = providerRegistry.get(instance.provider);
 
-    // Validar assinatura/autenticação do provider
-    const headers = req.headers as Record<string, string>;
-    if (!provider.validateWebhook(req.body, headers)) {
-      console.warn(`[webhook] Invalid signature for instance ${instanceName}`);
+    // Validate signature with raw bytes BEFORE sending 200 or processing
+    const rawBody = (req as RawRequest).rawBody ?? Buffer.alloc(0);
+    if (!provider.validateWebhook(rawBody, headers)) {
+      const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
+      console.warn(`[webhook] Invalid HMAC signature for instance "${instanceName}" from ${ip}`);
+      res.status(401).json({ ok: false });
       return;
     }
+
+    // Respond 200 immediately so Evolution Go does not time out
+    const webhookEventType = (req.body as { event?: string })?.event ?? 'unknown';
+    console.log(`[webhook] ▶ ${instanceName} event=${webhookEventType}`);
+    res.status(200).json({ ok: true });
 
     // Normalizar payload → evento de domínio
     const parsed: ParsedWebhookEvent = provider.parseWebhook(req.body, headers);

@@ -12,7 +12,8 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { env } from '../../../config/env';
 import type {
   WhatsAppProvider,
   InstanceConfig,
@@ -290,8 +291,28 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
   // ─── Webhook ──────────────────────────────────────────────────────────────
 
-  validateWebhook(_rawBody: unknown, _headers: Record<string, string>): boolean {
-    return true;
+  validateWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
+    const secret = env.EVOLUTION_WEBHOOK_SECRET;
+    // If no secret configured, allow all (Evolution Go doesn't always send signatures)
+    if (!secret) return true;
+
+    if (!(rawBody instanceof Buffer)) return true;
+
+    const rawSig = headers['x-webhook-signature'] ?? '';
+    const signature = rawSig.startsWith('sha256=') ? rawSig.slice(7) : rawSig;
+    // If secret is set but Evolution Go didn't send a signature, allow through
+    if (!signature) return true;
+
+    const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+
+    try {
+      const expectedBuf = Buffer.from(expected, 'utf8');
+      const receivedBuf = Buffer.from(signature, 'utf8');
+      if (expectedBuf.byteLength !== receivedBuf.byteLength) return false;
+      return timingSafeEqual(expectedBuf, receivedBuf);
+    } catch {
+      return false;
+    }
   }
 
   parseWebhook(rawBody: unknown, _headers: Record<string, string>): ParsedWebhookEvent {

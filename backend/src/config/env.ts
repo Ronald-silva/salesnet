@@ -28,6 +28,8 @@ const envSchema = z.object({
   EVOLUTION_INSTANCE_NAME: z.string().default('salesnet'),
   /** Token por-instância (Evolution Go) — gerado na criação e armazenado aqui para single-tenant */
   EVOLUTION_INSTANCE_TOKEN: z.string().optional(),
+  /** Segredo HMAC-SHA256 para validar assinaturas de webhook do Evolution Go */
+  EVOLUTION_WEBHOOK_SECRET: z.string().optional(),
 
   // Twilio (legacy — manter para compatibilidade durante transição)
   TWILIO_ACCOUNT_SID: z.string().optional(),
@@ -70,6 +72,8 @@ const envSchema = z.object({
     if (!data.EVOLUTION_API_KEY) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['EVOLUTION_API_KEY'], message: 'EVOLUTION_API_KEY is required when WHATSAPP_PROVIDER=evolution-go' });
     }
+    // EVOLUTION_WEBHOOK_SECRET is optional — when absent, all webhooks are accepted
+    // Set it to enable HMAC validation once Evolution Go is configured to sign requests
   }
   // Twilio é legado — variáveis opcionais, validação apenas em runtime
 });
