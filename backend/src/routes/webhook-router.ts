@@ -40,7 +40,10 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
     const rawBody = (req as RawRequest).rawBody ?? Buffer.alloc(0);
     if (!provider.validateWebhook(rawBody, headers)) {
       const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-      console.warn(`[webhook] Invalid HMAC signature for instance "${instanceName}" from ${ip}`);
+      console.warn(
+        `[webhook] Invalid HMAC signature for instance "${instanceName}" from ${ip} — ` +
+          'set EVOLUTION_WEBHOOK_SECRET equal to Evolution Go webhook secret (often same as EVOLUTION_INSTANCE_TOKEN)',
+      );
       res.status(401).json({ ok: false });
       return;
     }

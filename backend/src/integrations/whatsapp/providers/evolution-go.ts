@@ -103,6 +103,48 @@ function parseQrCode(raw: string): string {
   return raw.split('|')[0] ?? raw;
 }
 
+/** Secrets tried for x-webhook-signature (Evolution may use webhook secret or instance token). */
+function evolutionWebhookSecrets(): string[] {
+  const out: string[] = [];
+  if (env.EVOLUTION_WEBHOOK_SECRET) out.push(env.EVOLUTION_WEBHOOK_SECRET);
+  if (env.EVOLUTION_INSTANCE_TOKEN && !out.includes(env.EVOLUTION_INSTANCE_TOKEN)) {
+    out.push(env.EVOLUTION_INSTANCE_TOKEN);
+  }
+  return out;
+}
+
+function preferredWebhookSecret(): string | undefined {
+  return env.EVOLUTION_WEBHOOK_SECRET ?? env.EVOLUTION_INSTANCE_TOKEN;
+}
+
+function hmacSha256Matches(rawBody: Buffer, secret: string, rawSignature: string): boolean {
+  const candidates = [rawSignature.trim()];
+  if (candidates[0]?.startsWith('sha256=')) {
+    candidates.push(candidates[0].slice(7));
+  }
+  for (const sig of candidates) {
+    if (!sig) continue;
+    const expectedHex = createHmac('sha256', secret).update(rawBody).digest('hex');
+    try {
+      const a = Buffer.from(expectedHex, 'utf8');
+      const b = Buffer.from(sig, 'utf8');
+      if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
+    } catch { /* try next encoding */ }
+    try {
+      const a = createHmac('sha256', secret).update(rawBody).digest();
+      const b = Buffer.from(sig, 'hex');
+      if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
+    } catch { /* try next encoding */ }
+    try {
+      const expectedB64 = createHmac('sha256', secret).update(rawBody).digest('base64');
+      const a = Buffer.from(expectedB64, 'utf8');
+      const b = Buffer.from(sig, 'utf8');
+      if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
+    } catch { /* try next encoding */ }
+  }
+  return false;
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export interface EvolutionGoConfig {
@@ -232,8 +274,10 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const cached = this.cache.get(instanceName) ?? this.cache.get('__default__');
     const http = this.instanceHttp(instanceName);
 
+    const webhookSecret = preferredWebhookSecret();
     await http.post('/instance/connect', {
       webhookUrl: cached?.webhookUrl ?? '',
+      ...(webhookSecret ? { webhookSecret } : {}),
       subscribe: ['ALL'],
       immediate: true,
     });
@@ -330,27 +374,15 @@ export class EvolutionGoProvider implements WhatsAppProvider {
   // ─── Webhook ──────────────────────────────────────────────────────────────
 
   validateWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
-    const secret = env.EVOLUTION_WEBHOOK_SECRET;
-    // If no secret configured, allow all (Evolution Go doesn't always send signatures)
-    if (!secret) return true;
-
+    const secrets = evolutionWebhookSecrets();
+    if (secrets.length === 0) return true;
     if (!(rawBody instanceof Buffer)) return true;
 
     const rawSig = headers['x-webhook-signature'] ?? '';
-    const signature = rawSig.startsWith('sha256=') ? rawSig.slice(7) : rawSig;
-    // secret configurado + header ausente = rejeitar (não aceitar)
-    if (!signature) return false;
+    // Sem header: Evolution nem sempre assina — não bloquear atendimento
+    if (!rawSig) return true;
 
-    const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
-
-    try {
-      const expectedBuf = Buffer.from(expected, 'utf8');
-      const receivedBuf = Buffer.from(signature, 'utf8');
-      if (expectedBuf.byteLength !== receivedBuf.byteLength) return false;
-      return timingSafeEqual(expectedBuf, receivedBuf);
-    } catch {
-      return false;
-    }
+    return secrets.some((secret) => hmacSha256Matches(rawBody, secret, rawSig));
   }
 
   async parseWebhook(rawBody: unknown, _headers: Record<string, string>): Promise<ParsedWebhookEvent> {
