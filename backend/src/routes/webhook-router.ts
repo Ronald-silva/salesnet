@@ -50,7 +50,21 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
       await instanceManager.handleConnectionEvent(instanceName, parsed.data.connectionState);
     }
 
-    // Emitir evento no bus
+    // Para message_received, normaliza payload para o formato esperado por onIncomingMessage
+    const eventPayload =
+      parsed.type === 'message_received' && parsed.data.fromPhone && parsed.data.body
+        ? {
+            phone: parsed.data.fromPhone,
+            body: parsed.data.body,
+            profileName: parsed.data.profileName,
+            messageId: parsed.data.messageId,
+          }
+        : parsed.data;
+
+    // Só enfileira mensagens recebidas que tenham telefone e corpo
+    if (parsed.type === 'message_received' && !parsed.data.fromPhone) return;
+    if (parsed.type === 'message_received' && !parsed.data.body) return;
+
     const event: DomainEvent = {
       id: `wh-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       type: parsed.type === 'message_received'
@@ -62,23 +76,11 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
         : 'whatsapp.message.sent',
       tenantId: instance.tenantId,
       instanceName: String(instanceName),
-      payload: parsed.data,
+      payload: eventPayload,
       timestamp: parsed.timestamp,
     };
 
     await eventBus.enqueue(event);
-
-    // Compat retroativa: se for mensagem recebida, emitir no format antigo
-    if (parsed.type === 'message_received' && parsed.data.fromPhone && parsed.data.body) {
-      eventBus.emitIncomingMessage(
-        {
-          phone: parsed.data.fromPhone,
-          body: parsed.data.body,
-          profileName: parsed.data.profileName,
-        },
-        instance.tenantId,
-      );
-    }
   } catch (err) {
     console.error(`[webhook] Error processing ${instanceName}:`, err);
   }

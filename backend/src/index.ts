@@ -60,6 +60,7 @@ app.use('/api/admin', adminRouter);
 
 // ── Event Bus → Agent ──────────────────────────────────────────────────────
 eventBus.onIncomingMessage(({ phone, body }) => {
+  if (!phone || !body) return;
   processMessage(phone, body).catch((err: unknown) => {
     console.error(`[agent] processMessage error for ${phone}:`, err);
   });
