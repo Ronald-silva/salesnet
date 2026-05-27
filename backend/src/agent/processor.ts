@@ -276,14 +276,6 @@ export async function processMessage(phone: string, message: string): Promise<vo
       sessionMode === 'prospect'   ? getProspectModeContext() :
       '';
 
-    const nowBRT = new Date().toLocaleString('pt-BR', {
-      timeZone: 'America/Fortaleza',
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
-    const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
-    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}`;
-
     const initialToolLog: ToolCallLog[] = [
       { name: 'buscar_cliente', input: { phone }, output: customerData },
     ];
@@ -291,6 +283,26 @@ export async function processMessage(phone: string, message: string): Promise<vo
     if (invoiceStatus) {
       initialToolLog.push({ name: 'get_fatura_atual', input: { customer_id: (customerData as { id?: string }).id }, output: { status: invoiceStatus } });
     }
+
+    // Pre-call verificar_cobertura so the LLM never needs to guess neighborhoods
+    let coverageContext = '';
+    if (/bairro|cobertura|atend|região|disponível|minha.?área/i.test(clean)) {
+      try {
+        const coverageData = await executeTool('verificar_cobertura', { neighborhood: '*' }, phone);
+        initialToolLog.push({ name: 'verificar_cobertura', input: { neighborhood: '*' }, output: coverageData });
+        coverageContext = `\n\n## Bairros atendidos (fonte oficial — use SOMENTE estes)\n${JSON.stringify(coverageData)}`;
+      } catch (err) {
+        console.warn('[processor] verificar_cobertura pre-call failed:', err);
+      }
+    }
+
+    const nowBRT = new Date().toLocaleString('pt-BR', {
+      timeZone: 'America/Fortaleza',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
+    const systemWithContext = `${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nHorário atual (Fortaleza/BRT): ${nowBRT}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}`;
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
