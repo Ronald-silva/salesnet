@@ -5,6 +5,7 @@ import { MapPin, CheckCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { buildCoverageMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import { maskCep } from "@/lib/masks";
 
 const Cobertura = () => {
   const [cep, setCep] = useState("");
@@ -77,7 +78,7 @@ const Cobertura = () => {
               <input
                 type="text"
                 value={cep}
-                onChange={(e) => setCep(e.target.value)}
+                onChange={(e) => setCep(maskCep(e.target.value))}
                 placeholder="00000-000"
                 maxLength={9}
                 className="w-full sm:flex-1 px-4 py-3 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground text-lg"

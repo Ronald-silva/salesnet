@@ -5,6 +5,7 @@ import { Wifi, Store, Users, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { buildHotspotLeadMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import { maskPhone } from "@/lib/masks";
 
 const Hotspots = () => {
   const [formData, setFormData] = useState({
@@ -18,7 +19,8 @@ const Hotspots = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const masked = name === 'phone' ? maskPhone(value) : value;
+    setFormData((prev) => ({ ...prev, [name]: masked }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -112,6 +114,7 @@ const Hotspots = () => {
                     name="name"
                     value={formData.name}
                     onChange={handleChange}
+                    placeholder="Seu nome completo"
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -142,6 +145,7 @@ const Hotspots = () => {
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
+                  placeholder="Rua, número, complemento"
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 />
               </div>
@@ -176,6 +180,8 @@ const Hotspots = () => {
                     name="phone"
                     value={formData.phone}
                     onChange={handleChange}
+                    placeholder="(85) 99999-9999"
+                    maxLength={15}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>

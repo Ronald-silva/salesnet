@@ -5,6 +5,7 @@ import { Users, Briefcase, Clock, Award } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { buildJobApplicationMessage, buildWhatsAppLink } from "@/lib/whatsapp";
+import { maskPhone } from "@/lib/masks";
 
 const TrabalheConosco = () => {
   const [formData, setFormData] = useState({
@@ -20,7 +21,8 @@ const TrabalheConosco = () => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const masked = name === 'phone' ? maskPhone(value) : value;
+    setFormData((prev) => ({ ...prev, [name]: masked }));
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,6 +188,7 @@ const TrabalheConosco = () => {
                     name="name"
                     value={formData.name}
                     onChange={handleInputChange}
+                    placeholder="Seu nome completo"
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -200,6 +203,7 @@ const TrabalheConosco = () => {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
+                    placeholder="seu@email.com"
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -216,6 +220,8 @@ const TrabalheConosco = () => {
                     name="phone"
                     value={formData.phone}
                     onChange={handleInputChange}
+                    placeholder="(85) 99999-9999"
+                    maxLength={15}
                     className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                   />
                 </div>
@@ -305,6 +311,7 @@ const TrabalheConosco = () => {
                   name="about"
                   value={formData.about}
                   onChange={handleInputChange}
+                  placeholder="Conte-nos por que quer fazer parte do time SalesNet..."
                   className="w-full px-4 py-2 bg-input border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-accent text-foreground"
                 ></textarea>
               </div>

@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useAIBot } from "@/contexts/AIBotContext";
 import { buildWhatsAppLink, buildContactMessage } from "@/lib/whatsapp";
+import { maskPhone } from "@/lib/masks";
 
 const Contact = () => {
   const { setIsOpen } = useAIBot();
@@ -42,7 +43,8 @@ const Contact = () => {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const masked = name === 'phone' ? maskPhone(value) : value;
+    setFormData(prev => ({ ...prev, [name]: masked }));
   };
 
   return (
@@ -118,18 +120,18 @@ const Contact = () => {
               <form onSubmit={handleSubmit} className="space-y-6 bg-card p-8 rounded-lg border border-accent/20">
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-card-foreground mb-2">Nome *</label>
-                  <Input id="name" name="name" value={formData.name} onChange={handleChange} required />
+                  <Input id="name" name="name" value={formData.name} onChange={handleChange} placeholder="Seu nome completo" required />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label htmlFor="email" className="block text-sm font-medium text-card-foreground mb-2">Email *</label>
-                    <Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} required />
+                    <Input id="email" name="email" type="email" value={formData.email} onChange={handleChange} placeholder="seu@email.com" required />
                   </div>
 
                   <div>
                     <label htmlFor="phone" className="block text-sm font-medium text-card-foreground mb-2">Telefone *</label>
-                    <Input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleChange} required />
+                    <Input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleChange} placeholder="(85) 99999-9999" maxLength={15} required />
                   </div>
                 </div>
 
@@ -145,7 +147,7 @@ const Contact = () => {
 
                 <div>
                   <label htmlFor="message" className="block text-sm font-medium text-card-foreground mb-2">Mensagem *</label>
-                  <Textarea id="message" name="message" value={formData.message} onChange={handleChange} rows={5} required />
+                  <Textarea id="message" name="message" value={formData.message} onChange={handleChange} placeholder="Como podemos ajudar você?" rows={5} required />
                 </div>
 
                 <Button type="submit" variant="cta" size="lg" className="w-full">Enviar Mensagem</Button>
