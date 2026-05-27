@@ -221,6 +221,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
 ];
 
+export async function markChurnRiskByPhone(phone: string): Promise<void> {
+  const { error } = await supabase
+    .from('conversation_threads')
+    .upsert({ phone, churn_risk: true }, { onConflict: 'phone' });
+  if (error) throw new Error(`Supabase upsert failed [marcar_churn_risk]: ${error.message}`);
+}
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>,
@@ -390,10 +397,7 @@ export async function executeTool(
     }
 
     case 'marcar_churn_risk': {
-      const { error } = await supabase
-        .from('conversation_threads')
-        .upsert({ phone, churn_risk: true }, { onConflict: 'phone' });
-      if (error) throw new Error(`Supabase insert failed [marcar_churn_risk]: ${error.message}`);
+      await markChurnRiskByPhone(phone);
       return { status: 'marked', customer_id: input.customer_id, reason: input.reason };
     }
 

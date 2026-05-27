@@ -3,6 +3,7 @@ import { runBillingJobD3, runBillingJobD0, runBillingJobOverdueD3, runBillingJob
 import { startCampaigns, expansionRouter as campaignExpansionRouter } from './campaigns';
 import { runBillingCadenceD5, runBillingCadenceD2 } from './billing-cadence';
 import { sendVisitReminders, sendVisitFollowups } from './visit-followup';
+import { processScheduledMessages } from './scheduled-messages';
 
 export function startAutomations(): void {
   // D-3: every day at 08:00
@@ -43,6 +44,11 @@ export function startAutomations(): void {
   // Visit followups: every day at 18:00
   cron.schedule('0 18 * * *', () => {
     sendVisitFollowups().catch((err) => console.error('[cron:visit-followup]', err));
+  });
+
+  // Scheduled messages (NPS follow-ups, etc.): every 10 minutes
+  cron.schedule('*/10 * * * *', () => {
+    processScheduledMessages().catch((err) => console.error('[cron:scheduled-messages]', err));
   });
 
   startCampaigns();

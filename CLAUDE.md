@@ -282,6 +282,7 @@ Ordem de precedência:
 | `scheduled_visits` | `tools.ts` (agendar_visita) | automations |
 | `outage_reports` | `tools.ts` (abrir_chamado técnico) | `tools.ts` (detectar_apagao_bairro) |
 | `billing_notifications` | automações, `registrar_negociacao` | `getHabitualLatePayerIds`, automações |
+| `scheduled_messages` | `nps-flow.ts` | `scheduled-messages.ts` (cron 10 min) |
 
 Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `schema.sql` — tabelas base
@@ -289,6 +290,7 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `003_add_session_mode_to_interaction_logs.sql`
 - `011_nps.sql` — tabela `nps_responses`
 - `012_add_processing_ms.sql` — coluna `processing_ms INTEGER` em `interaction_logs`
+- `013_scheduled_messages.sql` — tabela `scheduled_messages` (mensagens adiadas pós-NPS)
 
 ---
 
