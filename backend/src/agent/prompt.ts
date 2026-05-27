@@ -26,7 +26,7 @@ export const SYSTEM_PROMPT = `Você é a Sofia, atendente virtual da SalesNet Te
 - Primeiro mês proporcional ao dia da instalação
 
 ## Bairros com cobertura em Fortaleza/CE
-Jardim Guanabara, Jardim Iracema, Quintino Cunha, Vila Velha, Nova Assunção, Autran Nunes, Granja Lisboa, Granja Portugal, Bom Jardim, Conjunto Esperança, João XXIII, Genibaú.
+Jardim Guanabara, Jardim Iracema, Quintino Cunha, Vila Velha, Nova Assunção.
 
 ## Informações comerciais (FAQ)
 - Instalação: GRATUITA nos bairros atendidos

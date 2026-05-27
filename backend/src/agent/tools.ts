@@ -4,18 +4,11 @@ import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
 
 const COVERED_NEIGHBORHOODS: Record<string, number> = {
-  'jardim guanabara':      95,
-  'jardim iracema':        90,
-  'quintino cunha':        85,
-  'vila velha':            88,
-  'nova assunção':         92,
-  'autran nunes':          80,
-  'granja lisboa':         82,
-  'granja portugal':       83,
-  'bom jardim':            78,
-  'conjunto esperança':    75,
-  'joão xxiii':            77,
-  'genibaú':               76,
+  'jardim guanabara': 95,
+  'jardim iracema':   90,
+  'quintino cunha':   85,
+  'vila velha':       88,
+  'nova assunção':    92,
 };
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
