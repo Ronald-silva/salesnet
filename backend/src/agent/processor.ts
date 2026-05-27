@@ -10,6 +10,7 @@ import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession } from './session-classifier';
 import { sanitizeUserInput } from './sanitize';
+import { quickReply } from './quick-reply';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -239,6 +240,20 @@ export async function processMessage(phone: string, message: string): Promise<vo
   if (await isHumanMode(phone)) return;
 
   const clean = sanitizeUserInput(message);
+
+  // ── Quick reply: FAQ direto, sem LLM ────────────────────────────────────────
+  const faqResponse = quickReply(clean);
+  if (faqResponse) {
+    try {
+      await saveMessage(phone, 'user', clean);
+      await saveMessage(phone, 'assistant', faqResponse);
+      await whatsappService.sendText(env.DEFAULT_TENANT_ID, phone, faqResponse);
+      await supabase.from('interaction_logs').insert({ phone, tool_calls: [], response: faqResponse });
+    } catch (err) {
+      console.error(`[processor] quick-reply send error for ${phone}:`, err);
+    }
+    return;
+  }
 
   try {
     await saveMessage(phone, 'user', clean);

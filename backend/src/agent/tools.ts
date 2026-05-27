@@ -2,14 +2,12 @@ import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
 import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
+import { COVERED_NEIGHBORHOODS as COVERED_LIST } from './company-data';
 
-const COVERED_NEIGHBORHOODS: Record<string, number> = {
-  'jardim guanabara': 95,
-  'jardim iracema':   90,
-  'quintino cunha':   85,
-  'vila velha':       88,
-  'nova assunção':    92,
-};
+// Derived lookup map for the verificar_cobertura tool (name → coverage %)
+const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
+  COVERED_LIST.map((name) => [name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''), 90]),
+);
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
