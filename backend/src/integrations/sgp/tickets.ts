@@ -11,7 +11,6 @@ export async function openTicket(
   return OpenTicketResponseSchema.parse(data);
 }
 
-/** SGP ticket listing via Central API not available with token auth — returns empty array. */
 export async function getCustomerTickets(_contratoId: string, _limit = 5): Promise<Ticket[]> {
   return [];
 }

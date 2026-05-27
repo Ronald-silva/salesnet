@@ -90,13 +90,10 @@ export async function getCustomerInvoices(contratoId: string): Promise<Invoice[]
  * individual lookups or a future bulk endpoint.
  */
 export async function getOverdueCustomers(_daysOverdue: number): Promise<OverdueCustomer[]> {
-  console.warn('[SGP] getOverdueCustomers: bulk lookup not supported by SGP API');
   return [];
 }
 
-/** Not natively supported — returns empty array. */
 export async function getCustomersDueInDays(_days: number): Promise<DueSoonCustomer[]> {
-  console.warn('[SGP] getCustomersDueInDays: bulk lookup not supported by SGP API');
   return [];
 }
 
