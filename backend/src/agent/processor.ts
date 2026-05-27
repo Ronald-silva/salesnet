@@ -11,6 +11,7 @@ import { classifyMessageComplexity } from './complexity-router';
 import { classifySession } from './session-classifier';
 import { sanitizeUserInput } from './sanitize';
 import { quickReply } from './quick-reply';
+import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -273,8 +274,11 @@ export async function processMessage(phone: string, message: string): Promise<vo
       content: m.content,
     }));
 
-    // Call buscar_cliente directly to get customer context before involving Claude
-    const customerData = await executeTool('buscar_cliente', { phone }, phone);
+    // Call buscar_cliente and fetch customer history in parallel
+    const [customerData, insights] = await Promise.all([
+      executeTool('buscar_cliente', { phone }, phone),
+      getCustomerInsights(phone, env.DEFAULT_TENANT_ID),
+    ]);
 
     let invoiceStatus: string | undefined;
     try {
@@ -321,7 +325,8 @@ export async function processMessage(phone: string, message: string): Promise<vo
     }
 
     const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
-    const systemWithContext = `${getFortalezaContext()}\n\n${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}`;
+    const insightsContext = buildInsightsContext(insights);
+    const systemWithContext = `${getFortalezaContext()}\n\n${SYSTEM_PROMPT}\n\n## Contexto do cliente atual\nTelefone: ${phone}\nModo: ${sessionMode}\nDados: ${JSON.stringify(safeCustomerData)}${modeContext}${coverageContext}${insightsContext}`;
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
@@ -365,6 +370,7 @@ export async function processMessage(phone: string, message: string): Promise<vo
 
     await supabase.from('interaction_logs').insert({
       phone,
+      session_mode: sessionMode,
       tool_calls: result.toolCallLog,
       response:   finalText,
     });
