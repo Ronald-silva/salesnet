@@ -10,6 +10,7 @@
  */
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
+import { executeTool } from './tools';
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
@@ -109,13 +110,18 @@ function formatCoverageCheck(neighborhood: string): string {
  * Tenta responder a mensagem como FAQ direto.
  * Retorna a resposta formatada, ou null se o LLM precisar ser acionado.
  */
-export function quickReply(message: string): string | null {
+export async function quickReply(message: string, phone: string): Promise<string | null> {
   const { intent, neighborhood } = detect(message);
 
-  switch (intent) {
-    case 'plans_list':
-      return formatPlans();
+  if (intent === 'plans_list') {
+    const customer = await executeTool('buscar_cliente', { phone }, phone) as { error?: string };
+    if (!customer.error) {
+      return null;
+    }
+    return formatPlans();
+  }
 
+  switch (intent) {
     case 'coverage_list':
       return formatCoverageList();
 

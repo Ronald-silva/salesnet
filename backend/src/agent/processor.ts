@@ -251,7 +251,7 @@ export async function processMessage(phone: string, message: string): Promise<vo
   const clean = sanitizeUserInput(message);
 
   // ── Quick reply: FAQ direto, sem LLM ────────────────────────────────────────
-  const faqResponse = quickReply(clean);
+  const faqResponse = await quickReply(clean, phone);
   if (faqResponse) {
     try {
       await saveMessage(phone, 'user', clean);
