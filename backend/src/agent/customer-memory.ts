@@ -108,6 +108,18 @@ export function buildInsightsContext(insights: CustomerInsights): string {
   if (insights.days_since_first_contact > 365) {
     lines.push('Cliente há mais de 1 ano. Tratamento preferencial.');
   }
+  if (insights.last_session_modes && insights.last_session_modes.length > 0) {
+    const lastMode = insights.last_session_modes[0];
+    const modeLabel: Record<string, string> = {
+      billing: 'cobrança',
+      support: 'suporte técnico',
+      commercial: 'interesse comercial',
+      prospect: 'primeiro contato',
+      default: 'atendimento geral',
+    };
+    const label = modeLabel[lastMode] ?? lastMode;
+    lines.push(`Último atendimento foi sobre: ${label}.`);
+  }
   if (insights.notes) {
     lines.push('Nota do atendimento anterior: ' + insights.notes);
   }
