@@ -116,7 +116,7 @@ export const env = parsed.data;
 
 if (env.NODE_ENV === 'production' && !env.EVOLUTION_WEBHOOK_SECRET) {
   console.warn(
-    '[env] EVOLUTION_WEBHOOK_SECRET is not set in production — Evolution Go webhook HMAC validation is disabled',
+    '[env] EVOLUTION_WEBHOOK_SECRET is not set — HMAC checked only when Evolution sends x-webhook-signature',
   );
 }
 

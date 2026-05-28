@@ -121,17 +121,53 @@ function preferredWebhookSecret(): string | undefined {
   return env.EVOLUTION_WEBHOOK_SECRET ?? env.EVOLUTION_INSTANCE_TOKEN;
 }
 
-function getWebhookSignatureHeader(headers: Record<string, string>): string {
+function headersLower(headers: Record<string, string>): Record<string, string> {
   const lower: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
     lower[key.toLowerCase()] = value;
   }
+  return lower;
+}
+
+function getWebhookSignatureHeader(headers: Record<string, string>): string {
+  const lower = headersLower(headers);
   return (
     lower['x-webhook-signature'] ??
     lower['x-signature'] ??
     lower['signature'] ??
     ''
   );
+}
+
+function getApiKeyHeader(headers: Record<string, string>): string {
+  const lower = headersLower(headers);
+  return lower['apikey'] ?? lower['api-key'] ?? '';
+}
+
+function secretMatchesValue(secrets: string[], value: string): boolean {
+  if (!value) return false;
+  for (const secret of secrets) {
+    try {
+      const a = Buffer.from(secret, 'utf8');
+      const b = Buffer.from(value, 'utf8');
+      if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
+    } catch {
+      /* length mismatch */
+    }
+  }
+  return false;
+}
+
+function bodyInstanceTokenMatches(rawBody: Buffer, secrets: string[]): boolean {
+  try {
+    const body = JSON.parse(rawBody.toString('utf8')) as { instanceToken?: string };
+    if (typeof body.instanceToken === 'string' && body.instanceToken.length > 0) {
+      return secretMatchesValue(secrets, body.instanceToken);
+    }
+  } catch {
+    /* not JSON */
+  }
+  return false;
 }
 
 function hmacSha256Matches(rawBody: Buffer, secret: string, rawSignature: string): boolean {
@@ -473,11 +509,17 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     if (!(rawBody instanceof Buffer)) return true;
 
     const rawSig = getWebhookSignatureHeader(headers);
+
+    // Evolution Go (Foundation) usually does NOT send x-webhook-signature on outbound webhooks.
     if (!rawSig) {
-      console.warn(
-        '[webhook] Missing x-webhook-signature header — rejected (secret is configured)',
-      );
-      return false;
+      const apikey = getApiKeyHeader(headers);
+      if (apikey) {
+        if (secretMatchesValue(secrets, apikey)) return true;
+        console.warn('[webhook] apikey header present but does not match configured secrets');
+        return false;
+      }
+      if (bodyInstanceTokenMatches(rawBody, secrets)) return true;
+      return true;
     }
 
     const matched = secrets.find((secret) => hmacSha256Matches(rawBody, secret, rawSig));
@@ -485,9 +527,8 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       logHmacDebug(headers, rawSig, rawBody, secrets);
       const sigPreview = rawSig.length > 24 ? `${rawSig.slice(0, 24)}...` : rawSig;
       console.warn(
-        `[webhook] Invalid HMAC (tried ${secrets.length} secret(s) incl. WEBHOOK_SECRET, ` +
-          `INSTANCE_TOKEN, API_KEY; sig=${sigPreview}, bodyBytes=${rawBody.length}). ` +
-          'Align secrets or redeploy after connectInstance.',
+        `[webhook] Invalid HMAC (tried ${secrets.length} secret(s); sig=${sigPreview}, ` +
+          `bodyBytes=${rawBody.length}).`,
       );
       return false;
     }
