@@ -62,20 +62,24 @@ export async function runBillingCadenceD2(): Promise<void> {
   ]);
 
   for (const customer of customers) {
-    if (!habituals.has(customer.customerId)) continue;
-    if (await alreadySentCadence(customer.customerId, 'd2_habitual')) continue;
+    const isHabitualLatePayer = habituals.has(customer.customerId);
+    const notificationType = isHabitualLatePayer ? 'd2_habitual' : 'd2_regular';
+    if (await alreadySentCadence(customer.customerId, notificationType)) continue;
 
     try {
       const invoice = await getCurrentInvoice(customer.customerId);
       const pix = await generatePixKey(invoice.id);
 
       const firstName = customer.name.split(' ')[0];
-      const msg =
-        `⚠️ ${firstName}, faltam 2 dias para sua fatura vencer e a internet ser suspensa. ` +
-        `Pague agora via PIX:\n${pix.pixKey}`;
+      const msg = isHabitualLatePayer
+        ? `⚠️ ${firstName}, faltam 2 dias para sua fatura vencer e a internet ser suspensa. ` +
+          `Pague agora via PIX:\n${pix.pixKey}`
+        : `Oi ${firstName}! Só um lembrete rápido: sua fatura de R$ ${customer.amount.toFixed(2)} ` +
+          `vence em 2 dias. Posso gerar o PIX agora pra facilitar?\n` +
+          `Se já quiser pagar, aqui está o PIX copia e cola:\n${pix.pixKey}`;
 
       await whatsappService.sendText(env.DEFAULT_TENANT_ID, customer.phone, msg);
-      await logCadenceNotification(customer.customerId, customer.phone, 'd2_habitual');
+      await logCadenceNotification(customer.customerId, customer.phone, notificationType);
     } catch (err) {
       console.error(`[billing-cadence:d2] failed for ${customer.customerId}:`, err);
     }
