@@ -81,12 +81,9 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
   return { intent: null };
 }
 
-type ActiveQuickReplyIntent = 'coverage_list' | 'faq_installation';
+type ActiveQuickReplyIntent = never;
 
-const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
-  'coverage_list',
-  'faq_installation',
-]);
+const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([]);
 
 function isQuickReplyEnabled(intent: Intent): intent is ActiveQuickReplyIntent {
   return intent !== null && ENABLED_QUICK_REPLY_INTENTS.has(intent as ActiveQuickReplyIntent);
