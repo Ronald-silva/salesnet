@@ -341,16 +341,22 @@ export async function executeTool(
         tipo,
         descricao,
       );
+      let sofiaTicketId: string | null = null;
       try {
-        const { error } = await supabase.from('sofia_tickets').insert({
-          tenant_id: tenantId,
-          phone,
-          contrato,
-          sgp_chamado_id: (ticket as { id?: string } | null)?.id ?? null,
-          tipo,
-          descricao,
-          status: 'aberto',
-        });
+        const { data, error } = await supabase
+          .from('sofia_tickets')
+          .insert({
+            tenant_id: tenantId,
+            phone,
+            contrato,
+            sgp_chamado_id: (ticket as { id?: string } | null)?.id ?? null,
+            tipo,
+            descricao,
+            status: 'aberto',
+          })
+          .select('id')
+          .single();
+        sofiaTicketId = data?.id ?? null;
         if (error) {
           console.error(`[tools] Supabase insert failed [abrir_chamado → sofia_tickets]: ${error.message}`);
         }
@@ -373,7 +379,28 @@ export async function executeTool(
           // best-effort — não bloqueia o chamado
         }
       }
-      return ticket;
+      const sgpResult = ticket as {
+        id?: string;
+        ticket_id?: string;
+        os_id?: string | number;
+        ocorrencia_id?: string | number;
+        protocolo?: string;
+      } | null;
+      const protocolNumber =
+        sgpResult?.protocolo ??
+        sgpResult?.id ??
+        sgpResult?.ticket_id ??
+        (sgpResult?.os_id != null ? String(sgpResult.os_id) : undefined) ??
+        (sgpResult?.ocorrencia_id != null ? String(sgpResult.ocorrencia_id) : undefined) ??
+        sofiaTicketId ??
+        `local-${Date.now()}`;
+
+      return {
+        success: true,
+        protocol: protocolNumber,
+        message: `Chamado aberto. Protocolo: ${protocolNumber}`,
+        ticket: sgpResult,
+      };
     }
 
     case 'agendar_visita': {

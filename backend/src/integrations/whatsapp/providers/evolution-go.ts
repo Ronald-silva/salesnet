@@ -379,8 +379,8 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     if (!(rawBody instanceof Buffer)) return true;
 
     const rawSig = headers['x-webhook-signature'] ?? '';
-    // Sem header: Evolution nem sempre assina — não bloquear atendimento
-    if (!rawSig) return true;
+    // secret configurado + header ausente = rejeitar
+    if (!rawSig) return false;
 
     return secrets.some((secret) => hmacSha256Matches(rawBody, secret, rawSig));
   }
