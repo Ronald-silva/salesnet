@@ -12,7 +12,7 @@ export const salesnetConfig: ISPSkillConfig = {
     agentGender: 'f',
     city: BUSINESS_INFO.city,
     whatsappSupportHours: BUSINESS_INFO.supportHours,
-    humanSupportHours: 'segunda a sexta, 8h às 18h',
+    humanSupportHours: 'segunda a sexta, 8h às 12h e 14h às 18h',
     installationFeeReais: BUSINESS_INFO.installationFee,
     installationDaysMax: BUSINESS_INFO.installationDaysMax,
     loyaltyMonths: BUSINESS_INFO.loyaltyMonths,

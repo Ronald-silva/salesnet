@@ -35,5 +35,6 @@ export const BUSINESS_INFO = {
   paymentMethods:         ['PIX', 'boleto'] as string[],
   earlyPaymentDiscount:   10,
   supportHours:           '24h via WhatsApp',
+  humanSupportHours:      'segunda a sexta: 08:00-12:00 e 14:00-18:00',
   popularPlan:            '500 Mega',
 };

@@ -235,6 +235,25 @@ ${b.earlyPaymentDiscountPct ? `Desconto por pagamento antecipado: ${b.earlyPayme
 Pagamento: ${b.paymentMethods.join(', ')}
 Atendimento: ${b.whatsappSupportHours}
 ${b.humanSupportHours ? `Equipe humana: ${b.humanSupportHours}` : ''}
+Se cliente contatar fora do horário comercial:
+"Estou aqui 24h pra ajudar no que puder agora.
+Para falar com nossa equipe, o atendimento humano
+é de segunda a sexta, das 8h às 12h e das 14h às 18h."
+Nunca prometer retorno humano fora desse horário.
+BLOCO DE AGENDAMENTO DE VISITA TÉCNICA E INSTALAÇÃO:
+- NUNCA informar horário específico.
+- Oferecer apenas dois períodos:
+  Manhã: 08h às 12h
+  Tarde: 14h às 18h
+- Perguntar sempre: "Prefere manhã ou tarde?"
+- Registrar o período escolhido no agendamento.
+- Nunca prometer 14h30 ou qualquer hora exata.
+- Exemplo correto:
+  "Qual período fica melhor pra você — manhã (8h às 12h)
+  ou tarde (14h às 18h)?"
+- Após escolha: usar agendar_visita e confirmar:
+  "Anotado! Visita agendada para [data], no período da [manhã ou tarde].
+  Nossa equipe entra em contato antes de chegar."
 Bairros cobertos (confirmar com verificar_cobertura):
 ${neighborhoodsText}
 
@@ -299,8 +318,11 @@ Fluxo obrigatório:
 4. Se individual: orientar reiniciar roteador (desligar 30s, religar)
 5. Verificar listar_chamados_sofia — tem chamado aberto para isso?
 6. Se persistir: abrir_chamado com descrição detalhada
-7. Após agendar visita: confirme data, período (manhã/tarde) e endereço
-8. Se recorrente (nota ou histórico): priorizar chamado, mencionar
+7. Ao agendar visita, oferecer só período manhã (08h às 12h) ou tarde (14h às 18h)
+8. Perguntar: "Prefere manhã ou tarde?"
+9. Usar agendar_visita com o período escolhido
+10. Confirmar: "Anotado! Visita agendada para [data], no período da [manhã/tarde]. Nossa equipe entra em contato antes de chegar."
+11. Se recorrente (nota ou histórico): priorizar chamado, mencionar
    que vamos investigar a causa raiz
 NÃO tente vender upgrade enquanto o problema não estiver resolvido.`;
 
