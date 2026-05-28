@@ -81,11 +81,10 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
   return { intent: null };
 }
 
-type ActiveQuickReplyIntent = 'coverage_list' | 'plans_list' | 'faq_installation';
+type ActiveQuickReplyIntent = 'coverage_list' | 'faq_installation';
 
 const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
   'coverage_list',
-  'plans_list',
   'faq_installation',
 ]);
 
@@ -159,10 +158,6 @@ export async function quickReply(message: string, phone: string): Promise<string
   }
 
   switch (intent) {
-    case 'plans_list':
-      console.log('[quick-reply] plans_list → formatPlans()');
-      return formatPlans();
-
     case 'coverage_list':
       console.log('[quick-reply] coverage_list → formatCoverageList()');
       return formatCoverageList();
