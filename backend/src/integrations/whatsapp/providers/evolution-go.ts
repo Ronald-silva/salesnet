@@ -17,6 +17,7 @@ import { env } from '../../../config/env';
 import { normalizePhone } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
 import { analyzeImage } from '../../../agent/vision';
+import { secretFingerprint } from '../webhook-hmac-diagnostics';
 import type {
   WhatsAppProvider,
   InstanceConfig,
@@ -103,13 +104,16 @@ function parseQrCode(raw: string): string {
   return raw.split('|')[0] ?? raw;
 }
 
-/** Secrets tried for x-webhook-signature (Evolution may use webhook secret or instance token). */
-function evolutionWebhookSecrets(): string[] {
+/** Secrets tried for x-webhook-signature (Evolution may use webhook secret, instance token, or global API key). */
+function evolutionWebhookSecrets(extra?: string[]): string[] {
   const out: string[] = [];
-  if (env.EVOLUTION_WEBHOOK_SECRET) out.push(env.EVOLUTION_WEBHOOK_SECRET);
-  if (env.EVOLUTION_INSTANCE_TOKEN && !out.includes(env.EVOLUTION_INSTANCE_TOKEN)) {
-    out.push(env.EVOLUTION_INSTANCE_TOKEN);
-  }
+  const add = (value: string | undefined): void => {
+    if (value && !out.includes(value)) out.push(value);
+  };
+  add(env.EVOLUTION_WEBHOOK_SECRET);
+  add(env.EVOLUTION_INSTANCE_TOKEN);
+  add(env.EVOLUTION_API_KEY);
+  for (const value of extra ?? []) add(value);
   return out;
 }
 
@@ -117,32 +121,86 @@ function preferredWebhookSecret(): string | undefined {
   return env.EVOLUTION_WEBHOOK_SECRET ?? env.EVOLUTION_INSTANCE_TOKEN;
 }
 
-function hmacSha256Matches(rawBody: Buffer, secret: string, rawSignature: string): boolean {
-  const candidates = [rawSignature.trim()];
-  if (candidates[0]?.startsWith('sha256=')) {
-    candidates.push(candidates[0].slice(7));
+function getWebhookSignatureHeader(headers: Record<string, string>): string {
+  const lower: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    lower[key.toLowerCase()] = value;
   }
+  return (
+    lower['x-webhook-signature'] ??
+    lower['x-signature'] ??
+    lower['signature'] ??
+    ''
+  );
+}
+
+function hmacSha256Matches(rawBody: Buffer, secret: string, rawSignature: string): boolean {
+  const trimmed = rawSignature.trim();
+  const candidates = new Set<string>([trimmed]);
+  if (trimmed.startsWith('sha256=')) {
+    candidates.add(trimmed.slice(7));
+  }
+
+  const expectedHex = createHmac('sha256', secret).update(rawBody).digest('hex');
+  const expectedBin = createHmac('sha256', secret).update(rawBody).digest();
+  const expectedB64 = createHmac('sha256', secret).update(rawBody).digest('base64');
+
+  candidates.add(`sha256=${expectedHex}`);
+  candidates.add(expectedHex);
+  candidates.add(expectedB64);
+
   for (const sig of candidates) {
     if (!sig) continue;
-    const expectedHex = createHmac('sha256', secret).update(rawBody).digest('hex');
     try {
       const a = Buffer.from(expectedHex, 'utf8');
       const b = Buffer.from(sig, 'utf8');
       if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
     } catch { /* try next encoding */ }
     try {
-      const a = createHmac('sha256', secret).update(rawBody).digest();
       const b = Buffer.from(sig, 'hex');
-      if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
+      if (expectedBin.byteLength === b.byteLength && timingSafeEqual(expectedBin, b)) return true;
     } catch { /* try next encoding */ }
     try {
-      const expectedB64 = createHmac('sha256', secret).update(rawBody).digest('base64');
       const a = Buffer.from(expectedB64, 'utf8');
       const b = Buffer.from(sig, 'utf8');
       if (a.byteLength === b.byteLength && timingSafeEqual(a, b)) return true;
     } catch { /* try next encoding */ }
   }
+
+  try {
+    const parsed: unknown = JSON.parse(rawBody.toString('utf8'));
+    const normalized = Buffer.from(JSON.stringify(parsed));
+    if (!normalized.equals(rawBody)) {
+      return hmacSha256Matches(normalized, secret, rawSignature);
+    }
+  } catch {
+    /* not JSON */
+  }
+
   return false;
+}
+
+let lastHmacDebugAt = 0;
+
+function logHmacDebug(
+  headers: Record<string, string>,
+  rawSig: string,
+  rawBody: Buffer,
+  secrets: string[],
+): void {
+  const now = Date.now();
+  if (now - lastHmacDebugAt < 60_000) return;
+  lastHmacDebugAt = now;
+
+  const sigHeaders = Object.keys(headers).filter((k) =>
+    /sign|hmac|webhook/i.test(k),
+  );
+  const sigPreview = rawSig.length > 32 ? `${rawSig.slice(0, 32)}...` : rawSig;
+  console.warn(
+    `[webhook-hmac] debug: sigHeaders=[${sigHeaders.join(', ')}] sigLen=${rawSig.length} ` +
+      `sigPreview=${sigPreview} bodyBytes=${rawBody.length} secretsTried=${secrets.length} ` +
+      `fps=${secrets.map((s) => secretFingerprint(s)).join(',')}`,
+  );
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -275,6 +333,13 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const http = this.instanceHttp(instanceName);
 
     const webhookSecret = preferredWebhookSecret();
+    if (webhookSecret) {
+      console.log(
+        `[evolution-go] connectInstance webhookSecret fp=${secretFingerprint(webhookSecret)} len=${webhookSecret.length}`,
+      );
+    } else {
+      console.warn('[evolution-go] connectInstance: no webhookSecret — Evolution may not sign webhooks');
+    }
     await http.post('/instance/connect', {
       webhookUrl: cached?.webhookUrl ?? '',
       ...(webhookSecret ? { webhookSecret } : {}),
@@ -283,6 +348,24 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     });
 
     return { success: true };
+  }
+
+  /** Logs webhook URL registered in Evolution (admin API). Does not expose webhook secret. */
+  async logRemoteWebhookConfig(instanceName: string): Promise<void> {
+    try {
+      const { data } = await this.adminHttp.get<EvoGoResponse<EvoGoInstance[]>>('/instance/all');
+      const inst = (data.data ?? []).find((i) => i.name === instanceName);
+      if (!inst) {
+        console.warn(`[webhook-hmac] instance "${instanceName}" not found in Evolution /instance/all`);
+        return;
+      }
+      console.log(
+        `[webhook-hmac] Evolution registered webhook URL: ${inst.webhook || '(empty)'}`,
+      );
+      console.log(`[webhook-hmac] Evolution instance connected: ${inst.connected ?? false}`);
+    } catch (err) {
+      console.warn('[webhook-hmac] could not read Evolution /instance/all:', (err as Error).message);
+    }
   }
 
   async disconnectInstance(instanceName: string): Promise<void> {
@@ -373,16 +456,43 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
   // ─── Webhook ──────────────────────────────────────────────────────────────
 
-  validateWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
-    const secrets = evolutionWebhookSecrets();
+  validateWebhook(
+    rawBody: unknown,
+    headers: Record<string, string>,
+    options?: { extraSecrets?: string[] },
+  ): boolean {
+    if (env.EVOLUTION_WEBHOOK_SKIP_HMAC === true) {
+      console.warn(
+        '[webhook] EVOLUTION_WEBHOOK_SKIP_HMAC=true — HMAC validation disabled (temporary only)',
+      );
+      return true;
+    }
+
+    const secrets = evolutionWebhookSecrets(options?.extraSecrets);
     if (secrets.length === 0) return true;
     if (!(rawBody instanceof Buffer)) return true;
 
-    const rawSig = headers['x-webhook-signature'] ?? '';
-    // secret configurado + header ausente = rejeitar
-    if (!rawSig) return false;
+    const rawSig = getWebhookSignatureHeader(headers);
+    if (!rawSig) {
+      console.warn(
+        '[webhook] Missing x-webhook-signature header — rejected (secret is configured)',
+      );
+      return false;
+    }
 
-    return secrets.some((secret) => hmacSha256Matches(rawBody, secret, rawSig));
+    const matched = secrets.find((secret) => hmacSha256Matches(rawBody, secret, rawSig));
+    if (!matched) {
+      logHmacDebug(headers, rawSig, rawBody, secrets);
+      const sigPreview = rawSig.length > 24 ? `${rawSig.slice(0, 24)}...` : rawSig;
+      console.warn(
+        `[webhook] Invalid HMAC (tried ${secrets.length} secret(s) incl. WEBHOOK_SECRET, ` +
+          `INSTANCE_TOKEN, API_KEY; sig=${sigPreview}, bodyBytes=${rawBody.length}). ` +
+          'Align secrets or redeploy after connectInstance.',
+      );
+      return false;
+    }
+
+    return true;
   }
 
   async parseWebhook(rawBody: unknown, _headers: Record<string, string>): Promise<ParsedWebhookEvent> {

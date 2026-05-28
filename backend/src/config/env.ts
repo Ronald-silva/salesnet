@@ -36,6 +36,14 @@ const envSchema = z.object({
   EVOLUTION_INSTANCE_TOKEN: z.string().optional(),
   /** Segredo HMAC-SHA256 para validar assinaturas de webhook do Evolution Go */
   EVOLUTION_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * Só para diagnóstico temporário: aceita webhook sem validar HMAC (NÃO use em produção estável).
+   * Use enquanto alinha o Webhook Secret no painel Evolution com EVOLUTION_WEBHOOK_SECRET.
+   */
+  EVOLUTION_WEBHOOK_SKIP_HMAC: z
+    .enum(['true', 'false', '1', '0'])
+    .optional()
+    .transform((v) => v === 'true' || v === '1'),
 
   // Twilio (legacy — manter para compatibilidade durante transição)
   TWILIO_ACCOUNT_SID: z.string().optional(),

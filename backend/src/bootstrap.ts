@@ -11,6 +11,7 @@ import { providerRegistry } from './integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from './integrations/whatsapp/providers/evolution-go';
 import { TwilioLegacyProvider } from './integrations/whatsapp/providers/twilio-legacy';
 import { instanceManager } from './services/instance-manager';
+import { logEvolutionWebhookHmacConfig } from './integrations/whatsapp/webhook-hmac-diagnostics';
 
 export function bootstrapProviders(): void {
   if (env.WHATSAPP_PROVIDER === 'evolution-go') {
@@ -54,6 +55,8 @@ export function bootstrapProviders(): void {
 export async function ensureDefaultInstance(): Promise<void> {
   if (env.WHATSAPP_PROVIDER !== 'evolution-go') return;
 
+  logEvolutionWebhookHmacConfig();
+
   const instanceName = env.EVOLUTION_INSTANCE_NAME;
   const tenantId = env.DEFAULT_TENANT_ID;
 
@@ -86,6 +89,7 @@ export async function ensureDefaultInstance(): Promise<void> {
         const provider = providerRegistry.get('evolution-go') as unknown as {
           setInstanceToken(name: string, token: string, url: string): void;
           connectInstance(name: string): Promise<unknown>;
+          logRemoteWebhookConfig(name: string): Promise<void>;
         };
         provider.setInstanceToken(instanceName, env.EVOLUTION_INSTANCE_TOKEN, webhookUrl!);
 
@@ -94,6 +98,7 @@ export async function ensureDefaultInstance(): Promise<void> {
         try {
           await provider.connectInstance(instanceName);
           console.log(`   ✅ Webhook re-registrado: ${webhookUrl}`);
+          await provider.logRemoteWebhookConfig(instanceName);
         } catch (err) {
           console.warn(`   ⚠️  Falha ao re-registrar webhook:`, (err as Error).message);
         }

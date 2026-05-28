@@ -111,7 +111,11 @@ export class TwilioLegacyProvider implements WhatsAppProvider {
 
   // ─── Webhook ──────────────────────────────────────────────────────────────
 
-  validateWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
+  validateWebhook(
+    rawBody: unknown,
+    headers: Record<string, string>,
+    _options?: { extraSecrets?: string[] },
+  ): boolean {
     const signature = headers['x-twilio-signature'] ?? '';
     const url = headers['x-original-url'] ?? '';
     if (!signature || !url) return true; // dev mode

@@ -140,7 +140,11 @@ export interface WhatsAppProvider {
   // ── Webhook ──
 
   /** Valida autenticidade do payload (assinatura, API key, etc) */
-  validateWebhook(rawBody: unknown, headers: Record<string, string>): boolean;
+  validateWebhook(
+    rawBody: unknown,
+    headers: Record<string, string>,
+    options?: { extraSecrets?: string[] },
+  ): boolean;
   /** Transforma payload bruto em evento normalizado (pode fazer I/O para transcrição/visão) */
   parseWebhook(rawBody: unknown, headers: Record<string, string>): Promise<ParsedWebhookEvent>;
 }
