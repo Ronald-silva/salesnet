@@ -151,7 +151,68 @@ export const adminApi = {
     request<{ qrCode: string }>('/whatsapp/qr'),
   getRoiReport: (days: number) =>
     request<RoiReport>(`/reports/roi?days=${days}`),
+
+  getSchedules: (params: ScheduleQuery) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set('status', params.status);
+    if (params.period) qs.set('period', params.period);
+    if (params.date) qs.set('date', params.date);
+    if (params.page) qs.set('page', String(params.page));
+    if (params.limit) qs.set('limit', String(params.limit));
+    return request<ScheduleListResponse>(`/schedules?${qs.toString()}`);
+  },
+  getTodaySchedules: () => request<ScheduleTodayResponse>('/schedules/today'),
+  updateScheduleStatus: (id: string, status: ScheduleStatus) =>
+    request<{ ok: true; status: ScheduleStatus }>(`/schedules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  rescheduleSchedule: (id: string, visit_date: string, period: SchedulePeriod) =>
+    request<{ ok: true; visit_date: string; period: SchedulePeriod }>(`/schedules/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({ visit_date, period }),
+    }),
+  cancelSchedule: (id: string) =>
+    request<{ ok: true }>(`/schedules/${id}`, { method: 'DELETE' }),
 };
+
+export type SchedulePeriod = 'morning' | 'afternoon';
+export type ScheduleStatus = 'scheduled' | 'done' | 'cancelled';
+
+export interface ScheduleQuery {
+  status?: string;
+  period?: string;
+  date?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ScheduleItem {
+  id: string;
+  customer_id: string;
+  phone: string;
+  customer_name?: string;
+  visit_date: string;
+  period: SchedulePeriod;
+  period_label: 'Manhã (8h-12h)' | 'Tarde (14h-18h)';
+  status: string;
+  type: string;
+  address?: string;
+  created_at: string;
+}
+
+export interface ScheduleListResponse {
+  data: ScheduleItem[];
+  total: number;
+  page: number;
+}
+
+export interface ScheduleTodayResponse {
+  data: ScheduleItem[];
+  total: number;
+  date: string;
+  summary: { total: number; morning: number; afternoon: number; pending: number };
+}
 
 export interface RoiReport {
   period_days: number;

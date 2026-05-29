@@ -404,24 +404,57 @@ export async function executeTool(
     }
 
     case 'agendar_visita': {
-      const visit = await sgp.scheduleVisit(
-        input.customer_id as string,
-        input.date as string,
-        input.period as 'morning' | 'afternoon',
-      );
+      const customerId = input.customer_id as string;
+      const date = input.date as string;
+      const period = input.period as 'morning' | 'afternoon';
+
+      await sgp.scheduleVisit(customerId, date, period);
+
+      // executeTool não recebe o session mode; inferimos o tipo pela existência
+      // do cadastro: cliente existente = manutenção, sem cadastro = instalação
+      // (fluxo prospect). `input.type` permite override explícito.
+      let customerData: Awaited<ReturnType<typeof sgp.getCustomerById>> | null = null;
       try {
-        const customer = await sgp.getCustomerById(input.customer_id as string);
+        customerData = await sgp.getCustomerById(customerId);
+      } catch {
+        customerData = null;
+      }
+
+      const requestedType = String(input.type ?? '');
+      const visitType: 'instalacao' | 'manutencao' =
+        requestedType === 'instalacao' || requestedType === 'manutencao'
+          ? requestedType
+          : customerData
+          ? 'manutencao'
+          : 'instalacao';
+
+      const address = customerData?.address
+        ? `${customerData.address.street ?? ''}, ${customerData.address.number ?? ''}`
+        : null;
+
+      try {
         await supabase.from('scheduled_visits').insert({
-          customer_id: input.customer_id as string,
-          phone: customer.phone,
-          visit_date: input.date as string,
-          period: input.period as string,
+          customer_id: customerId,
+          phone: customerData?.phone ?? phone,
+          visit_date: date,
+          period,
           status: 'scheduled',
+          type: visitType,
+          address,
+          notes: (input.notes as string | undefined) ?? null,
         });
       } catch {
         // best-effort
       }
-      return visit;
+
+      const periodLabel = period === 'morning' ? 'manhã (8h-12h)' : 'tarde (14h-18h)';
+      return {
+        success: true,
+        visit_date: date,
+        period: periodLabel,
+        type: visitType,
+        message: `Visita agendada para ${date} no período da ${periodLabel}. Nossa equipe entrará em contato antes de chegar.`,
+      };
     }
 
     case 'status_conexao':

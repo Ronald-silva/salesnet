@@ -26,6 +26,7 @@ import ChurnRiskList from "./pages/admin/ChurnRiskList";
 import { ClientesPage, FinanceiroPage, RedePage } from "./pages/admin/Placeholders";
 import ConfiguracoesPage from "./pages/admin/ConfiguracoesPage";
 import Reports from "./pages/admin/Reports";
+import SchedulesPage from "./pages/admin/Schedules";
 import { getAdminToken } from "./lib/adminAuth";
 
 const queryClient = new QueryClient();
@@ -65,6 +66,7 @@ const App = () => {
                 <Route path="configuracoes" element={<ConfiguracoesPage />} />
                 <Route path="churn-risks" element={<ChurnRiskList />} />
                 <Route path="metricas" element={<Metrics />} />
+                <Route path="agendamentos" element={<SchedulesPage />} />
                 <Route path="relatorio-roi" element={<Reports />} />
                 <Route path="" element={<Conversations />} />
               </Route>

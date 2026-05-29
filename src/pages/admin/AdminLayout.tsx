@@ -1,10 +1,11 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { MessageSquare, Users, Megaphone, DollarSign, Wifi, Settings, LogOut, Activity, AlertTriangle, BarChart2 } from 'lucide-react';
+import { MessageSquare, Calendar, Users, Megaphone, DollarSign, Wifi, Settings, LogOut, Activity, AlertTriangle, BarChart2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAdminUser, clearAdminSession } from '@/lib/adminAuth';
 
 const items = [
   { to: '/admin/conversas', label: 'Conversas', icon: MessageSquare },
+  { to: '/admin/agendamentos', label: 'Agendamentos', icon: Calendar },
   { to: '/admin/clientes', label: 'Clientes', icon: Users },
   { to: '/admin/campanhas', label: 'Campanhas', icon: Megaphone },
   { to: '/admin/financeiro', label: 'Financeiro', icon: DollarSign },
