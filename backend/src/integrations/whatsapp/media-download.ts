@@ -83,7 +83,7 @@ export async function fetchAndDecryptWAMedia(
     responseType: 'arraybuffer',
     timeout: 15_000,
   });
-  let buffer = Buffer.from(resp.data);
+  let buffer: Buffer = Buffer.from(resp.data);
 
   if (typeof mediaKeyB64 === 'string' && mediaKeyB64.length > 0) {
     const mediaKey = Buffer.from(mediaKeyB64, 'base64');
