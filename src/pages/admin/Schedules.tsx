@@ -51,6 +51,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { AdminFilterChips } from '@/components/admin/AdminFilterChips';
+import { Card, CardContent } from '@/components/ui/card';
 
 type PeriodFilter = 'all' | SchedulePeriod;
 type TypeFilter = 'all' | 'instalacao' | 'manutencao';
@@ -123,10 +126,107 @@ function StatusBadge({ status }: { status: string }) {
 
 function MetricCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-border/50 p-4">
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-2xl font-bold mt-1">{value}</p>
+    <div className="rounded-xl border border-border/50 bg-card/50 p-4">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="text-2xl font-bold mt-1 tabular-nums">{value}</p>
     </div>
+  );
+}
+
+interface ScheduleActionsProps {
+  item: ScheduleItem;
+  onReschedule: (item: ScheduleItem) => void;
+  onCancel: (id: string) => void;
+  onDone: (id: string) => void;
+  onBringForward: (id: string) => void;
+  bringForwardPending: boolean;
+}
+
+function ScheduleActions({
+  item,
+  onReschedule,
+  onCancel,
+  onDone,
+  onBringForward,
+  bringForwardPending,
+}: ScheduleActionsProps) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="min-h-[44px] min-w-[44px]">
+          <MoreHorizontal className="h-4 w-4" />
+          <span className="sr-only">Ações</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        {item.status === 'scheduled' && (
+          <DropdownMenuItem onClick={() => onDone(item.id)}>
+            <Check className="h-4 w-4 mr-2" />
+            Marcar como Concluído
+          </DropdownMenuItem>
+        )}
+        {item.status === 'scheduled' && item.bring_forward_status !== 'accepted' && (
+          <DropdownMenuItem disabled={bringForwardPending} onClick={() => onBringForward(item.id)}>
+            <Zap className="h-4 w-4 mr-2" />
+            Oferecer antecipação
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => onReschedule(item)}>
+          <CalendarClock className="h-4 w-4 mr-2" />
+          Reagendar
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive"
+          onClick={() => onCancel(item.id)}
+        >
+          <X className="h-4 w-4 mr-2" />
+          Cancelar
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ScheduleMobileCard({
+  item,
+  actions,
+}: {
+  item: ScheduleItem;
+  actions: ScheduleActionsProps;
+}) {
+  return (
+    <Card className="rounded-xl border-border/50 overflow-hidden md:hidden">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-semibold truncate">{item.customer_name ?? formatPhone(item.phone)}</p>
+            <p className="text-sm text-muted-foreground">{formatPhone(item.phone)}</p>
+          </div>
+          <ScheduleActions {...actions} />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <PeriodBadge period={item.period} />
+          <TypeBadge type={item.type} />
+          <StatusBadge status={item.status} />
+        </div>
+        <div className="text-sm space-y-1 text-muted-foreground">
+          <p>
+            <span className="text-foreground font-medium">{formatDate(item.visit_date)}</span>
+          </p>
+          {item.address && <p className="line-clamp-2">{item.address}</p>}
+        </div>
+        {item.bring_forward_status === 'offered' && (
+          <Badge variant="outline" className="bg-amber-500/15 text-amber-400 border-amber-500/30 w-fit">
+            Antecipação ofertada
+          </Badge>
+        )}
+        {item.bring_forward_status === 'accepted' && (
+          <Badge variant="outline" className="bg-violet-500/15 text-violet-400 border-violet-500/30 w-fit">
+            Antecipada
+          </Badge>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -217,97 +317,87 @@ export default function Schedules() {
   const rows = allRows.filter((r) => type === 'all' || r.type === type);
   const summary = todayQuery.data?.summary;
 
+  const actionProps = (item: ScheduleItem): ScheduleActionsProps => ({
+    item,
+    onReschedule: openReschedule,
+    onCancel: setCancelId,
+    onDone: (id) => statusMutation.mutate({ id, value: 'done' }),
+    onBringForward: (id) => bringForwardMutation.mutate(id),
+    bringForwardPending: bringForwardMutation.isPending,
+  });
+
   return (
-    <div className="space-y-6">
-      {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <h2 className="text-2xl font-bold">Agendamentos</h2>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant={isToday ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              setDate(TODAY);
+    <div className="space-y-5">
+      <AdminPageHeader
+        title="Agendamentos"
+        icon={<Calendar className="h-5 w-5" />}
+        actions={
+          <>
+            <Button
+              variant={isToday ? 'default' : 'outline'}
+              className="min-h-[44px] flex-1 sm:flex-none"
+              onClick={() => {
+                setDate(TODAY);
+                setPage(1);
+              }}
+            >
+              <Calendar className="h-4 w-4 mr-2" />
+              Hoje
+            </Button>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => {
+                setDate(e.target.value);
+                setPage(1);
+              }}
+              className="min-h-[44px] flex-1 sm:w-auto"
+            />
+          </>
+        }
+      />
+
+      <Card className="rounded-xl border-border/50">
+        <CardContent className="p-4 space-y-4">
+          <AdminFilterChips
+            label="Período"
+            value={period}
+            onChange={(value) => {
+              setPeriod(value);
               setPage(1);
             }}
-          >
-            <Calendar className="h-4 w-4 mr-2" />
-            Hoje
-          </Button>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => {
-              setDate(e.target.value);
-              setPage(1);
-            }}
-            className="w-auto"
+            options={[
+              { value: 'all', label: 'Todos' },
+              { value: 'morning', label: 'Manhã' },
+              { value: 'afternoon', label: 'Tarde' },
+            ]}
           />
-        </div>
-      </div>
-
-      {/* ── Filtros ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Período</span>
-          <div className="flex gap-2">
-            {(['all', 'morning', 'afternoon'] as PeriodFilter[]).map((value) => (
-              <Button
-                key={value}
-                variant={period === value ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setPeriod(value);
-                  setPage(1);
-                }}
-              >
-                {value === 'all' ? 'Todos' : value === 'morning' ? 'Manhã' : 'Tarde'}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Tipo</span>
-          <div className="flex gap-2">
-            {(['all', 'instalacao', 'manutencao'] as TypeFilter[]).map((value) => (
-              <Button
-                key={value}
-                variant={type === value ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setType(value)}
-              >
-                {value === 'all' ? 'Todos' : value === 'instalacao' ? 'Instalação' : 'Manutenção'}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Status</span>
-          <div className="flex gap-2">
-            {(['all', 'scheduled', 'done', 'cancelled'] as StatusFilter[]).map((value) => (
-              <Button
-                key={value}
-                variant={status === value ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setStatus(value);
-                  setPage(1);
-                }}
-              >
-                {value === 'all'
-                  ? 'Todos'
-                  : value === 'scheduled'
-                  ? 'Agendado'
-                  : value === 'done'
-                  ? 'Concluído'
-                  : 'Cancelado'}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </div>
+          <AdminFilterChips
+            label="Tipo"
+            value={type}
+            onChange={(value) => setType(value as TypeFilter)}
+            options={[
+              { value: 'all', label: 'Todos' },
+              { value: 'instalacao', label: 'Instalação' },
+              { value: 'manutencao', label: 'Manutenção' },
+            ]}
+          />
+          <AdminFilterChips
+            label="Status"
+            value={status}
+            onChange={(value) => {
+              setStatus(value);
+              setPage(1);
+            }}
+            options={[
+              { value: 'all', label: 'Todos' },
+              { value: 'scheduled', label: 'Agendado' },
+              { value: 'done', label: 'Concluído' },
+              { value: 'cancelled', label: 'Cancelado' },
+            ]}
+          />
+        </CardContent>
+      </Card>
 
       {/* ── Resumo do dia (somente quando "Hoje" ativo) ─────────────────── */}
       {isToday && summary && (
@@ -342,8 +432,29 @@ export default function Schedules() {
         </Alert>
       )}
 
-      {/* ── Tabela ──────────────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-border/50">
+      {!schedulesQuery.isLoading && rows.length > 0 && (
+        <div className="space-y-3 md:hidden">
+          {rows.map((item) => (
+            <ScheduleMobileCard key={item.id} item={item} actions={actionProps(item)} />
+          ))}
+        </div>
+      )}
+
+      {!schedulesQuery.isLoading && rows.length === 0 && (
+        <p className="text-center text-sm text-muted-foreground py-10 md:hidden">
+          Nenhum agendamento encontrado
+        </p>
+      )}
+
+      {schedulesQuery.isLoading && (
+        <div className="space-y-3 md:hidden">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={`mobile-skel-${i}`} className="h-40 w-full rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      <div className="hidden md:block rounded-xl border border-border/50 overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -412,44 +523,7 @@ export default function Schedules() {
                     </div>
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {item.status === 'scheduled' && (
-                          <DropdownMenuItem
-                            onClick={() => statusMutation.mutate({ id: item.id, value: 'done' })}
-                          >
-                            <Check className="h-4 w-4 mr-2" />
-                            Marcar como Concluído
-                          </DropdownMenuItem>
-                        )}
-                        {item.status === 'scheduled' &&
-                          item.bring_forward_status !== 'accepted' && (
-                            <DropdownMenuItem
-                              disabled={bringForwardMutation.isPending}
-                              onClick={() => bringForwardMutation.mutate(item.id)}
-                            >
-                              <Zap className="h-4 w-4 mr-2" />
-                              Oferecer antecipação
-                            </DropdownMenuItem>
-                          )}
-                        <DropdownMenuItem onClick={() => openReschedule(item)}>
-                          <CalendarClock className="h-4 w-4 mr-2" />
-                          Reagendar
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setCancelId(item.id)}
-                        >
-                          <X className="h-4 w-4 mr-2" />
-                          Cancelar
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <ScheduleActions {...actionProps(item)} />
                   </TableCell>
                 </TableRow>
               ))}

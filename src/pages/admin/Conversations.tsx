@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronLeft, MessageSquare } from 'lucide-react';
 import { adminApi } from '@/api/admin';
+import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
+import { AdminFilterChips } from '@/components/admin/AdminFilterChips';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -74,29 +78,37 @@ export default function Conversations() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="border border-border/50 rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-3">Conversas ativas</h2>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {(['all', 'bot', 'human', 'churn'] as Filter[]).map((value) => (
-            <Button
-              key={value}
-              variant={filter === value ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilter(value)}
-            >
-              {value === 'all' ? 'Todas' : value === 'bot' ? 'Bot ativo' : value === 'human' ? 'Aguardando humano' : 'Churn risk'}
-            </Button>
-          ))}
-        </div>
-        <Input
-          placeholder="Buscar por nome ou número"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="mb-3"
+    <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
+      <section
+        className={cn(
+          'rounded-xl border border-border/50 p-4',
+          selectedId ? 'hidden lg:block' : 'block',
+        )}
+      >
+        <AdminPageHeader
+          title="Conversas ativas"
+          icon={<MessageSquare className="h-5 w-5" />}
         />
+        <div className="mt-4 space-y-3">
+          <AdminFilterChips
+            value={filter}
+            onChange={(value) => setFilter(value as Filter)}
+            options={[
+              { value: 'all', label: 'Todas' },
+              { value: 'bot', label: 'Bot ativo' },
+              { value: 'human', label: 'Humano' },
+              { value: 'churn', label: 'Churn' },
+            ]}
+          />
+          <Input
+            placeholder="Buscar por nome ou número"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="min-h-[44px]"
+          />
+        </div>
 
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+        <div className="space-y-2 mt-4 max-h-[min(60vh,32rem)] overflow-y-auto">
           {conversations.isLoading &&
             Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={`conv-skeleton-${i}`} className="h-20 w-full rounded-md" />
@@ -120,8 +132,12 @@ export default function Conversations() {
           {list.map((item) => (
             <button
               key={item.id}
+              type="button"
               onClick={() => selectConversation(item.id)}
-              className={`w-full text-left border rounded-md p-3 hover:bg-muted/30 ${selectedId === item.id ? 'border-accent' : 'border-border/50'}`}
+              className={cn(
+                'w-full text-left border rounded-xl p-4 min-h-[72px] hover:bg-muted/30 active:bg-muted/50 transition-colors',
+                selectedId === item.id ? 'border-accent bg-accent/5' : 'border-border/50',
+              )}
             >
               <div className="flex items-center justify-between">
                 <p className="font-medium">{item.name}</p>
@@ -140,10 +156,26 @@ export default function Conversations() {
         </div>
       </section>
 
-      <section className="border border-border/50 rounded-lg p-4">
-        <h2 className="text-lg font-semibold mb-3">Conversa selecionada</h2>
+      <section
+        className={cn(
+          'rounded-xl border border-border/50 p-4',
+          !selectedId ? 'hidden lg:block' : 'block',
+        )}
+      >
+        {selectedId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="lg:hidden mb-3 -ml-2 min-h-[44px]"
+            onClick={() => setSelectedId(null)}
+          >
+            <ChevronLeft className="h-4 w-4 mr-1" />
+            Voltar à lista
+          </Button>
+        )}
+        <h2 className="text-lg font-semibold mb-3 hidden lg:block">Conversa selecionada</h2>
         {!selectedId ? (
-          <p className="text-muted-foreground">Selecione uma conversa na lista.</p>
+          <p className="text-muted-foreground text-sm">Selecione uma conversa na lista.</p>
         ) : detail.isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-6 w-1/2" />
@@ -185,9 +217,9 @@ export default function Conversations() {
               </Alert>
             )}
 
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="grid grid-cols-1 gap-2 mb-3 sm:flex sm:flex-wrap">
               <Button
-                size="sm"
+                className="min-h-[44px] w-full sm:w-auto"
                 variant="outline"
                 onClick={() => selectedId && humanModeMutation.mutate({ id: selectedId, active: true })}
                 disabled={humanModeMutation.isPending}
@@ -195,14 +227,18 @@ export default function Conversations() {
                 Assumir conversa
               </Button>
               <Button
-                size="sm"
+                className="min-h-[44px] w-full sm:w-auto"
                 variant="outline"
                 onClick={() => selectedId && humanModeMutation.mutate({ id: selectedId, active: false })}
                 disabled={humanModeMutation.isPending}
               >
                 Devolver ao bot
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowInvoice((v) => !v)}>
+              <Button
+                className="min-h-[44px] w-full sm:w-auto"
+                variant="outline"
+                onClick={() => setShowInvoice((v) => !v)}
+              >
                 {showInvoice ? 'Ocultar fatura' : 'Ver fatura atual'}
               </Button>
             </div>
@@ -265,6 +301,7 @@ export default function Conversations() {
                 </p>
               )}
               <Button
+                className="w-full min-h-[44px]"
                 onClick={() => selectedId && replyMutation.mutate({ id: selectedId, message: reply })}
                 disabled={!reply.trim() || replyMutation.isPending}
               >

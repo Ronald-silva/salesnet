@@ -1,5 +1,6 @@
 import { MessageCircle, X, Send } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { useAIBot } from "@/contexts/AIBotContext";
 import { buildWhatsAppLink } from "@/lib/whatsapp";
 import { formatBrl, INSTALLATION_FEE, plansListText, PUBLIC_PLANS, TV_ADDON_PRICE } from "@/data/plans";
@@ -12,6 +13,7 @@ interface Message {
 }
 
 const AIBotWidget = () => {
+  const location = useLocation();
   const { isOpen, setIsOpen } = useAIBot();
   const [position, setPosition] = useState({ bottom: '6rem', right: '1.5rem' });
   const [messages, setMessages] = useState<Message[]>([
@@ -211,6 +213,10 @@ const AIBotWidget = () => {
     window.addEventListener('resize', calculatePosition);
     return () => window.removeEventListener('resize', calculatePosition);
   }, [isOpen]);
+
+  if (location.pathname.startsWith("/admin")) {
+    return null;
+  }
 
   return (
     <>
