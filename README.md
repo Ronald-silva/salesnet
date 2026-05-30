@@ -8,6 +8,7 @@ Monorepo do produto da SalesNet: frontend React + backend Node.js com agente IA 
 - Operação ISP conectada ao SGP (clientes, faturas, PIX, chamados)
 - Portal/Admin web
 - Automações de cobrança, campanhas e NPS
+- Detecção de padrões operacionais (clusters de queda/lentidão, spike de cobrança, onda de churn, queda de NPS) com alertas no painel e no WhatsApp do admin
 
 ## Stack
 

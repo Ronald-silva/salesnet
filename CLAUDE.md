@@ -273,6 +273,43 @@ Quando nenhum sinal é positivo, `buildInsightsContext()` retorna `''` (sem ruí
 
 ---
 
+## Módulo de detecção de padrões operacionais (`pattern-detector.ts`)
+
+Cron a cada 30 min (`*/30 * * * *`, registrado em `startAutomations()`). Identifica
+anomalias em escala antes que virem reclamação massiva e grava em `operational_alerts`.
+
+### Detectores
+
+| Tipo (`alert_type`) | Janela | Gatilho | Fonte de dados |
+|---------------------|--------|---------|----------------|
+| `outage_cluster` | 2h | ≥ 3 quedas no mesmo bairro | `outage_reports` (`neighborhood`/`reported_at`) |
+| `billing_spike` | 2h | sessões `billing` > 2x média por janela de 2h dos 7 dias anteriores (com mínimo absoluto ≥ 3) | `interaction_logs.session_mode` |
+| `churn_wave` | 24h | > 5 chamadas de `marcar_churn_risk` | `interaction_logs.tool_calls` (`@>` jsonb) |
+| `slow_speed_cluster` | 4h | ≥ 3 reclamações de lentidão do mesmo bairro | `interaction_logs` (support) + `conversation_threads.messages` + bairro via SGP |
+| `nps_drop` | 24h vs 7d | média de NPS cai > 1 ponto (mín. 3 respostas em 24h) | `nps_responses.score` |
+
+### Comportamentos críticos
+
+- **Dedup:** antes de criar, `existsRecentOpenAlert(tenant, type, area?)` checa alerta `open`
+  do mesmo tipo (e bairro, quando aplicável) nas últimas 4h. Em erro de query, assume que
+  existe (não duplica).
+- **`outage_reports` é single-tenant** — sem `tenant_id`; o detector 1 não filtra por tenant.
+- **Notificação:** todo alerta novo dispara `whatsappService.sendText(tenant, ADMIN_ALERT_PHONE, msg)`
+  (best-effort). Sem `ADMIN_ALERT_PHONE`, loga warning e segue — o alerta ainda aparece no painel.
+- **`slow_speed_cluster` faz lookups no SGP** só para os telefones que casaram a keyword de
+  lentidão (controle de custo).
+- Todos os detectores rodam em `Promise.allSettled` — falha de um não derruba os demais.
+
+### Painel
+
+- `GET /api/admin/alerts?status=open|acknowledged|resolved|all` → `{ data, openCount }`.
+- `PATCH /api/admin/alerts/:id` → `{ status }` (`acknowledged`/`resolved`/`open`); `resolved` grava `resolved_at`.
+- `src/pages/admin/Alerts.tsx` (rota `/admin/alertas`): cards por alerta, auto-refresh 5 min,
+  botões Reconhecer/Resolver, empty state "Nenhuma anomalia detectada".
+- `AdminLayout` mostra badge vermelho com `openCount` no item "Alertas".
+
+---
+
 ## Camada quick-reply — comportamento preciso
 
 `quickReply(message, phone): Promise<string | null>`
@@ -339,6 +376,7 @@ Ordem de precedência:
 | `sofia_tickets` | `tools.ts` (abrir_chamado) | `tools.ts` (listar_chamados_sofia) |
 | `billing_notifications` | automações, `registrar_negociacao` | `getHabitualLatePayerIds`, automações |
 | `scheduled_messages` | `nps-flow.ts` | `scheduled-messages.ts` (cron 10 min) |
+| `operational_alerts` | `pattern-detector.ts` | `routes/alerts.ts` (painel), `AdminLayout` (badge) |
 
 **Schema base (tabelas):** não há um único `schema.sql` em `migrations/`. As tabelas
 base ficam distribuídas em arquivos `schema.sql` por domínio — rode todos uma vez no
@@ -363,6 +401,10 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `020_tenant_scoped_conversations.sql` — `conversation_threads`/`interaction_logs` escopados por `(tenant_id, phone)`
 - `021_schedules_improvements.sql` — `scheduled_visits`: colunas `type`, `address`, `notes`, `updated_at`, `cancelled_at`, `done_at` + índices
 - `022_visit_bring_forward.sql` — `scheduled_visits`: colunas `bring_forward_status`, `bring_forward_offered_at` (antecipação)
+- `023_cpf_index.sql` — `conversation_threads.cpf` + índice parcial (índice de CPF próprio; SGP não busca por CPF)
+- `024_quality_feedback.sql` — tabela `conversation_quality` (feedback loop NPS↔conversa)
+- `025_knowledge_base.sql` — tabela `knowledge_base` (soluções reutilizáveis, GIN em `problem_keywords`)
+- `026_pattern_detection.sql` — tabela `operational_alerts` (detecção de padrões operacionais; RLS service_role-only)
 - `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez). **Foi este o executado em produção** (via SQL Editor).
 - `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (alternativa só via psql, uma statement por vez; **não** usar no SQL Editor — erro 25001)
 
@@ -396,6 +438,12 @@ Todas em `backend/src/automations/`. Iniciadas via `startAutomations()` em `inde
 
 `getHabitualLatePayerIds()` consulta `billing_notifications` no Supabase — não o SGP.
 
+### Detecção de padrões (`pattern-detector.ts`)
+
+- **A cada 30 min:** roda os 5 detectores (`outage_cluster`, `billing_spike`, `churn_wave`,
+  `slow_speed_cluster`, `nps_drop`) e grava `operational_alerts`; notifica `ADMIN_ALERT_PHONE`.
+- Ver seção "Módulo de detecção de padrões operacionais" para gatilhos e dedup.
+
 ### Retenção LGPD (`data-cleanup.ts`)
 
 - **03:00 Fortaleza (06:00 UTC):** apaga `processed_message_ids` > 24h, `interaction_logs` e `nps_responses` > 90 dias, `billing_notifications` > 180 dias (por `sent_at`)
@@ -427,6 +475,8 @@ GEMINI_API_KEY=AIza...   # Google AI Studio — vision.ts: análise de imagens (
 GROQ_API_KEY=gsk_...     # console.groq.com — transcribe.ts: transcrição de áudio (Whisper). Sem a chave, áudio é ignorado
 
 BACKEND_URL=https://salesnet-production.up.railway.app
+
+ADMIN_ALERT_PHONE=5585996032957 # WhatsApp (dígitos) que recebe alertas operacionais (pattern-detector). Sem ela, alertas vão pro painel mas não pro WhatsApp
 ```
 
 ---
@@ -524,6 +574,14 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - Prompt da skill reduz escaladas: Sofia resolve sozinha; só `transferir_humano` em pedido explícito do cliente, cancelamento ou ameaça jurídica.
 - `safeExecuteTool` em `processor.ts`: erro de ferramenta não derruba o fluxo do LLM.
 - `getCustomerByPhone` tenta variação do 9º dígito (BR) ao buscar cliente.
+
+### 8) Detecção de padrões operacionais (implementado)
+
+- `pattern-detector.ts` (cron 30 min) detecta `outage_cluster`, `billing_spike`, `churn_wave`,
+  `slow_speed_cluster` e `nps_drop`; grava em `operational_alerts` (migration `026`).
+- Dedup por tipo (+bairro) em 4h; notificação WhatsApp ao `ADMIN_ALERT_PHONE`.
+- Painel `src/pages/admin/Alerts.tsx` (`/admin/alertas`) + rotas `GET/PATCH /api/admin/alerts`
+  + badge de contagem de abertos no `AdminLayout`.
 
 ---
 
