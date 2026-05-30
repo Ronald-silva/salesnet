@@ -35,7 +35,38 @@ const SELECT_BASE =
 const SELECT_EXTENDED = `${SELECT_BASE}, type, address, bring_forward_status`;
 
 function isMissingColumnError(message: string): boolean {
-  return /column/i.test(message) && /does not exist/i.test(message);
+  return (
+    (/column/i.test(message) && /does not exist/i.test(message)) ||
+    /could not find the .* column/i.test(message)
+  );
+}
+
+let scheduleSelectColumnsCache: string | null = null;
+
+/** Uma vez por processo: usa colunas 021/022 só se existirem no Supabase. */
+async function resolveScheduleSelectColumns(): Promise<string> {
+  if (scheduleSelectColumnsCache) return scheduleSelectColumnsCache;
+
+  const { error } = await supabase
+    .from('scheduled_visits')
+    .select('type, address, bring_forward_status')
+    .limit(1);
+
+  if (!error) {
+    scheduleSelectColumnsCache = SELECT_EXTENDED;
+    return SELECT_EXTENDED;
+  }
+
+  if (isMissingColumnError(error.message)) {
+    console.warn(
+      '[admin] scheduled_visits: migrations 021/022 ausentes — usando schema base (rode 021 e 022 no Supabase)',
+    );
+    scheduleSelectColumnsCache = SELECT_BASE;
+    return SELECT_BASE;
+  }
+
+  scheduleSelectColumnsCache = SELECT_BASE;
+  return SELECT_BASE;
 }
 
 interface EnrichedVisit {
@@ -98,40 +129,29 @@ schedulesRouter.get('/', async (req, res) => {
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  let data: VisitRow[] | null = null;
-  let count: number | null = null;
-  let lastError: string | null = null;
+  const columns = await resolveScheduleSelectColumns();
 
-  for (const columns of [SELECT_EXTENDED, SELECT_BASE]) {
-    let query = supabase
-      .from('scheduled_visits')
-      .select(columns, { count: 'exact' })
-      .order('visit_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .range(from, to);
+  let query = supabase
+    .from('scheduled_visits')
+    .select(columns, { count: 'exact' })
+    .order('visit_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .range(from, to);
 
-    if (status && status !== 'all') query = query.eq('status', status);
-    if (period && period !== 'all') query = query.eq('period', period);
-    if (date) query = query.eq('visit_date', date);
+  if (status && status !== 'all') query = query.eq('status', status);
+  if (period && period !== 'all') query = query.eq('period', period);
+  if (date) query = query.eq('visit_date', date);
 
-    const result = await query;
-    if (!result.error) {
-      data = (result.data ?? []) as unknown as VisitRow[];
-      count = result.count;
-      lastError = null;
-      break;
-    }
-    lastError = result.error.message;
-    if (!isMissingColumnError(result.error.message)) break;
-  }
-
-  if (lastError) {
-    console.error('[admin] schedules fetch failed:', lastError);
+  const { data: rows, error, count } = await query;
+  if (error) {
+    console.error('[admin] schedules fetch failed:', error.message);
     res.status(500).json({ error: 'failed to fetch schedules' });
     return;
   }
 
-  const enriched = await enrichVisits(data ?? []);
+  const data = (rows ?? []) as unknown as VisitRow[];
+
+  const enriched = await enrichVisits(data);
 
   res.status(200).json({
     data: enriched,
@@ -144,31 +164,22 @@ schedulesRouter.get('/', async (req, res) => {
 schedulesRouter.get('/today', async (_req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
-  let rows: VisitRow[] = [];
-  let todayError: string | null = null;
+  const columns = await resolveScheduleSelectColumns();
 
-  for (const columns of [SELECT_EXTENDED, SELECT_BASE]) {
-    const result = await supabase
-      .from('scheduled_visits')
-      .select(columns)
-      .eq('visit_date', today)
-      .order('period', { ascending: true })
-      .order('created_at', { ascending: false });
-
-    if (!result.error) {
-      rows = (result.data ?? []) as unknown as VisitRow[];
-      todayError = null;
-      break;
-    }
-    todayError = result.error.message;
-    if (!isMissingColumnError(result.error.message)) break;
-  }
+  const { data: todayRows, error: todayError } = await supabase
+    .from('scheduled_visits')
+    .select(columns)
+    .eq('visit_date', today)
+    .order('period', { ascending: true })
+    .order('created_at', { ascending: false });
 
   if (todayError) {
-    console.error('[admin] schedules/today fetch failed:', todayError);
+    console.error('[admin] schedules/today fetch failed:', todayError.message);
     res.status(500).json({ error: 'failed to fetch today schedules' });
     return;
   }
+
+  const rows = (todayRows ?? []) as unknown as VisitRow[];
   const enriched = await enrichVisits(rows);
 
   const summary = {
