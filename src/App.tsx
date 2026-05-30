@@ -27,6 +27,9 @@ import { ClientesPage, FinanceiroPage, RedePage } from "./pages/admin/Placeholde
 import ConfiguracoesPage from "./pages/admin/ConfiguracoesPage";
 import Reports from "./pages/admin/Reports";
 import SchedulesPage from "./pages/admin/Schedules";
+import Leads from "./pages/admin/Leads";
+import Tickets from "./pages/admin/Tickets";
+import Nps from "./pages/admin/Nps";
 import { getAdminToken } from "./lib/adminAuth";
 
 const queryClient = new QueryClient();
@@ -60,11 +63,14 @@ const App = () => {
               <Route path="/admin/*" element={<AdminGuard />}>
                 <Route path="conversas" element={<Conversations />} />
                 <Route path="clientes" element={<ClientesPage />} />
+                <Route path="leads" element={<Leads />} />
+                <Route path="chamados" element={<Tickets />} />
                 <Route path="campanhas" element={<CampaignManager />} />
                 <Route path="financeiro" element={<FinanceiroPage />} />
                 <Route path="rede" element={<RedePage />} />
                 <Route path="configuracoes" element={<ConfiguracoesPage />} />
                 <Route path="churn-risks" element={<ChurnRiskList />} />
+                <Route path="nps" element={<Nps />} />
                 <Route path="metricas" element={<Metrics />} />
                 <Route path="agendamentos" element={<SchedulesPage />} />
                 <Route path="relatorio-roi" element={<Reports />} />

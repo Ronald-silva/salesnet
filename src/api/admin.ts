@@ -73,6 +73,8 @@ export interface ConversationDetail {
   phone: string;
   human_mode: boolean;
   churn_risk: boolean;
+  notes?: string | null;
+  session_mode?: string | null;
   updated_at: string;
   messages: Array<{ role: string; content: string; timestamp?: string; source?: string }>;
   customer?: {
@@ -80,6 +82,16 @@ export interface ConversationDetail {
     plan?: { name?: string };
     status?: string;
   } | null;
+}
+
+export interface InvoiceInfo {
+  id: string;
+  amount: number;
+  dueDate: string;
+  status: 'open' | 'paid' | 'overdue' | 'cancelled';
+  pixCode?: string;
+  barcode?: string;
+  link?: string;
 }
 
 export interface DashboardMetrics {
@@ -106,8 +118,91 @@ export interface ChurnRiskItem {
   plan: string;
   reason: string;
   level: 'low' | 'medium' | 'high';
+  nps_score: number | null;
   created_at: string;
   status: string;
+}
+
+export interface LeadItem {
+  id: string;
+  phone: string;
+  name: string | null;
+  neighborhood: string | null;
+  desired_plan: string | null;
+  notes: string | null;
+  status: 'new' | 'contacted' | 'converted' | 'lost';
+  created_at: string;
+}
+
+export interface TicketItem {
+  id: string;
+  phone: string;
+  contrato: string;
+  sgp_chamado_id: string | null;
+  tipo: string;
+  descricao: string;
+  status: 'aberto' | 'em_andamento' | 'resolvido';
+  customer_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NpsReport {
+  period_days: number;
+  total: number;
+  average: number | null;
+  distribution: Record<string, number>;
+  detractors: Array<{ phone: string; score: number; created_at: string }>;
+}
+
+export interface OutageReport {
+  period_days: number;
+  total: number;
+  neighborhoods: Array<{ neighborhood: string; count: number; lastReportedAt: string }>;
+}
+
+export interface FinanceReport {
+  period_days: number;
+  total_notifications: number;
+  negociacoes: number;
+  recovered_revenue: number;
+  by_type: Array<{ type: string; count: number }>;
+}
+
+export interface BusinessConfig {
+  business: {
+    providerName: string;
+    agentName: string;
+    agentGender: 'f' | 'm';
+    city: string;
+    whatsappSupportHours: string;
+    humanSupportHours?: string;
+    installationFeeReais: number;
+    installationDaysMax: number;
+    loyaltyMonths: number;
+    tvAddonMonthly?: number;
+    earlyPaymentDiscountPct?: number;
+    paymentMethods: string[];
+  };
+  plans: Array<{ name: string; downloadMbps: number; uploadMbps: number; priceMonthly: number; popular?: boolean }>;
+  coveredNeighborhoods: string[];
+  toneOverride: string | null;
+  llmDailyBudget: number | null;
+}
+
+export type BusinessConfigPatch = Partial<{
+  business: Partial<BusinessConfig['business']>;
+  plans: BusinessConfig['plans'];
+  coveredNeighborhoods: string[];
+  toneOverride: string | null;
+  llmDailyBudget: number | null;
+}>;
+
+export interface WhatsAppInstance {
+  id: string;
+  instanceName: string;
+  status?: string;
+  tenant_id?: string;
 }
 
 export const adminApi = {
@@ -144,6 +239,40 @@ export const adminApi = {
   getChurnRisks: () => request<ChurnRiskItem[]>('/churn-risks'),
   churnOutreach: (id: string) =>
     request<{ ok: true }>(`/campaigns/churn-outreach/${id}`, { method: 'POST' }),
+
+  getConversationInvoice: (id: string) =>
+    request<InvoiceInfo | null>(`/conversations/${id}/invoice`),
+
+  getLeads: (status: string) =>
+    request<LeadItem[]>(`/leads?status=${encodeURIComponent(status)}`),
+  updateLead: (id: string, patch: { status?: string; notes?: string }) =>
+    request<{ ok: true }>(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  getTickets: (status: string) =>
+    request<TicketItem[]>(`/tickets?status=${encodeURIComponent(status)}`),
+  updateTicket: (id: string, status: string) =>
+    request<{ ok: true }>(`/tickets/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  getNps: (days: number) => request<NpsReport>(`/nps?days=${days}`),
+  getOutages: (days: number) => request<OutageReport>(`/outages?days=${days}`),
+  getFinance: (days: number) => request<FinanceReport>(`/financeiro?days=${days}`),
+  searchCustomer: (q: string) =>
+    request<Record<string, unknown>>(`/customers/search?q=${encodeURIComponent(q)}`),
+
+  getConfig: () => request<BusinessConfig>('/config'),
+  updateConfig: (patch: BusinessConfigPatch) =>
+    request<{ ok: true }>('/config', { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  getInstances: () => request<{ instances: WhatsAppInstance[] }>('/instances'),
+  createInstance: (instanceName: string) =>
+    request<{ instance: WhatsAppInstance }>('/instances', {
+      method: 'POST',
+      body: JSON.stringify({ instanceName }),
+    }),
+  getInstanceQr: (id: string) =>
+    request<{ qrCode: string; pairingCode?: string }>(`/instances/${id}/qrcode`),
+  deleteInstance: (id: string) =>
+    request<{ ok: true }>(`/instances/${id}`, { method: 'DELETE' }),
 
   getWhatsAppStatus: () =>
     request<{ connected: boolean; state: string; phoneNumber?: string }>('/whatsapp/status'),
@@ -229,4 +358,6 @@ export interface RoiReport {
   chamados_abertos: number;
   nps_medio: number | null;
   nps_total_respostas: number;
+  custo_llm_usd: number;
+  total_tokens: number;
 }
