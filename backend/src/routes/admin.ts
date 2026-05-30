@@ -6,6 +6,7 @@ import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
 import { env } from '../config/env';
+import { adminTenantIds } from '../lib/admin-tenant';
 import { getSkillConfig, clearSkillConfigCache } from '../agent/skill';
 import type { ISPSkillConfig } from '../agent/skill/types';
 
@@ -87,7 +88,7 @@ adminRouter.get('/conversations', async (req, res) => {
   let query = supabase
     .from('conversation_threads')
     .select('id, phone, messages, human_mode, churn_risk, updated_at')
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
+    .in('tenant_id', adminTenantIds())
     .order('updated_at', { ascending: false })
     .limit(100);
 
@@ -97,6 +98,7 @@ adminRouter.get('/conversations', async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
+    console.error('[admin] conversations fetch failed:', error.message);
     res.status(500).json({ error: 'failed to fetch conversations' });
     return;
   }
@@ -500,6 +502,7 @@ adminRouter.get('/leads', async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
+    console.error('[admin] leads fetch failed:', error.message);
     res.status(500).json({ error: 'failed to load leads' });
     return;
   }

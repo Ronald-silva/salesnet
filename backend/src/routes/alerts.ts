@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { env } from '../config/env';
+import { adminTenantIds } from '../lib/admin-tenant';
 
 export const alertsRouter = Router();
 alertsRouter.use(adminAuthMiddleware);
@@ -23,7 +24,7 @@ alertsRouter.get('/', async (req, res) => {
   let query = supabase
     .from('operational_alerts')
     .select(SELECT_COLUMNS)
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
+    .in('tenant_id', adminTenantIds())
     .order('created_at', { ascending: false })
     .limit(200);
 
@@ -31,6 +32,7 @@ alertsRouter.get('/', async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
+    console.error('[admin] alerts fetch failed:', error.message);
     res.status(500).json({ error: 'failed to fetch alerts' });
     return;
   }
@@ -39,7 +41,7 @@ alertsRouter.get('/', async (req, res) => {
   const { count: openCount } = await supabase
     .from('operational_alerts')
     .select('id', { count: 'exact', head: true })
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
+    .in('tenant_id', adminTenantIds())
     .eq('status', 'open');
 
   res.status(200).json({ data: data ?? [], openCount: openCount ?? 0 });

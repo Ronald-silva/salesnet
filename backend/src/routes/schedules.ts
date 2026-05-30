@@ -105,6 +105,7 @@ schedulesRouter.get('/', async (req, res) => {
 
   const { data, error, count } = await query;
   if (error) {
+    console.error('[admin] schedules fetch failed:', error.message);
     res.status(500).json({ error: 'failed to fetch schedules' });
     return;
   }
@@ -130,6 +131,7 @@ schedulesRouter.get('/today', async (_req, res) => {
     .order('created_at', { ascending: false });
 
   if (error) {
+    console.error('[admin] schedules/today fetch failed:', error.message);
     res.status(500).json({ error: 'failed to fetch today schedules' });
     return;
   }

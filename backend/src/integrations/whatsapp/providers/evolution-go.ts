@@ -14,7 +14,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
-import { normalizePhone } from '../../../lib/phone';
+import { normalizePhone, phoneFromWhatsAppJid, toWhatsAppSendDigits } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
 import { analyzeImage } from '../../../agent/vision';
 import {
@@ -93,9 +93,11 @@ interface EvoGoWebhookPayload {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function phoneToJid(phone: string): string {
-  const digits = phone.replace(/\D/g, '');
-  const normalized = digits.startsWith('55') ? digits : `55${digits}`;
-  return `${normalized}@s.whatsapp.net`;
+  const digits = toWhatsAppSendDigits(phone);
+  if (!digits) {
+    throw new Error(`invalid WhatsApp number for send: ${phone}`);
+  }
+  return `${digits}@s.whatsapp.net`;
 }
 
 function mapEventType(event: string): WebhookEventType {
@@ -533,7 +535,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     if (eventType === 'message_received' && !isFromMe) {
-      const jid = chatJid || senderJid;
+      const jid = senderJid || chatJid;
       const msg = data.Message as Record<string, unknown> | undefined;
       const msgType = info.Type ?? '';
 
@@ -544,7 +546,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
         instanceName,
         data: {
           from: jid,
-          fromPhone: jid ? normalizePhone(jid) : undefined,
+          fromPhone: jid ? phoneFromWhatsAppJid(jid) ?? undefined : undefined,
           profileName: pushName,
           body: messageBody,
           messageId: msgId,
