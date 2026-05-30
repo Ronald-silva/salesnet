@@ -48,6 +48,23 @@ async function consultacliente(params: Record<string, string>): Promise<Contrato
 }
 
 /**
+ * The SGP can return several contratos for the same phone/CPF (e.g. customer
+ * with multiple addresses or a cancelled + active contract). Pick a single one:
+ *   1. Active contract (contratoStatus === 1 && contratoStatusDisplay === 'Ativo')
+ *   2. Among multiple active: the most recent (highest contratoId)
+ *   3. None active: the most recent overall (highest contratoId), any status
+ * Always returns one Contrato (caller guarantees the array is non-empty).
+ */
+function selectBestContrato(contratos: Contrato[]): Contrato {
+  const byMostRecent = (a: Contrato, b: Contrato) => b.contratoId - a.contratoId;
+  const active = contratos
+    .filter((c) => c.contratoStatus === 1 && c.contratoStatusDisplay === 'Ativo')
+    .sort(byMostRecent);
+  if (active.length) return active[0]!;
+  return [...contratos].sort(byMostRecent)[0]!;
+}
+
+/**
  * Brazilian 9th-digit mismatch: WhatsApp often delivers mobile numbers without
  * the leading 9 (DDD + 8 digits), while the SGP stores them with it (DDD + 9 + 8),
  * or vice-versa. Generate both forms so a real customer is found either way.
@@ -69,9 +86,11 @@ export async function getCustomerByPhone(phone: string): Promise<Customer> {
   for (const candidate of sgpPhoneCandidates(sgpPhone)) {
     const contratos = await consultacliente({ telefone: candidate });
     if (contratos.length) {
-      // Prefer active contracts; fall back to first
-      const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
-      return contratoToCustomer(active!, phone);
+      const chosen = selectBestContrato(contratos);
+      if (contratos.length > 1) {
+        console.log(`[sgp] multiple contracts found for phone, using contratoId: ${chosen.contratoId}`);
+      }
+      return contratoToCustomer(chosen, phone);
     }
   }
   throw new Error(`Cliente não encontrado para o telefone ${phone}`);
@@ -81,8 +100,7 @@ export async function getCustomerByCpf(cpf: string): Promise<Customer> {
   const clean = cpf.replace(/\D/g, '');
   const contratos = await consultacliente({ cpf: clean });
   if (!contratos.length) throw new Error(`Cliente não encontrado para o CPF ${cpf}`);
-  const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
-  return contratoToCustomer(active!, cpf);
+  return contratoToCustomer(selectBestContrato(contratos), cpf);
 }
 
 export async function getCustomerById(id: string): Promise<Customer> {

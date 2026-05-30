@@ -252,6 +252,17 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'salvar_cpf_cliente',
+    description: 'Registra o CPF informado pelo cliente, associando-o ao telefone atual. Use sempre que o cliente disser o CPF durante a conversa. Isso permite localizar o contrato dele em contatos futuros, mesmo que o SGP não encontre pelo telefone.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        cpf: { type: 'string', description: 'CPF do cliente, com ou sem formatação (ex: 049.763.013-38 ou 04976301338)' },
+      },
+      required: ['cpf'],
+    },
+  },
+  {
     name: 'atualizar_notas_cliente',
     description: 'Salva uma nota sobre o cliente para consulta em atendimentos futuros. Use ao encerrar sessões com informações relevantes: pedido de upgrade pendente, intenção de cancelamento, problema técnico recorrente, informação pessoal útil (vai se mudar, turno de trabalho, dificuldade específica). Máximo 500 caracteres.',
     input_schema: {
@@ -289,6 +300,29 @@ export async function executeTool(
         }
         return await sgp.getCustomerByPhone(input.phone as string);
       } catch {
+        // SGP não aceita CPF na busca; quando o telefone falha e há CPF, tenta
+        // o índice próprio no Supabase (conversation_threads.cpf) para recuperar
+        // um telefone já associado a esse CPF em atendimentos anteriores.
+        if (input.cpf) {
+          const cleanCpf = String(input.cpf).replace(/\D/g, '');
+          if (cleanCpf) {
+            const { data } = await supabase
+              .from('conversation_threads')
+              .select('phone')
+              .eq('tenant_id', tenantId)
+              .eq('cpf', cleanCpf)
+              .order('updated_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (data?.phone) {
+              try {
+                return await sgp.getCustomerByPhone(data.phone as string);
+              } catch {
+                // telefone associado também não retornou cliente no SGP
+              }
+            }
+          }
+        }
         return { error: 'Cliente não encontrado' };
       }
     }
@@ -640,6 +674,21 @@ export async function executeTool(
         status: 'registered',
         message: `Negociação registrada: ${String(input.condicoes)}. Um atendente confirmará em breve.`,
       };
+    }
+
+    case 'salvar_cpf_cliente': {
+      const cleanCpf = String(input.cpf ?? '').replace(/\D/g, '');
+      if (cleanCpf.length !== 11) {
+        return { success: false, error: 'CPF inválido. Deve ter 11 dígitos.' };
+      }
+      const { error } = await supabase
+        .from('conversation_threads')
+        .upsert(
+          { phone, tenant_id: tenantId, cpf: cleanCpf },
+          { onConflict: 'tenant_id,phone' },
+        );
+      if (error) throw new Error('Erro ao salvar CPF: ' + error.message);
+      return { success: true };
     }
 
     case 'atualizar_notas_cliente': {

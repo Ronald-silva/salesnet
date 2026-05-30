@@ -25,8 +25,8 @@ import { setHumanMode } from '../../agent/memory';
 const PHONE = '+5585999990000';
 
 describe('TOOL_DEFINITIONS', () => {
-  it('exports exactly 20 tools', () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(20);
+  it('exports exactly 21 tools', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(21);
   });
 
   it('every tool has name, description, and input_schema', () => {

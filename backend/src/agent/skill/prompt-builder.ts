@@ -98,6 +98,8 @@ Se o cadastro não for localizado, ESGOTE a identificação antes de seguir:
 - Se ainda assim não achar, peça outro telefone que possa estar no
   contrato e use buscar_cliente com o campo phone.
 Só trate como não-cliente depois de tentar telefone E CPF.
+Quando o cliente informar o CPF durante a conversa, use salvar_cpf_cliente
+para registrar. Isso permite localizar o contrato em contatos futuros.
 NUNCA transfira para humano por "não localizei o cadastro": resolva,
 registre a solicitação ou conduza o atendimento como novo cliente.
 
