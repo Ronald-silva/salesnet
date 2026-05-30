@@ -27,6 +27,12 @@ export function bootstrapProviders(): void {
     } else {
       console.warn(`   ⚠️  EVOLUTION_INSTANCE_TOKEN não definido — necessário para envio de mensagens`);
     }
+    if (!env.GEMINI_API_KEY) {
+      console.warn(`   ⚠️  GEMINI_API_KEY não definido — imagens não serão interpretadas`);
+    }
+    if (!env.GROQ_API_KEY) {
+      console.warn(`   ⚠️  GROQ_API_KEY não definido — áudios não serão transcritos`);
+    }
   }
 
   // Registrar Twilio como provider de fallback se vars disponíveis

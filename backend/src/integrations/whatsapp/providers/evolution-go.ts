@@ -16,7 +16,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
 import { normalizePhone, phoneFromWhatsAppJid, toWhatsAppSendDigits } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
-import { analyzeImage } from '../../../agent/vision';
+import { analyzeImage, formatImageBody } from '../../../agent/vision';
 import {
   detectMediaType,
   fetchAndDecryptWAMedia,
@@ -588,25 +588,25 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     if (type === 'image') {
       const decrypted = await this.downloadMedia(type, media, msg, instanceName);
       if (decrypted) {
-        const result = await analyzeImage(decrypted);
-        if (result.isPaymentProof && result.confidence === 'high') {
-          return (
-            '[imagem: comprovante de pagamento' +
-            (result.amount != null ? ` de R$${result.amount}` : '') +
-            (result.date ? ` em ${result.date}` : '') +
-            (result.beneficiary ? ` para ${result.beneficiary}` : '') +
-            ']' +
-            (caption ? ` (legenda: ${caption})` : '')
-          );
-        }
-        return caption ? `[imagem] ${caption}` : '[imagem enviada]';
+        const analysis = await analyzeImage(decrypted);
+        const body = formatImageBody(analysis, caption);
+        console.log(`[media] image resolved (${decrypted.buffer.length} bytes): ${body.slice(0, 120)}`);
+        return body;
       }
-      return caption ? `[imagem] ${caption}` : '[imagem não processada]';
+      const fallback = caption ? `[imagem] ${caption}` : '[imagem não processada]';
+      console.warn(`[media] image download failed; caption=${caption ?? '-'}`);
+      return fallback;
     }
 
     if (type === 'audio') {
       const decrypted = await this.downloadMedia(type, media, msg, instanceName);
-      if (decrypted) return '[áudio] ' + (await transcribeAudio(decrypted));
+      if (decrypted) {
+        const transcript = await transcribeAudio(decrypted);
+        const body = `[áudio] ${transcript}`;
+        console.log(`[media] audio resolved (${decrypted.buffer.length} bytes): ${body.slice(0, 120)}`);
+        return body;
+      }
+      console.warn('[media] audio download/decrypt failed');
       return '[áudio não processado — peça ao cliente para reenviar ou escrever]';
     }
 
