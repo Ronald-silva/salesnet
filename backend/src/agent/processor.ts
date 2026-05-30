@@ -111,6 +111,26 @@ const DEEPSEEK_TOOLS = TOOL_DEFINITIONS.map((tool) => ({
   },
 }));
 
+/**
+ * Executes a tool inside the LLM loop without ever throwing: a failing tool
+ * (e.g. get_fatura_atual when there is no open invoice) must surface as a
+ * structured result the model can handle, not crash the whole conversation.
+ */
+async function safeExecuteTool(
+  name: string,
+  input: Record<string, unknown>,
+  phone: string,
+  tenantId: string,
+): Promise<unknown> {
+  try {
+    return await executeTool(name, input, phone, tenantId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(`[processor] tool "${name}" failed for ${phone}: ${reason}`);
+    return { error: reason };
+  }
+}
+
 async function runAnthropicFlow(
   history: Anthropic.MessageParam[],
   systemWithContext: string,
@@ -143,7 +163,7 @@ async function runAnthropicFlow(
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
-      const result = await executeTool(
+      const result = await safeExecuteTool(
         block.name,
         block.input as Record<string, unknown>,
         phone,
@@ -246,7 +266,7 @@ async function runDeepSeekFlow(
         parsedInput = {};
       }
 
-      const result = await executeTool(call.function.name, parsedInput, phone, tenantId);
+      const result = await safeExecuteTool(call.function.name, parsedInput, phone, tenantId);
       toolCallLog.push({ name: call.function.name, input: parsedInput, output: result });
       messages.push({
         role:         'tool',

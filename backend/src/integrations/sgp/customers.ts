@@ -47,13 +47,34 @@ async function consultacliente(params: Record<string, string>): Promise<Contrato
   return contratos.map((c) => ContratoSchema.parse(c));
 }
 
+/**
+ * Brazilian 9th-digit mismatch: WhatsApp often delivers mobile numbers without
+ * the leading 9 (DDD + 8 digits), while the SGP stores them with it (DDD + 9 + 8),
+ * or vice-versa. Generate both forms so a real customer is found either way.
+ */
+function sgpPhoneCandidates(local: string): string[] {
+  const candidates = [local];
+  if (local.length === 10) {
+    // DDD + 8 → DDD + 9 + 8
+    candidates.push(`${local.slice(0, 2)}9${local.slice(2)}`);
+  } else if (local.length === 11 && local[2] === '9') {
+    // DDD + 9 + 8 → DDD + 8
+    candidates.push(`${local.slice(0, 2)}${local.slice(3)}`);
+  }
+  return [...new Set(candidates)];
+}
+
 export async function getCustomerByPhone(phone: string): Promise<Customer> {
   const sgpPhone = normalizePhone(phone).replace(/^\+55/, '');
-  const contratos = await consultacliente({ telefone: sgpPhone });
-  if (!contratos.length) throw new Error(`Cliente não encontrado para o telefone ${phone}`);
-  // Prefer active contracts; fall back to first
-  const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
-  return contratoToCustomer(active!, phone);
+  for (const candidate of sgpPhoneCandidates(sgpPhone)) {
+    const contratos = await consultacliente({ telefone: candidate });
+    if (contratos.length) {
+      // Prefer active contracts; fall back to first
+      const active = contratos.find((c) => c.contratoStatus === 1) ?? contratos[0];
+      return contratoToCustomer(active!, phone);
+    }
+  }
+  throw new Error(`Cliente não encontrado para o telefone ${phone}`);
 }
 
 export async function getCustomerByCpf(cpf: string): Promise<Customer> {
