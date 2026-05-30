@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import axios from 'axios';
 import { env } from '../config/env';
+import type { DecryptedMedia } from '../integrations/whatsapp/media-download';
 
 let genai: GoogleGenerativeAI | null = null;
 
@@ -18,21 +18,16 @@ export interface PaymentProofResult {
   confidence: 'high' | 'low';
 }
 
-export async function analyzeImage(imageUrl: string): Promise<PaymentProofResult> {
+/** Analisa imagem já baixada e descriptografada com Gemini (foco em comprovante de pagamento). */
+export async function analyzeImage(media: DecryptedMedia): Promise<PaymentProofResult> {
   if (!env.GEMINI_API_KEY) {
     console.warn('[vision] GEMINI_API_KEY not configured — skipping image analysis');
     return { isPaymentProof: false, confidence: 'low' };
   }
 
   try {
-    const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer',
-      timeout: 10_000,
-      headers: { apikey: env.EVOLUTION_INSTANCE_TOKEN },
-    });
-
-    const base64 = Buffer.from(response.data).toString('base64');
-    const mimeType = (response.headers['content-type'] as string) ?? 'image/jpeg';
+    const base64 = media.buffer.toString('base64');
+    const mimeType = media.mimetype || 'image/jpeg';
 
     const model = getGeminiClient().getGenerativeModel({
       model: 'gemini-2.0-flash',

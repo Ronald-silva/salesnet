@@ -17,6 +17,14 @@ import { env } from '../../../config/env';
 import { normalizePhone } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
 import { analyzeImage } from '../../../agent/vision';
+import {
+  detectMediaType,
+  fetchAndDecryptWAMedia,
+  extractBase64FromResponse,
+  pickField,
+  type DecryptedMedia,
+  type WAMediaType,
+} from '../media-download';
 import { secretFingerprint } from '../webhook-hmac-diagnostics';
 import type {
   WhatsAppProvider,
@@ -251,55 +259,6 @@ export interface EvolutionGoConfig {
 interface InstanceCache {
   token: string;
   webhookUrl?: string;
-}
-
-// ─── Message body resolver ────────────────────────────────────────────────────
-
-async function resolveMessageBody(
-  msgType: string,
-  msg: Record<string, unknown> | undefined,
-): Promise<string | undefined> {
-  if (!msg) return undefined;
-
-  if (msgType === 'text' || msgType === '') {
-    return (
-      (msg['conversation'] as string | undefined) ??
-      ((msg['extendedTextMessage'] as Record<string, unknown> | undefined)?.text as
-        | string
-        | undefined)
-    );
-  }
-
-  if (msgType === 'audio' || msgType === 'ptt') {
-    const audioUrl = (msg['audioMessage'] as Record<string, unknown> | undefined)?.url as
-      | string
-      | undefined;
-    if (audioUrl) return '[áudio] ' + (await transcribeAudio(audioUrl));
-    return '[áudio não processado]';
-  }
-
-  if (msgType === 'image') {
-    const imageMsg = msg['imageMessage'] as Record<string, unknown> | undefined;
-    const caption = imageMsg?.caption as string | undefined;
-    if (caption) return caption;
-    const imageUrl = imageMsg?.url as string | undefined;
-    if (imageUrl) {
-      const result = await analyzeImage(imageUrl);
-      if (result.isPaymentProof && result.confidence === 'high') {
-        return (
-          '[imagem: comprovante de pagamento' +
-          (result.amount != null ? ` de R$${result.amount}` : '') +
-          (result.date ? ` em ${result.date}` : '') +
-          (result.beneficiary ? ` para ${result.beneficiary}` : '') +
-          ']'
-        );
-      }
-      return '[imagem enviada]';
-    }
-    return '[imagem não processada]';
-  }
-
-  return `[mensagem do tipo ${msgType} não suportada — responda pedindo para enviar em texto]`;
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -578,7 +537,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       const msg = data.Message as Record<string, unknown> | undefined;
       const msgType = info.Type ?? '';
 
-      const messageBody = await resolveMessageBody(msgType, msg);
+      const messageBody = await this.resolveMessageBody(msgType, msg, instanceName);
 
       return {
         type: 'message_received',
@@ -596,5 +555,107 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     return { type: 'unknown', instanceName, data: { raw: rawBody }, timestamp };
+  }
+
+  // ─── Media resolution ──────────────────────────────────────────────────────
+
+  /** Converte a Message proto recebida em texto processável pelo agente. */
+  private async resolveMessageBody(
+    msgType: string,
+    msg: Record<string, unknown> | undefined,
+    instanceName: string,
+  ): Promise<string | undefined> {
+    if (!msg) return undefined;
+
+    const conversation = msg['conversation'] as string | undefined;
+    if (conversation) return conversation;
+    const extended = (msg['extendedTextMessage'] as Record<string, unknown> | undefined)?.text as
+      | string
+      | undefined;
+    if (extended) return extended;
+
+    const detected = detectMediaType(msg);
+    if (!detected) {
+      // Sem mídia conhecida e sem texto — pode ser sticker, reação, etc.
+      return `[mensagem do tipo ${msgType || 'desconhecido'} não suportada — responda pedindo para enviar em texto]`;
+    }
+
+    const { type, media } = detected;
+    const caption = pickField(media, ['caption', 'Caption']) as string | undefined;
+
+    if (type === 'image') {
+      const decrypted = await this.downloadMedia(type, media, msg, instanceName);
+      if (decrypted) {
+        const result = await analyzeImage(decrypted);
+        if (result.isPaymentProof && result.confidence === 'high') {
+          return (
+            '[imagem: comprovante de pagamento' +
+            (result.amount != null ? ` de R$${result.amount}` : '') +
+            (result.date ? ` em ${result.date}` : '') +
+            (result.beneficiary ? ` para ${result.beneficiary}` : '') +
+            ']' +
+            (caption ? ` (legenda: ${caption})` : '')
+          );
+        }
+        return caption ? `[imagem] ${caption}` : '[imagem enviada]';
+      }
+      return caption ? `[imagem] ${caption}` : '[imagem não processada]';
+    }
+
+    if (type === 'audio') {
+      const decrypted = await this.downloadMedia(type, media, msg, instanceName);
+      if (decrypted) return '[áudio] ' + (await transcribeAudio(decrypted));
+      return '[áudio não processado — peça ao cliente para reenviar ou escrever]';
+    }
+
+    if (type === 'video') {
+      return caption
+        ? `[vídeo] ${caption}`
+        : '[vídeo recebido — não consigo assistir; peça ao cliente para descrever por texto]';
+    }
+
+    // document
+    const fileName = pickField(media, ['fileName', 'title', 'Title']) as string | undefined;
+    return `[documento recebido${fileName ? `: ${fileName}` : ''} — peça as informações por texto se precisar]`;
+  }
+
+  /**
+   * Obtém os bytes da mídia. Estratégia: (1) baixa o `.enc` e descriptografa
+   * localmente (funciona pra todos os tipos); (2) fallback só pra imagem via
+   * `/message/downloadimage` do Evolution Go (server-side).
+   */
+  private async downloadMedia(
+    type: WAMediaType,
+    media: Record<string, unknown>,
+    fullMessage: Record<string, unknown>,
+    instanceName: string,
+  ): Promise<DecryptedMedia | null> {
+    try {
+      const result = await fetchAndDecryptWAMedia(media, type);
+      if (result && result.buffer.length > 0) return result;
+    } catch (err) {
+      console.warn(`[media] client-side download/decrypt failed (${type}):`, err);
+    }
+
+    if (type === 'image') {
+      try {
+        const { data } = await this.instanceHttp(instanceName).post<unknown>(
+          '/message/downloadimage',
+          { message: fullMessage },
+        );
+        const b64 = extractBase64FromResponse(data);
+        if (b64) {
+          const mimetype = (pickField(media, ['mimetype', 'Mimetype']) as string) ?? 'image/jpeg';
+          return { buffer: Buffer.from(b64, 'base64'), mimetype };
+        }
+      } catch (err) {
+        console.warn('[media] /message/downloadimage fallback failed:', err);
+      }
+    }
+
+    console.warn(
+      `[media] could not obtain ${type} media; available fields: [${Object.keys(media).join(', ')}]`,
+    );
+    return null;
   }
 }
