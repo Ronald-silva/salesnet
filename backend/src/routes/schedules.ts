@@ -23,10 +23,19 @@ interface VisitRow {
   visit_date: string;
   period: Period;
   status: string;
-  type: string | null;
-  address: string | null;
-  bring_forward_status: string | null;
+  type?: string | null;
+  address?: string | null;
+  bring_forward_status?: string | null;
   created_at: string;
+}
+
+const SELECT_BASE =
+  'id, customer_id, phone, visit_date, period, status, created_at';
+
+const SELECT_EXTENDED = `${SELECT_BASE}, type, address, bring_forward_status`;
+
+function isMissingColumnError(message: string): boolean {
+  return /column/i.test(message) && /does not exist/i.test(message);
 }
 
 interface EnrichedVisit {
@@ -78,9 +87,6 @@ async function enrichVisits(rows: VisitRow[]): Promise<EnrichedVisit[]> {
   );
 }
 
-const SELECT_COLUMNS =
-  'id, customer_id, phone, visit_date, period, status, type, address, bring_forward_status, created_at';
-
 /** GET / — lista agendamentos com filtros e paginação. */
 schedulesRouter.get('/', async (req, res) => {
   const status = String(req.query.status ?? 'all');
@@ -92,25 +98,40 @@ schedulesRouter.get('/', async (req, res) => {
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  let query = supabase
-    .from('scheduled_visits')
-    .select(SELECT_COLUMNS, { count: 'exact' })
-    .order('visit_date', { ascending: false })
-    .order('created_at', { ascending: false })
-    .range(from, to);
+  let data: VisitRow[] | null = null;
+  let count: number | null = null;
+  let lastError: string | null = null;
 
-  if (status && status !== 'all') query = query.eq('status', status);
-  if (period && period !== 'all') query = query.eq('period', period);
-  if (date) query = query.eq('visit_date', date);
+  for (const columns of [SELECT_EXTENDED, SELECT_BASE]) {
+    let query = supabase
+      .from('scheduled_visits')
+      .select(columns, { count: 'exact' })
+      .order('visit_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .range(from, to);
 
-  const { data, error, count } = await query;
-  if (error) {
-    console.error('[admin] schedules fetch failed:', error.message);
+    if (status && status !== 'all') query = query.eq('status', status);
+    if (period && period !== 'all') query = query.eq('period', period);
+    if (date) query = query.eq('visit_date', date);
+
+    const result = await query;
+    if (!result.error) {
+      data = (result.data ?? []) as unknown as VisitRow[];
+      count = result.count;
+      lastError = null;
+      break;
+    }
+    lastError = result.error.message;
+    if (!isMissingColumnError(result.error.message)) break;
+  }
+
+  if (lastError) {
+    console.error('[admin] schedules fetch failed:', lastError);
     res.status(500).json({ error: 'failed to fetch schedules' });
     return;
   }
 
-  const enriched = await enrichVisits((data ?? []) as VisitRow[]);
+  const enriched = await enrichVisits(data ?? []);
 
   res.status(200).json({
     data: enriched,
@@ -123,20 +144,31 @@ schedulesRouter.get('/', async (req, res) => {
 schedulesRouter.get('/today', async (_req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
-  const { data, error } = await supabase
-    .from('scheduled_visits')
-    .select(SELECT_COLUMNS)
-    .eq('visit_date', today)
-    .order('period', { ascending: true })
-    .order('created_at', { ascending: false });
+  let rows: VisitRow[] = [];
+  let todayError: string | null = null;
 
-  if (error) {
-    console.error('[admin] schedules/today fetch failed:', error.message);
+  for (const columns of [SELECT_EXTENDED, SELECT_BASE]) {
+    const result = await supabase
+      .from('scheduled_visits')
+      .select(columns)
+      .eq('visit_date', today)
+      .order('period', { ascending: true })
+      .order('created_at', { ascending: false });
+
+    if (!result.error) {
+      rows = (result.data ?? []) as unknown as VisitRow[];
+      todayError = null;
+      break;
+    }
+    todayError = result.error.message;
+    if (!isMissingColumnError(result.error.message)) break;
+  }
+
+  if (todayError) {
+    console.error('[admin] schedules/today fetch failed:', todayError);
     res.status(500).json({ error: 'failed to fetch today schedules' });
     return;
   }
-
-  const rows = (data ?? []) as VisitRow[];
   const enriched = await enrichVisits(rows);
 
   const summary = {
@@ -164,16 +196,25 @@ schedulesRouter.patch('/:id', async (req, res) => {
   }
 
   const now = new Date().toISOString();
-  const updates: Record<string, unknown> = { status, updated_at: now };
-  if (status === 'done') updates.done_at = now;
-  if (status === 'cancelled') updates.cancelled_at = now;
+  const extended: Record<string, unknown> = { status, updated_at: now };
+  if (status === 'done') extended.done_at = now;
+  if (status === 'cancelled') extended.cancelled_at = now;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('scheduled_visits')
-    .update(updates)
+    .update(extended)
     .eq('id', req.params.id)
     .select('id')
     .single();
+
+  if (error && isMissingColumnError(error.message)) {
+    ({ data, error } = await supabase
+      .from('scheduled_visits')
+      .update({ status })
+      .eq('id', req.params.id)
+      .select('id')
+      .single());
+  }
 
   if (error || !data) {
     res.status(404).json({ error: 'schedule not found' });
@@ -191,19 +232,29 @@ schedulesRouter.patch('/:id/reschedule', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase
+  const base = {
+    visit_date,
+    period,
+    status: 'scheduled',
+    reminder_sent: false,
+    followup_sent: false,
+  };
+
+  let { data, error } = await supabase
     .from('scheduled_visits')
-    .update({
-      visit_date,
-      period,
-      status: 'scheduled',
-      reminder_sent: false,
-      followup_sent: false,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...base, updated_at: new Date().toISOString() })
     .eq('id', req.params.id)
     .select('id')
     .single();
+
+  if (error && isMissingColumnError(error.message)) {
+    ({ data, error } = await supabase
+      .from('scheduled_visits')
+      .update(base)
+      .eq('id', req.params.id)
+      .select('id')
+      .single());
+  }
 
   if (error || !data) {
     res.status(404).json({ error: 'schedule not found' });
@@ -226,12 +277,21 @@ schedulesRouter.post('/:id/oferecer-antecipacao', async (req, res) => {
 /** DELETE /:id — cancela (soft) o agendamento; nunca remove fisicamente. */
 schedulesRouter.delete('/:id', async (req, res) => {
   const now = new Date().toISOString();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('scheduled_visits')
     .update({ status: 'cancelled', cancelled_at: now, updated_at: now })
     .eq('id', req.params.id)
     .select('id')
     .single();
+
+  if (error && isMissingColumnError(error.message)) {
+    ({ data, error } = await supabase
+      .from('scheduled_visits')
+      .update({ status: 'cancelled' })
+      .eq('id', req.params.id)
+      .select('id')
+      .single());
+  }
 
   if (error || !data) {
     res.status(404).json({ error: 'schedule not found' });
