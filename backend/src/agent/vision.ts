@@ -47,7 +47,7 @@ export async function analyzeImage(media: DecryptedMedia): Promise<ImageAnalysis
     const mimeType = media.mimetype || 'image/jpeg';
 
     const model = getGeminiClient().getGenerativeModel({
-      model: 'gemini-2.0-flash',
+      model: 'gemini-2.5-flash',
     });
 
     const result = await model.generateContent([
