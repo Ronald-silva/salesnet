@@ -1,6 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
-import { setHumanMode } from './memory';
+import { setHumanMode, getThreadCpf, persistThreadCpf } from './memory';
+import { lookupCustomer } from './customer-lookup';
+import { normalizeCpf, isValidCpfLength } from '../lib/cpf';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
 import { BUSINESS_INFO, COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
@@ -20,7 +22,7 @@ const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
     name: 'buscar_cliente',
-    description: 'Busca dados do cliente pelo telefone OU pelo CPF. Chame esta tool primeiro para ter contexto. Se o cliente informar um CPF (11 dígitos), passe no campo cpf. Se informar telefone, passe no campo phone.',
+    description: 'Busca dados do cliente. Ordem: telefone do WhatsApp primeiro; se não encontrar, CPF informado ou salvo. Passe cpf quando o cliente informar o CPF, ou phone se informar outro telefone do contrato.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -326,37 +328,28 @@ export async function executeTool(
 
   switch (name) {
     case 'buscar_cliente': {
-      try {
-        if (input.cpf) {
-          return await sgp.getCustomerByCpf(input.cpf as string);
-        }
-        return await sgp.getCustomerByPhone(input.phone as string);
-      } catch {
-        // SGP não aceita CPF na busca; quando o telefone falha e há CPF, tenta
-        // o índice próprio no Supabase (conversation_threads.cpf) para recuperar
-        // um telefone já associado a esse CPF em atendimentos anteriores.
-        if (input.cpf) {
-          const cleanCpf = String(input.cpf).replace(/\D/g, '');
-          if (cleanCpf) {
-            const { data } = await supabase
-              .from('conversation_threads')
-              .select('phone')
-              .eq('tenant_id', tenantId)
-              .eq('cpf', cleanCpf)
-              .order('updated_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (data?.phone) {
-              try {
-                return await sgp.getCustomerByPhone(data.phone as string);
-              } catch {
-                // telefone associado também não retornou cliente no SGP
-              }
-            }
+      const alternatePhone = input.phone as string | undefined;
+      if (alternatePhone && alternatePhone !== phone) {
+        try {
+          const customer = await sgp.getCustomerByPhone(alternatePhone);
+          if (customer.document) {
+            await persistThreadCpf(phone, tenantId, customer.document);
           }
+          return customer;
+        } catch {
+          return { error: 'Cliente não encontrado' };
         }
-        return { error: 'Cliente não encontrado' };
       }
+
+      const cpfInput = input.cpf ? normalizeCpf(String(input.cpf)) : null;
+      const cpfFromThread = await getThreadCpf(phone, tenantId);
+      const result = await lookupCustomer({
+        whatsappPhone: phone,
+        tenantId,
+        cpfFromMessage: cpfInput && cpfInput.length === 11 ? cpfInput : null,
+        cpfFromThread,
+      });
+      return result.customer;
     }
 
     case 'get_fatura_atual':
@@ -709,18 +702,21 @@ export async function executeTool(
     }
 
     case 'salvar_cpf_cliente': {
-      const cleanCpf = String(input.cpf ?? '').replace(/\D/g, '');
-      if (cleanCpf.length !== 11) {
+      const cleanCpf = normalizeCpf(String(input.cpf ?? ''));
+      if (!isValidCpfLength(cleanCpf)) {
         return { success: false, error: 'CPF inválido. Deve ter 11 dígitos.' };
       }
-      const { error } = await supabase
-        .from('conversation_threads')
-        .upsert(
-          { phone, tenant_id: tenantId, cpf: cleanCpf },
-          { onConflict: 'tenant_id,phone' },
-        );
-      if (error) throw new Error('Erro ao salvar CPF: ' + error.message);
-      return { success: true };
+      await persistThreadCpf(phone, tenantId, cleanCpf);
+      try {
+        const customer = await sgp.getCustomerByCpf(cleanCpf, phone);
+        return {
+          success: true,
+          customer_found: true,
+          customer: { id: customer.id, name: customer.name },
+        };
+      } catch {
+        return { success: true, customer_found: false };
+      }
     }
 
     case 'atualizar_notas_cliente': {

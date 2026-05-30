@@ -1,5 +1,12 @@
+jest.mock('../../config/env', () => ({
+  env: {
+    DEFAULT_TENANT_ID: 'salesnet-default',
+  },
+}));
+
 jest.mock('../../integrations/sgp', () => ({
   getCustomerByPhone:  jest.fn(),
+  getCustomerByCpf:    jest.fn(),
   getCurrentInvoice:   jest.fn(),
   generatePixKey:      jest.fn(),
   getCustomerTickets:  jest.fn(),
@@ -10,7 +17,13 @@ jest.mock('../../integrations/sgp', () => ({
 }));
 
 jest.mock('../../agent/memory', () => ({
-  setHumanMode: jest.fn(),
+  setHumanMode:      jest.fn(),
+  getThreadCpf:      jest.fn().mockResolvedValue(null),
+  persistThreadCpf:  jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../../agent/customer-lookup', () => ({
+  lookupCustomer: jest.fn(),
 }));
 
 const mockFrom = jest.fn();
@@ -21,6 +34,7 @@ jest.mock('../../config/supabase', () => ({
 import { executeTool, TOOL_DEFINITIONS } from '../../agent/tools';
 import * as sgp from '../../integrations/sgp';
 import { setHumanMode } from '../../agent/memory';
+import { lookupCustomer } from '../../agent/customer-lookup';
 
 const PHONE = '+5585999990000';
 
@@ -39,17 +53,40 @@ describe('TOOL_DEFINITIONS', () => {
 });
 
 describe('executeTool — buscar_cliente', () => {
-  it('calls getCustomerByPhone with the phone arg', async () => {
+  it('calls lookupCustomer with whatsapp phone', async () => {
+    const customer = { id: 'c1', name: 'João Silva', status: 'active' };
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer,
+      method: 'phone',
+      attempts: ['phone'],
+    });
+
+    const result = await executeTool('buscar_cliente', { phone: PHONE }, PHONE);
+    expect(lookupCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ whatsappPhone: PHONE }),
+    );
+    expect(result).toEqual(customer);
+  });
+
+  it('uses alternate phone when provided', async () => {
     const customer = { id: 'c1', name: 'João Silva', status: 'active' };
     (sgp.getCustomerByPhone as jest.Mock).mockResolvedValue(customer);
 
-    const result = await executeTool('buscar_cliente', { phone: PHONE }, PHONE);
-    expect(sgp.getCustomerByPhone).toHaveBeenCalledWith(PHONE);
+    const result = await executeTool(
+      'buscar_cliente',
+      { phone: '+5585888887777' },
+      PHONE,
+    );
+    expect(sgp.getCustomerByPhone).toHaveBeenCalledWith('+5585888887777');
     expect(result).toEqual(customer);
   });
 
   it('returns error object when customer not found', async () => {
-    (sgp.getCustomerByPhone as jest.Mock).mockRejectedValue(new Error('Not found'));
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
 
     const result = await executeTool('buscar_cliente', { phone: PHONE }, PHONE);
     expect(result).toEqual({ error: 'Cliente não encontrado' });

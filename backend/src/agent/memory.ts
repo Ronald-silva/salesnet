@@ -7,10 +7,11 @@ export interface MessageEntry {
   timestamp: string;
 }
 
-interface ThreadRow {
+export interface ThreadRow {
   id: string;
   phone: string;
   tenant_id?: string;
+  cpf?: string | null;
   messages: MessageEntry[];
   human_mode: boolean;
   churn_risk: boolean;
@@ -97,4 +98,35 @@ export async function setHumanMode(
     );
 
   if (error) throw new Error(`Failed to set human mode: ${error.message}`);
+}
+
+export async function getThreadCpf(phone: string, tenantId?: string): Promise<string | null> {
+  const tid = resolveTenantId(tenantId);
+  const { data } = await supabase
+    .from('conversation_threads')
+    .select('cpf')
+    .eq('phone', phone)
+    .eq('tenant_id', tid)
+    .maybeSingle();
+
+  return (data?.cpf as string | null | undefined) ?? null;
+}
+
+export async function persistThreadCpf(
+  phone: string,
+  tenantId: string | undefined,
+  cpf: string,
+): Promise<void> {
+  const clean = cpf.replace(/\D/g, '');
+  if (clean.length !== 11) return;
+
+  const tid = resolveTenantId(tenantId);
+  const { error } = await supabase
+    .from('conversation_threads')
+    .upsert(
+      { phone, tenant_id: tid, cpf: clean },
+      { onConflict: 'tenant_id,phone' },
+    );
+
+  if (error) console.warn('[memory] persistThreadCpf failed:', error.message);
 }

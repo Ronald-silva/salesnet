@@ -10,14 +10,32 @@ import {
 import { normalizePhone } from '../../lib/phone';
 
 /** Map a raw SGP Contrato to our normalized Customer shape. */
-function contratoToCustomer(c: Contrato, rawPhone: string): Customer {
+function resolveCustomerPhone(c: Contrato, hint: string): string {
+  const fromContract = (c.telefones ?? [])
+    .map((t) => t.replace(/\D/g, ''))
+    .find((d) => d.length >= 10);
+
+  if (fromContract) {
+    const local = fromContract.replace(/^55/, '');
+    return local.length <= 11 ? `+55${local}` : `+${fromContract}`;
+  }
+
+  const hintDigits = hint.replace(/\D/g, '');
+  if (hintDigits.length >= 10 && hintDigits.length <= 13) {
+    return hint.startsWith('+') ? hint : `+55${hintDigits.replace(/^55/, '')}`;
+  }
+
+  return hint;
+}
+
+function contratoToCustomer(c: Contrato, contactHint: string): Customer {
   const status = normalizeStatus(c.contratoStatus);
   const mbps = extractDownloadMbps(c.planointernet ?? '');
 
   return CustomerSchema.parse({
     id:       String(c.contratoId),
     name:     c.razaoSocial,
-    phone:    rawPhone,
+    phone:    resolveCustomerPhone(c, contactHint),
     document: c.cpfCnpj,
     status,
     plan: {
@@ -96,11 +114,11 @@ export async function getCustomerByPhone(phone: string): Promise<Customer> {
   throw new Error(`Cliente não encontrado para o telefone ${phone}`);
 }
 
-export async function getCustomerByCpf(cpf: string): Promise<Customer> {
+export async function getCustomerByCpf(cpf: string, contactPhone = ''): Promise<Customer> {
   const clean = cpf.replace(/\D/g, '');
   const contratos = await consultacliente({ cpf: clean });
   if (!contratos.length) throw new Error(`Cliente não encontrado para o CPF ${cpf}`);
-  return contratoToCustomer(selectBestContrato(contratos), cpf);
+  return contratoToCustomer(selectBestContrato(contratos), contactPhone);
 }
 
 export async function getCustomerById(id: string): Promise<Customer> {

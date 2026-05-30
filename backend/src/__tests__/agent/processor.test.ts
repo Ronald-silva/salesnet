@@ -24,6 +24,12 @@ jest.mock('../../config/env', () => ({
   },
 }));
 
+jest.mock('../../agent/customer-lookup', () => ({
+  lookupCustomer: jest.fn(),
+  extractCpfFromText: jest.fn().mockReturnValue(null),
+  buildIdentificationContext: jest.fn().mockReturnValue(''),
+}));
+
 jest.mock('../../agent/memory', () => ({
   isHumanMode: jest.fn(),
   getThread:   jest.fn(),
@@ -77,6 +83,7 @@ jest.mock('../../services/whatsapp-service', () => ({
 import { processMessage } from '../../agent/processor';
 import { isHumanMode, getThread, saveMessage } from '../../agent/memory';
 import { executeTool } from '../../agent/tools';
+import { lookupCustomer } from '../../agent/customer-lookup';
 import { anthropic } from '../../config/anthropic';
 import { whatsappService } from '../../services/whatsapp-service';
 
@@ -110,6 +117,11 @@ describe('processMessage — normal flow', () => {
     (isHumanMode as jest.Mock).mockResolvedValue(false);
     (saveMessage as jest.Mock).mockResolvedValue(undefined);
     (getThread as jest.Mock).mockResolvedValue(THREAD);
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'phone',
+      attempts: ['phone'],
+    });
     (executeTool as jest.Mock).mockResolvedValue(CUSTOMER);
     (anthropic.messages.create as jest.Mock).mockResolvedValue(TEXT_RESPONSE);
     (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
@@ -120,9 +132,11 @@ describe('processMessage — normal flow', () => {
     expect(saveMessage).toHaveBeenCalledWith(PHONE, 'user', 'Quero ver minha fatura');
   });
 
-  it('calls executeTool buscar_cliente with phone before Claude', async () => {
+  it('calls lookupCustomer with phone before Claude', async () => {
     await processMessage(PHONE, 'Oi');
-    expect(executeTool).toHaveBeenCalledWith('buscar_cliente', { phone: PHONE }, PHONE);
+    expect(lookupCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ whatsappPhone: PHONE }),
+    );
   });
 
   it('sends Claude response via WhatsApp', async () => {
@@ -147,10 +161,14 @@ describe('processMessage — tool use loop', () => {
     (getThread as jest.Mock).mockResolvedValue(THREAD);
     (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
-    // buscar_cliente returns customer; proactive get_fatura_atual returns invoice;
-    // LLM-triggered get_fatura_atual also returns invoice
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'phone',
+      attempts: ['phone'],
+    });
+
+    // proactive get_fatura_atual + LLM-triggered get_fatura_atual
     (executeTool as jest.Mock)
-      .mockResolvedValueOnce(CUSTOMER)                                    // buscar_cliente
       .mockResolvedValueOnce({ id: 'inv-1', amount: 90, status: 'open' }) // proactive get_fatura_atual
       .mockResolvedValueOnce({ id: 'inv-1', amount: 90, status: 'open' }); // LLM-triggered get_fatura_atual
 

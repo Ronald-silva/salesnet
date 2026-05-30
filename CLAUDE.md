@@ -44,7 +44,7 @@ Monorepo:
     5b. qualquer outro match → retorna string, salva histórico, envia, encerra
 6.  saveMessage(phone, 'user', clean)
 7.  getThread(phone)                → histórico de conversa do Supabase
-8.  [parallel] buscar_cliente(phone) + getCustomerInsights(phone, tenantId)
+8.  [parallel] lookupCustomer(phone → CPF) + getCustomerInsights(phone, tenantId)
 9.  get_fatura_atual(customerId)    → pré-executado se cliente existe (best-effort, não joga)
 10. verificar_cobertura('*')        → pré-executado se mensagem tem keyword de bairro
 11. classifySession(message, customerData, invoiceStatus)
@@ -100,6 +100,7 @@ const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contr
 | Operação | Endpoint | Parâmetros chave |
 |----------|----------|-----------------|
 | Buscar cliente por telefone | `POST /api/ura/consultacliente/` | `telefone` (sem +55) |
+| Buscar cliente por CPF | `POST /api/ura/consultacliente/` | `cpf` (11 dígitos, sem formatação) |
 | Buscar cliente por contrato | `POST /api/ura/consultacliente/` | `contrato` |
 | Listar faturas | `POST /api/central/titulos/` | `contrato`, `status` (1=aberto), `limit` |
 | Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body |
@@ -401,7 +402,7 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `020_tenant_scoped_conversations.sql` — `conversation_threads`/`interaction_logs` escopados por `(tenant_id, phone)`
 - `021_schedules_improvements.sql` — `scheduled_visits`: colunas `type`, `address`, `notes`, `updated_at`, `cancelled_at`, `done_at` + índices
 - `022_visit_bring_forward.sql` — `scheduled_visits`: colunas `bring_forward_status`, `bring_forward_offered_at` (antecipação)
-- `023_cpf_index.sql` — `conversation_threads.cpf` + índice parcial (índice de CPF próprio; SGP não busca por CPF)
+- `023_cpf_index.sql` — `conversation_threads.cpf` + índice parcial (fallback quando telefone mudou; identificação primária via SGP `consultacliente` com `cpf`)
 - `024_quality_feedback.sql` — tabela `conversation_quality` (feedback loop NPS↔conversa)
 - `025_knowledge_base.sql` — tabela `knowledge_base` (soluções reutilizáveis, GIN em `problem_keywords`)
 - `026_pattern_detection.sql` — tabela `operational_alerts` (detecção de padrões operacionais; RLS service_role-only)

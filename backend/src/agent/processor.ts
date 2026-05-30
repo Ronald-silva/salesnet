@@ -8,6 +8,7 @@ import { parseProcessMessageOptions } from './process-message-options';
 import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
+import { lookupCustomer, extractCpfFromText, buildIdentificationContext } from './customer-lookup';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
@@ -604,12 +605,20 @@ export async function processMessage(
       content: m.content,
     }));
 
-    // Call buscar_cliente and fetch customer history in parallel
-    const [customerData, insights, skillConfig] = await Promise.all([
-      executeTool('buscar_cliente', { phone }, phone, tenantId),
+    const cpfFromMessage = extractCpfFromText(clean);
+
+    // Identify customer: WhatsApp phone first, then CPF (message or thread)
+    const [lookupResult, insights, skillConfig] = await Promise.all([
+      lookupCustomer({
+        whatsappPhone: phone,
+        tenantId,
+        cpfFromMessage,
+        cpfFromThread: thread.cpf ?? null,
+      }),
       getCustomerInsights(phone, tenantId),
       getSkillConfig(tenantId),
     ]);
+    const customerData = lookupResult.customer;
 
     let invoiceStatus: string | undefined;
     try {
@@ -645,7 +654,21 @@ export async function processMessage(
     const modeContext = buildModeContext(sessionMode, skillConfig);
 
     const initialToolLog: ToolCallLog[] = [
-      { name: 'buscar_cliente', input: { phone }, output: customerData },
+      {
+        name: 'buscar_cliente',
+        input: {
+          phone,
+          ...(cpfFromMessage ? { cpf: cpfFromMessage } : thread.cpf ? { cpf: thread.cpf } : {}),
+        },
+        output: {
+          ...customerData,
+          _lookup: {
+            method: lookupResult.method,
+            attempts: lookupResult.attempts,
+            cpfUsed: lookupResult.cpfUsed ?? null,
+          },
+        },
+      },
       {
         name: 'session_classifier',
         input: { message: clean, invoiceStatus: invoiceStatus ?? null },
@@ -684,6 +707,7 @@ export async function processMessage(
       qualityExamplesPromise,
       knowledgePromise,
     ]);
+    const identificationContext = buildIdentificationContext(lookupResult, phone);
     const systemWithContext =
       `${getFortalezaContext()}\n\n${systemPrompt}` +
       `\n\n## Contexto do cliente atual` +
@@ -691,6 +715,7 @@ export async function processMessage(
       `\nModo: ${sessionMode}` +
       `\nDados: ${JSON.stringify(safeCustomerData)}` +
       modeContext +
+      identificationContext +
       coverageContext +
       insightsContext +
       qualityExamples +
