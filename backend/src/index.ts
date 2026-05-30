@@ -15,6 +15,7 @@ import { adminRouter } from './routes/admin';
 import { adminInstancesRouter } from './routes/admin-instances';
 import { reportsRouter } from './routes/reports';
 import { schedulesRouter } from './routes/schedules';
+import { alertsRouter } from './routes/alerts';
 import { adminAuthMiddleware } from './middleware/adminAuth';
 import { webhookRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import cron from 'node-cron';
@@ -64,6 +65,7 @@ app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);
 app.use('/api/admin/instances', adminInstancesRouter);
 app.use('/api/admin/reports', apiRateLimiter, reportsRouter);
 app.use('/api/admin/schedules', apiRateLimiter, schedulesRouter);
+app.use('/api/admin/alerts', apiRateLimiter, alertsRouter);
 app.use('/api/admin', apiRateLimiter, adminRouter);
 
 if (env.SENTRY_DSN) {

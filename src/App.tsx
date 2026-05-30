@@ -23,6 +23,7 @@ import Conversations from "./pages/admin/Conversations";
 import Metrics from "./pages/admin/Metrics";
 import CampaignManager from "./pages/admin/CampaignManager";
 import ChurnRiskList from "./pages/admin/ChurnRiskList";
+import Alerts from "./pages/admin/Alerts";
 import { ClientesPage, FinanceiroPage, RedePage } from "./pages/admin/Placeholders";
 import ConfiguracoesPage from "./pages/admin/ConfiguracoesPage";
 import Reports from "./pages/admin/Reports";
@@ -70,6 +71,7 @@ const App = () => {
                 <Route path="rede" element={<RedePage />} />
                 <Route path="configuracoes" element={<ConfiguracoesPage />} />
                 <Route path="churn-risks" element={<ChurnRiskList />} />
+                <Route path="alertas" element={<Alerts />} />
                 <Route path="nps" element={<Nps />} />
                 <Route path="metricas" element={<Metrics />} />
                 <Route path="agendamentos" element={<SchedulesPage />} />

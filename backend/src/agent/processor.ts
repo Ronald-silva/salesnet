@@ -3,7 +3,7 @@ import axios from 'axios';
 import { anthropic } from '../config/anthropic';
 import { env } from '../config/env';
 import { supabase } from '../config/supabase';
-import { getSkillConfig, buildSystemPrompt, buildModeContext } from './skill';
+import { getSkillConfig, buildSystemPrompt, buildModeContext, buildQualityExamples } from './skill';
 import { parseProcessMessageOptions } from './process-message-options';
 import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
@@ -14,6 +14,7 @@ import { classifySession, type SessionMode } from './session-classifier';
 import { formatOutgoingWhatsApp, sanitizeUserInput } from './sanitize';
 import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
+import { lookupKnowledge } from './knowledge-lookup';
 import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
 import { handleBringForwardReply } from './bring-forward-flow';
 import { randomUUID } from 'crypto';
@@ -634,6 +635,11 @@ export async function processMessage(
       await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
     const sessionMode = sessionModeDecision.finalMode;
 
+    // Few-shot baseado no NPS real do tenant para este modo de sessão.
+    // Disparado aqui para sobrepor à pré-chamada de cobertura abaixo.
+    const qualityExamplesPromise = buildQualityExamples(tenantId, sessionMode);
+    const knowledgePromise = lookupKnowledge(tenantId, clean, sessionMode);
+
     const systemPrompt = buildSystemPrompt(skillConfig);
     const modeContext = buildModeContext(sessionMode, skillConfig);
 
@@ -673,6 +679,10 @@ export async function processMessage(
 
     const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
     const insightsContext = buildInsightsContext(insights);
+    const [qualityExamples, knowledgeContext] = await Promise.all([
+      qualityExamplesPromise,
+      knowledgePromise,
+    ]);
     const systemWithContext =
       `${getFortalezaContext()}\n\n${systemPrompt}` +
       `\n\n## Contexto do cliente atual` +
@@ -681,7 +691,9 @@ export async function processMessage(
       `\nDados: ${JSON.stringify(safeCustomerData)}` +
       modeContext +
       coverageContext +
-      insightsContext;
+      insightsContext +
+      qualityExamples +
+      knowledgeContext;
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;

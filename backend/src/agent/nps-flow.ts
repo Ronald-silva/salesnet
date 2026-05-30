@@ -101,6 +101,89 @@ async function hasReferralCampaign(customerId: string): Promise<boolean> {
   return data !== null;
 }
 
+type ToolCallEntry = { name?: unknown };
+
+function extractToolsUsed(toolCalls: unknown): string[] {
+  if (!Array.isArray(toolCalls)) return [];
+  const names = toolCalls
+    .map((c) => (typeof (c as ToolCallEntry).name === 'string' ? ((c as ToolCallEntry).name as string) : null))
+    .filter((n): n is string => n !== null);
+  return [...new Set(names)];
+}
+
+/**
+ * Extrai frases-chave curtas da resposta da Sofia para servir de few-shot.
+ * Mantém apenas sentenças com conteúdo real (sem emojis/asteriscos) e limita
+ * o volume para não inchar o prompt depois.
+ */
+function extractKeyPhrases(response: unknown): string[] {
+  if (typeof response !== 'string') return [];
+  return response
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter((s) => s.length >= 15 && s.length <= 200)
+    .slice(0, 3);
+}
+
+/**
+ * Liga o score do NPS à conversa que o gerou. Best-effort: nunca derruba o
+ * fluxo de salvamento do NPS. Score <=2 vira exemplo 'bad', score 5 vira
+ * exemplo 'good' — alimentando o feedback loop de qualidade.
+ */
+async function captureConversationQuality(
+  phone: string,
+  tenantId: string,
+  score: number,
+  sessionId: string,
+): Promise<void> {
+  const { data: log } = await supabase
+    .from('interaction_logs')
+    .select('session_mode, tool_calls, response')
+    .eq('phone', phone)
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!log) return;
+
+  const entry = log as {
+    session_mode: string | null;
+    tool_calls: unknown;
+    response: unknown;
+  };
+
+  const { data: thread } = await supabase
+    .from('conversation_threads')
+    .select('messages')
+    .eq('phone', phone)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+
+  const messages = (thread as { messages?: unknown } | null)?.messages;
+  const messageCount = Array.isArray(messages) ? messages.length : null;
+
+  const toolsUsed = extractToolsUsed(entry.tool_calls);
+  const hadHumanTransfer = toolsUsed.includes('transferir_humano');
+
+  const exampleType = score <= 2 ? 'bad' : score === 5 ? 'good' : null;
+
+  const { error } = await supabase.from('conversation_quality').insert({
+    tenant_id:              tenantId,
+    phone,
+    session_id:             sessionId,
+    nps_score:              score,
+    session_mode:           entry.session_mode,
+    message_count:          messageCount,
+    resolved_without_human: !hadHumanTransfer,
+    tools_used:             toolsUsed,
+    key_phrases:            extractKeyPhrases(entry.response),
+    marked_as_example:      exampleType !== null,
+    example_type:           exampleType,
+  });
+  if (error) throw new Error(`Failed to insert conversation_quality: ${error.message}`);
+}
+
 async function applyNpsScoreActions(
   phone: string,
   tenantId: string,
@@ -137,6 +220,12 @@ export async function saveNpsResponse(
     session_id: sessionId,
   });
   if (error) throw new Error(`Failed to save NPS response: ${error.message}`);
+
+  try {
+    await captureConversationQuality(phone, tenantId, score, sessionId);
+  } catch (err) {
+    console.error(`[nps] quality capture failed phone=${phone} score=${score}:`, err);
+  }
 
   try {
     await applyNpsScoreActions(phone, tenantId, score);

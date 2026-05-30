@@ -1,3 +1,4 @@
+import { supabase } from '../../config/supabase';
 import type { ISPSkillConfig } from './types';
 
 export function buildSystemPrompt(config: ISPSkillConfig): string {
@@ -329,6 +330,17 @@ Rescisão/cancelamento: seguir o PROTOCOLO: CANCELAMENTO.
 Ao encerrar sessão relevante, usar atualizar_notas_cliente com até 2 frases objetivas.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BASE DE CONHECIMENTO (APRENDIZADO)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Quando o histórico de soluções indicar algo que já funcionou para problema
+similar, priorize essa abordagem antes de tentar outra.
+
+Quando o cliente confirmar que o problema foi resolvido (responder "sim",
+"funcionou", "obrigado" após uma instrução):
+Use registrar_solucao_eficaz com as palavras-chave do problema e o que resolveu.
+Isso melhora o atendimento de outros clientes.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REGRAS CRÍTICAS DE TOOLS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Planos e preços: get_planos_disponiveis
@@ -420,5 +432,85 @@ para frente — você está resolvendo, a equipe só confirma a data.`;
       return `\n\nMODO ATIVO: GERAL
 Atendimento padrão. Entender o que o cliente precisa e ajudar.
 Se identificar oportunidade de venda, não empurre — ofereça naturalmente.`;
+  }
+}
+
+type QualityRow = { key_phrases: string[] | null };
+
+const MODE_LABELS: Record<string, string> = {
+  billing: 'cobrança',
+  support: 'suporte técnico',
+  commercial: 'oportunidade comercial',
+  prospect: 'primeiro contato',
+  default: 'atendimento geral',
+};
+
+/**
+ * Few-shot baseado no feedback real dos clientes: busca conversas do mesmo
+ * session_mode que receberam NPS alto (good) ou baixo (bad) nos últimos 30 dias
+ * e devolve um bloco de exemplos para reforçar o que funciona e evitar o que
+ * gerou avaliação negativa. Best-effort: retorna '' em qualquer falha.
+ */
+export async function buildQualityExamples(
+  tenantId: string,
+  sessionMode: string,
+): Promise<string> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  try {
+    const [goodResult, badResult] = await Promise.all([
+      supabase
+        .from('conversation_quality')
+        .select('key_phrases')
+        .eq('tenant_id', tenantId)
+        .eq('session_mode', sessionMode)
+        .eq('example_type', 'good')
+        .eq('marked_as_example', true)
+        .gte('created_at', thirtyDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(2),
+      supabase
+        .from('conversation_quality')
+        .select('key_phrases')
+        .eq('tenant_id', tenantId)
+        .eq('session_mode', sessionMode)
+        .eq('example_type', 'bad')
+        .eq('marked_as_example', true)
+        .gte('created_at', thirtyDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(1),
+    ]);
+
+    const phrasesOf = (rows: QualityRow[] | null): string[][] =>
+      (rows ?? [])
+        .map((r) => (Array.isArray(r.key_phrases) ? r.key_phrases.filter((p) => p && p.trim()) : []))
+        .filter((p) => p.length > 0);
+
+    const goodExamples = phrasesOf(goodResult.data as QualityRow[] | null);
+    const badExamples = phrasesOf(badResult.data as QualityRow[] | null);
+
+    if (goodExamples.length === 0 && badExamples.length === 0) return '';
+
+    const label = MODE_LABELS[sessionMode] ?? sessionMode;
+    const lines: string[] = ['\n\n## Aprendizado com avaliações dos clientes'];
+
+    if (goodExamples.length > 0) {
+      lines.push('Exemplos de atendimentos bem avaliados pelos clientes:');
+      for (const phrases of goodExamples) {
+        lines.push(`- Sessão de ${label}: ${phrases.join(' ')}`);
+      }
+    }
+
+    if (badExamples.length > 0) {
+      lines.push('Erro comum a evitar (avaliação negativa):');
+      for (const phrases of badExamples) {
+        lines.push(`- ${phrases.join(' ')}`);
+      }
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    console.warn('[prompt-builder] buildQualityExamples failed:', err);
+    return '';
   }
 }

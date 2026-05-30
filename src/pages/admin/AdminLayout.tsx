@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   MessageSquare,
   Calendar,
@@ -13,6 +14,7 @@ import {
   LogOut,
   Activity,
   AlertTriangle,
+  Siren,
   BarChart2,
   Star,
   Menu,
@@ -20,6 +22,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { getAdminUser, clearAdminSession } from '@/lib/adminAuth';
+import { adminApi } from '@/api/admin';
 
 const items = [
   { to: '/admin/conversas', label: 'Conversas', icon: MessageSquare },
@@ -31,6 +34,7 @@ const items = [
   { to: '/admin/financeiro', label: 'Financeiro', icon: DollarSign },
   { to: '/admin/rede', label: 'Rede', icon: Wifi },
   { to: '/admin/metricas', label: 'Métricas', icon: Activity },
+  { to: '/admin/alertas', label: 'Alertas', icon: Siren },
   { to: '/admin/churn-risks', label: 'Churn Risks', icon: AlertTriangle },
   { to: '/admin/nps', label: 'NPS', icon: Star },
   { to: '/admin/relatorio-roi', label: 'Relatório ROI', icon: BarChart2 },
@@ -41,9 +45,10 @@ interface SidebarContentProps {
   email?: string;
   onNavigate?: () => void;
   onLogout: () => void;
+  alertCount: number;
 }
 
-function SidebarContent({ email, onNavigate, onLogout }: SidebarContentProps) {
+function SidebarContent({ email, onNavigate, onLogout, alertCount }: SidebarContentProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="mb-8">
@@ -64,7 +69,12 @@ function SidebarContent({ email, onNavigate, onLogout }: SidebarContentProps) {
               }
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.to === '/admin/alertas' && alertCount > 0 && (
+                <span className="ml-auto inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-semibold text-destructive-foreground">
+                  {alertCount}
+                </span>
+              )}
             </NavLink>
           );
         })}
@@ -82,6 +92,13 @@ export default function AdminLayout() {
   const user = getAdminUser();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const alerts = useQuery({
+    queryKey: ['admin-alerts-count'],
+    queryFn: () => adminApi.getAlerts('open'),
+    refetchInterval: 5 * 60 * 1000,
+  });
+  const alertCount = alerts.data?.openCount ?? 0;
+
   function logout() {
     clearAdminSession();
     navigate('/admin/login');
@@ -92,7 +109,7 @@ export default function AdminLayout() {
       <div className="flex min-h-screen">
         {/* ── Sidebar desktop ──────────────────────────────────────────── */}
         <aside className="w-64 border-r border-border/50 p-4 hidden md:block">
-          <SidebarContent email={user?.email} onLogout={logout} />
+          <SidebarContent email={user?.email} onLogout={logout} alertCount={alertCount} />
         </aside>
 
         <div className="flex flex-1 flex-col min-w-0">
@@ -116,6 +133,7 @@ export default function AdminLayout() {
                     setMobileOpen(false);
                     logout();
                   }}
+                  alertCount={alertCount}
                 />
               </SheetContent>
             </Sheet>

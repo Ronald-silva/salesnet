@@ -205,6 +205,32 @@ export interface WhatsAppInstance {
   tenant_id?: string;
 }
 
+export type AlertType =
+  | 'outage_cluster'
+  | 'billing_spike'
+  | 'churn_wave'
+  | 'slow_speed_cluster'
+  | 'nps_drop';
+
+export type AlertStatus = 'open' | 'acknowledged' | 'resolved';
+
+export interface OperationalAlert {
+  id: string;
+  tenant_id: string;
+  alert_type: AlertType;
+  affected_area: string | null;
+  affected_count: number | null;
+  details: Record<string, unknown> | null;
+  status: AlertStatus;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface AlertsResponse {
+  data: OperationalAlert[];
+  openCount: number;
+}
+
 export const adminApi = {
   login: (email: string, password: string) =>
     request<{ accessToken: string; refreshToken: string; user: { id: string; email: string; role: 'admin' } }>('/login', {
@@ -306,6 +332,14 @@ export const adminApi = {
   offerBringForward: (id: string) =>
     request<{ ok: true; phone: string }>(`/schedules/${id}/oferecer-antecipacao`, {
       method: 'POST',
+    }),
+
+  getAlerts: (status = 'open') =>
+    request<AlertsResponse>(`/alerts?status=${encodeURIComponent(status)}`),
+  updateAlertStatus: (id: string, status: AlertStatus) =>
+    request<{ ok: true; status: AlertStatus }>(`/alerts/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
     }),
 };
 

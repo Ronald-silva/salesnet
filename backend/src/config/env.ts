@@ -55,6 +55,8 @@ const envSchema = z.object({
   DEFAULT_TENANT_ID: z.string().default('default'),
   /** URL pública deste backend — usada para montar URLs de webhook das instâncias */
   BACKEND_URL: z.string().url().optional(),
+  /** Número WhatsApp (dígitos, ex.: 5585996032957) que recebe alertas operacionais da Sofia */
+  ADMIN_ALERT_PHONE: z.string().optional(),
 
   // ── ERP ───────────────────────────────────────────────────────────────────
   SGP_BASE_URL: z.string().url('SGP_BASE_URL must be a valid URL'),

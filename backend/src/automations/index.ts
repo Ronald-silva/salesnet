@@ -5,6 +5,7 @@ import { runBillingCadenceD5, runBillingCadenceD2 } from './billing-cadence';
 import { sendVisitReminders, sendVisitFollowups } from './visit-followup';
 import { processScheduledMessages } from './scheduled-messages';
 import { runDataCleanup } from './data-cleanup';
+import { runPatternDetection } from './pattern-detector';
 
 export function startAutomations(): void {
   // D-3: every day at 08:00
@@ -55,6 +56,11 @@ export function startAutomations(): void {
   // LGPD retention purge: 03:00 Fortaleza (UTC-3) = 06:00 UTC
   cron.schedule('0 6 * * *', () => {
     runDataCleanup().catch((err) => console.error('[cron:data-cleanup]', err));
+  });
+
+  // Pattern detection (operational alerts): every 30 minutes
+  cron.schedule('*/30 * * * *', () => {
+    runPatternDetection().catch((err) => console.error('[cron:pattern-detector]', err));
   });
 
   startCampaigns();

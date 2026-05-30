@@ -273,7 +273,39 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['notes'],
     },
   },
+  {
+    name: 'registrar_solucao_eficaz',
+    description: 'Registra uma solução que funcionou para reutilização futura. Use APENAS quando o cliente confirmar que o problema foi resolvido.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        category:         { type: 'string', enum: ['tecnico', 'cobranca', 'comercial', 'prospect'], description: 'Categoria do problema resolvido' },
+        problem_keywords: { type: 'array', items: { type: 'string' }, description: '3 a 5 palavras-chave do problema (ex: ["internet", "lenta", "wifi"])' },
+        solution:         { type: 'string', description: 'O que resolveu o problema. Máx 300 caracteres.' },
+        equipment:        { type: 'string', description: 'Modelo do equipamento, quando for problema técnico (ex: HG8145V5)' },
+      },
+      required: ['category', 'problem_keywords', 'solution'],
+    },
+  },
 ];
+
+function normalizeKeyword(raw: unknown): string {
+  return String(raw)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function normalizeKeywords(raw: unknown[]): string[] {
+  const out: string[] = [];
+  for (const item of raw) {
+    const k = normalizeKeyword(item);
+    if (k && !out.includes(k)) out.push(k);
+  }
+  return out.slice(0, 5);
+}
 
 export async function markChurnRiskByPhone(phone: string, tenantId: string): Promise<void> {
   const { error } = await supabase
@@ -700,6 +732,65 @@ export async function executeTool(
         .eq('tenant_id', tenantId);
       if (error) throw new Error('Erro ao salvar nota: ' + error.message);
       return { success: true, saved_length: notes.length };
+    }
+
+    case 'registrar_solucao_eficaz': {
+      const category = String(input.category ?? '');
+      if (!['tecnico', 'cobranca', 'comercial', 'prospect'].includes(category)) {
+        return { success: false, error: 'Categoria inválida.' };
+      }
+      const rawKeywords = Array.isArray(input.problem_keywords) ? input.problem_keywords : [];
+      const keywords = normalizeKeywords(rawKeywords);
+      if (keywords.length === 0) {
+        return { success: false, error: 'Informe ao menos uma palavra-chave do problema.' };
+      }
+      const solution = String(input.solution ?? '').slice(0, 300);
+      if (!solution.trim()) {
+        return { success: false, error: 'Informe a solução que funcionou.' };
+      }
+      const equipment = input.equipment ? String(input.equipment) : null;
+
+      // Procura entrada similar: mesmo tenant/categoria com sobreposição de
+      // keywords. "Similar" = pelo menos 2 keywords em comum (ou a única, quando
+      // só houver 1), para não duplicar a mesma solução a cada repetição.
+      const { data: candidates } = await supabase
+        .from('knowledge_base')
+        .select('id, problem_keywords, success_count')
+        .eq('tenant_id', tenantId)
+        .eq('category', category)
+        .overlaps('problem_keywords', keywords);
+
+      const match = (candidates ?? []).find((row) => {
+        const existing = new Set((row.problem_keywords as string[] | null) ?? []);
+        const shared = keywords.filter((k) => existing.has(k)).length;
+        return shared >= Math.min(2, keywords.length);
+      });
+
+      if (match) {
+        const { error } = await supabase
+          .from('knowledge_base')
+          .update({
+            success_count: ((match.success_count as number | null) ?? 1) + 1,
+            last_used_at: new Date().toISOString(),
+          })
+          .eq('id', match.id);
+        if (error) throw new Error('Erro ao atualizar conhecimento: ' + error.message);
+        return { success: true, action: 'updated', id: match.id };
+      }
+
+      const { data: inserted, error } = await supabase
+        .from('knowledge_base')
+        .insert({
+          tenant_id:        tenantId,
+          category,
+          problem_keywords: keywords,
+          solution,
+          equipment,
+        })
+        .select('id')
+        .single();
+      if (error) throw new Error('Erro ao registrar conhecimento: ' + error.message);
+      return { success: true, action: 'created', id: inserted.id };
     }
 
     default:
