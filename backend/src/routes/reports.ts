@@ -11,9 +11,31 @@ type LogRow = {
   tool_calls: Array<{ name: string }>;
   session_mode: string | null;
   processing_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  llm_provider: string | null;
 };
 
 type NpsRow = { score: number };
+
+// Custo estimado em USD por 1M tokens (input/output) por provedor.
+const LLM_COST_PER_MTOK: Record<string, { input: number; output: number }> = {
+  deepseek: { input: 0.27, output: 1.1 },
+  anthropic: { input: 3, output: 15 },
+};
+const DEFAULT_LLM_COST = { input: 1, output: 3 };
+
+function estimateLlmCostUsd(rows: LogRow[]): number {
+  let usd = 0;
+  for (const row of rows) {
+    const provider = (row.llm_provider ?? '').toLowerCase();
+    const rate = LLM_COST_PER_MTOK[provider] ?? DEFAULT_LLM_COST;
+    const input = row.input_tokens ?? 0;
+    const output = row.output_tokens ?? 0;
+    usd += (input / 1_000_000) * rate.input + (output / 1_000_000) * rate.output;
+  }
+  return Math.round(usd * 10000) / 10000;
+}
 
 reportsRouter.get('/roi', async (req, res) => {
   const rawDays = Number(req.query.days ?? 30);
@@ -23,7 +45,7 @@ reportsRouter.get('/roi', async (req, res) => {
   const [logsRes, npsRes] = await Promise.all([
     supabase
       .from('interaction_logs')
-      .select('phone, tool_calls, session_mode, processing_ms')
+      .select('phone, tool_calls, session_mode, processing_ms, input_tokens, output_tokens, llm_provider')
       .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .gte('created_at', since),
     supabase
@@ -81,6 +103,12 @@ reportsRouter.get('/roi', async (req, res) => {
     ? Math.round((npsRows.reduce((a, b) => a + b.score, 0) / npsTotal) * 10) / 10
     : null;
 
+  const custoLlmUsd = estimateLlmCostUsd(logs);
+  const totalTokens = logs.reduce(
+    (acc, l) => acc + (l.input_tokens ?? 0) + (l.output_tokens ?? 0),
+    0,
+  );
+
   res.status(200).json({
     period_days: days,
     taxa_resolucao_sem_humano: taxaResolucao,
@@ -91,5 +119,7 @@ reportsRouter.get('/roi', async (req, res) => {
     chamados_abertos: chamadosAbertos,
     nps_medio: npsMedio,
     nps_total_respostas: npsTotal,
+    custo_llm_usd: custoLlmUsd,
+    total_tokens: totalTokens,
   });
 });

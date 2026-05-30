@@ -115,3 +115,12 @@ export function registerSkillConfig(tenantId: string, config: ISPSkillConfig): v
   configRegistry.set(tenantId, config);
   configCache.delete(normalizeSkillTenantKey(tenantId));
 }
+
+/** Invalida o cache de skill (usar após escrever tenants.settings). */
+export function clearSkillConfigCache(tenantId?: string): void {
+  if (tenantId) {
+    configCache.delete(normalizeSkillTenantKey(tenantId));
+    return;
+  }
+  configCache.clear();
+}

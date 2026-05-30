@@ -6,6 +6,8 @@ import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
 import { env } from '../config/env';
+import { getSkillConfig, clearSkillConfigCache } from '../agent/skill';
+import type { ISPSkillConfig } from '../agent/skill/types';
 
 export const adminRouter = Router();
 
@@ -139,7 +141,7 @@ adminRouter.get('/conversations', async (req, res) => {
 adminRouter.get('/conversations/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('conversation_threads')
-    .select('id, phone, messages, human_mode, churn_risk, updated_at')
+    .select('id, phone, messages, human_mode, churn_risk, notes, updated_at')
     .eq('id', req.params.id)
     .single();
 
@@ -154,8 +156,25 @@ adminRouter.get('/conversations/:id', async (req, res) => {
     messages: unknown;
     human_mode: boolean;
     churn_risk: boolean;
+    notes: string | null;
     updated_at: string;
   };
+
+  // session_mode da última interação registrada para este telefone
+  let sessionMode: string | null = null;
+  try {
+    const { data: lastLog } = await supabase
+      .from('interaction_logs')
+      .select('session_mode')
+      .eq('tenant_id', env.DEFAULT_TENANT_ID)
+      .eq('phone', thread.phone)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    sessionMode = (lastLog as { session_mode?: string | null } | null)?.session_mode ?? null;
+  } catch {
+    sessionMode = null;
+  }
 
   let customer: unknown = null;
   try {
@@ -166,6 +185,7 @@ adminRouter.get('/conversations/:id', async (req, res) => {
 
   res.status(200).json({
     ...thread,
+    session_mode: sessionMode,
     customer,
   });
 });
@@ -241,7 +261,7 @@ adminRouter.get('/metrics', async (_req, res) => {
   startOfWeek.setDate(now.getDate() - 7);
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const [threadsRes, interactionRes, billingRes, churnRes, campaignsRes] = await Promise.all([
+  const [threadsRes, interactionRes, billingRes, churnRes, campaignsRes, referralRes] = await Promise.all([
     supabase
       .from('conversation_threads')
       .select('id, human_mode, created_at')
@@ -253,6 +273,7 @@ adminRouter.get('/metrics', async (_req, res) => {
     supabase.from('billing_notifications').select('id, status, sent_at'),
     supabase.from('churn_risks').select('id, created_at'),
     supabase.from('campaign_sends').select('id, type, sent_at'),
+    supabase.from('referral_links').select('conversions'),
   ]);
 
   const threads = (threadsRes.data ?? []) as Array<{ human_mode: boolean; created_at: string }>;
@@ -260,6 +281,7 @@ adminRouter.get('/metrics', async (_req, res) => {
   const billing = (billingRes.data ?? []) as Array<{ status: string; sent_at: string }>;
   const churn = (churnRes.data ?? []) as Array<{ created_at: string }>;
   const campaigns = (campaignsRes.data ?? []) as Array<{ type: string; sent_at: string }>;
+  const referrals = (referralRes.data ?? []) as Array<{ conversions: number }>;
 
   const totalConversations = threads.length;
   const botResolved = threads.filter(t => !t.human_mode).length;
@@ -278,6 +300,11 @@ adminRouter.get('/metrics', async (_req, res) => {
     { label: 'Mês', conversations: interactions.filter(i => i.created_at >= startOfMonth).length },
   ];
 
+  const totalConversions = referrals.reduce((acc, r) => acc + (r.conversions ?? 0), 0);
+  const campaignResponseRate = campaigns.length > 0
+    ? Math.round((totalConversions / campaigns.length) * 100)
+    : 0;
+
   res.status(200).json({
     totalConversations,
     botResolutionRate,
@@ -285,7 +312,7 @@ adminRouter.get('/metrics', async (_req, res) => {
     newLeadsFromBot: campaigns.filter(c => c.type === 'referral').length,
     activeChurnRisks: churn.length,
     campaignsSent: campaigns.length,
-    campaignResponseRate: campaigns.length > 0 ? 22 : 0,
+    campaignResponseRate,
     trend,
   });
 });
@@ -338,17 +365,38 @@ adminRouter.get('/churn-risks', async (_req, res) => {
   }>).map(async (row) => {
     let name = row.customer_id;
     let plan = 'N/A';
+    let phone: string | null = null;
     try {
       const customer = await getCustomerById(row.customer_id);
       name = customer.name;
       plan = customer.plan?.name ?? 'N/A';
+      phone = customer.phone ?? null;
     } catch {
       // keep fallback
     }
+
+    let npsScore: number | null = null;
+    if (phone) {
+      try {
+        const { data: nps } = await supabase
+          .from('nps_responses')
+          .select('score')
+          .eq('tenant_id', env.DEFAULT_TENANT_ID)
+          .eq('phone', phone)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        npsScore = (nps as { score?: number } | null)?.score ?? null;
+      } catch {
+        npsScore = null;
+      }
+    }
+
     return {
       ...row,
       name,
       plan,
+      nps_score: npsScore,
       status: 'pending',
     };
   }));
@@ -433,4 +481,361 @@ adminRouter.get('/whatsapp/qr', async (_req, res) => {
   } catch (err) {
     res.status(503).json({ error: (err as Error).message });
   }
+});
+
+// ── Leads / Prospects ─────────────────────────────────────────────────────────
+
+const LEAD_STATUSES = ['new', 'contacted', 'converted', 'lost'] as const;
+
+adminRouter.get('/leads', async (req, res) => {
+  const status = String(req.query.status ?? 'all');
+
+  let query = supabase
+    .from('leads')
+    .select('id, phone, name, neighborhood, desired_plan, notes, status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (status && status !== 'all') query = query.eq('status', status);
+
+  const { data, error } = await query;
+  if (error) {
+    res.status(500).json({ error: 'failed to load leads' });
+    return;
+  }
+
+  res.status(200).json(data ?? []);
+});
+
+adminRouter.patch('/leads/:id', async (req, res) => {
+  const { status, notes } = req.body as { status?: string; notes?: string };
+  if (status && !LEAD_STATUSES.includes(status as (typeof LEAD_STATUSES)[number])) {
+    res.status(400).json({ error: `status must be one of ${LEAD_STATUSES.join('|')}` });
+    return;
+  }
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (status) updates.status = status;
+  if (typeof notes === 'string') updates.notes = notes;
+
+  const { data, error } = await supabase
+    .from('leads')
+    .update(updates)
+    .eq('id', req.params.id)
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    res.status(404).json({ error: 'lead not found' });
+    return;
+  }
+
+  res.status(200).json({ ok: true, status });
+});
+
+// ── Chamados (sofia_tickets) ──────────────────────────────────────────────────
+
+const TICKET_STATUSES = ['aberto', 'em_andamento', 'resolvido'] as const;
+
+adminRouter.get('/tickets', async (req, res) => {
+  const status = String(req.query.status ?? 'all');
+
+  let query = supabase
+    .from('sofia_tickets')
+    .select('id, phone, contrato, sgp_chamado_id, tipo, descricao, status, created_at, updated_at')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
+    .order('created_at', { ascending: false })
+    .limit(300);
+
+  if (status && status !== 'all') query = query.eq('status', status);
+
+  const { data, error } = await query;
+  if (error) {
+    res.status(500).json({ error: 'failed to load tickets' });
+    return;
+  }
+
+  const rows = (data ?? []) as Array<{ phone: string } & Record<string, unknown>>;
+  const enriched = await Promise.all(
+    rows.map(async (row) => {
+      let customerName: string | null = null;
+      try {
+        const customer = await getCustomerByPhone(row.phone);
+        customerName = customer.name;
+      } catch {
+        customerName = null;
+      }
+      return { ...row, customer_name: customerName };
+    }),
+  );
+
+  res.status(200).json(enriched);
+});
+
+adminRouter.patch('/tickets/:id', async (req, res) => {
+  const { status } = req.body as { status?: string };
+  if (!status || !TICKET_STATUSES.includes(status as (typeof TICKET_STATUSES)[number])) {
+    res.status(400).json({ error: `status must be one of ${TICKET_STATUSES.join('|')}` });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .from('sofia_tickets')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    res.status(404).json({ error: 'ticket not found' });
+    return;
+  }
+
+  res.status(200).json({ ok: true, status });
+});
+
+// ── NPS ───────────────────────────────────────────────────────────────────────
+
+adminRouter.get('/nps', async (req, res) => {
+  const rawDays = Number(req.query.days ?? 30);
+  const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 90);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('nps_responses')
+    .select('phone, score, created_at')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    res.status(500).json({ error: 'failed to load nps' });
+    return;
+  }
+
+  const rows = (data ?? []) as Array<{ phone: string; score: number; created_at: string }>;
+  const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const row of rows) {
+    if (row.score >= 1 && row.score <= 5) distribution[row.score] += 1;
+  }
+
+  const total = rows.length;
+  const average = total > 0
+    ? Math.round((rows.reduce((acc, r) => acc + r.score, 0) / total) * 10) / 10
+    : null;
+
+  const detractors = rows
+    .filter((r) => r.score <= 2)
+    .slice(0, 100)
+    .map((r) => ({ phone: r.phone, score: r.score, created_at: r.created_at }));
+
+  res.status(200).json({
+    period_days: days,
+    total,
+    average,
+    distribution,
+    detractors,
+  });
+});
+
+// ── Rede — apagões por bairro (outage_reports) ────────────────────────────────
+
+adminRouter.get('/outages', async (req, res) => {
+  const rawDays = Number(req.query.days ?? 7);
+  const days = Math.min(Math.max(isNaN(rawDays) ? 7 : rawDays, 1), 90);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('outage_reports')
+    .select('neighborhood, reported_at')
+    .gte('reported_at', since)
+    .order('reported_at', { ascending: false });
+
+  if (error) {
+    res.status(500).json({ error: 'failed to load outages' });
+    return;
+  }
+
+  const rows = (data ?? []) as Array<{ neighborhood: string; reported_at: string }>;
+  const grouped = new Map<string, { neighborhood: string; count: number; lastReportedAt: string }>();
+  for (const row of rows) {
+    const current = grouped.get(row.neighborhood);
+    if (!current) {
+      grouped.set(row.neighborhood, {
+        neighborhood: row.neighborhood,
+        count: 1,
+        lastReportedAt: row.reported_at,
+      });
+      continue;
+    }
+    current.count += 1;
+    if (row.reported_at > current.lastReportedAt) current.lastReportedAt = row.reported_at;
+  }
+
+  res.status(200).json({
+    period_days: days,
+    total: rows.length,
+    neighborhoods: Array.from(grouped.values()).sort((a, b) => b.count - a.count),
+  });
+});
+
+// ── Financeiro — KPIs de cobrança (billing_notifications) ──────────────────────
+
+adminRouter.get('/financeiro', async (req, res) => {
+  const rawDays = Number(req.query.days ?? 30);
+  const days = Math.min(Math.max(isNaN(rawDays) ? 30 : rawDays, 1), 180);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('billing_notifications')
+    .select('type, status, sent_at')
+    .gte('sent_at', since)
+    .order('sent_at', { ascending: false });
+
+  if (error) {
+    res.status(500).json({ error: 'failed to load billing notifications' });
+    return;
+  }
+
+  const rows = (data ?? []) as Array<{ type: string; status: string; sent_at: string }>;
+  const byType = new Map<string, number>();
+  for (const row of rows) {
+    byType.set(row.type, (byType.get(row.type) ?? 0) + 1);
+  }
+
+  const totalNotifications = rows.length;
+  const negociacoes = rows.filter((r) => r.type === 'negociacao').length;
+  const cancelled = rows.filter((r) => r.status === 'cancelled').length;
+  const recoveredRevenue = cancelled * 50;
+
+  res.status(200).json({
+    period_days: days,
+    total_notifications: totalNotifications,
+    negociacoes,
+    recovered_revenue: recoveredRevenue,
+    by_type: Array.from(byType.entries()).map(([type, count]) => ({ type, count })),
+  });
+});
+
+// ── Clientes — busca pontual no SGP ───────────────────────────────────────────
+
+adminRouter.get('/customers/search', async (req, res) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) {
+    res.status(400).json({ error: 'query param q is required' });
+    return;
+  }
+
+  const digits = q.replace(/\D/g, '');
+  let customer: unknown = null;
+
+  try {
+    if (digits.length >= 10) {
+      customer = await getCustomerByPhone(digits);
+    } else {
+      customer = await getCustomerById(q);
+    }
+  } catch {
+    customer = null;
+  }
+
+  if (!customer) {
+    res.status(404).json({ error: 'customer not found' });
+    return;
+  }
+
+  res.status(200).json(customer);
+});
+
+// ── Configurações de negócio (skill) ──────────────────────────────────────────
+
+interface TenantSettings {
+  skill?: Partial<ISPSkillConfig>;
+  llmDailyBudget?: number;
+}
+
+async function findTenantRow(): Promise<{ id: string; settings: TenantSettings } | null> {
+  const candidates = Array.from(
+    new Set([env.DEFAULT_TENANT_ID, 'salesnet-default', 'default']),
+  );
+  for (const id of candidates) {
+    const { data } = await supabase
+      .from('tenants')
+      .select('id, settings')
+      .eq('id', id)
+      .maybeSingle();
+    if (data) {
+      return { id: (data as { id: string }).id, settings: ((data as { settings?: TenantSettings }).settings ?? {}) };
+    }
+  }
+  return null;
+}
+
+adminRouter.get('/config', async (_req, res) => {
+  const config = await getSkillConfig(env.DEFAULT_TENANT_ID);
+  const tenant = await findTenantRow();
+
+  res.status(200).json({
+    business: config.business,
+    plans: config.plans,
+    coveredNeighborhoods: config.coveredNeighborhoods,
+    toneOverride: config.toneOverride ?? null,
+    llmDailyBudget: tenant?.settings.llmDailyBudget ?? null,
+  });
+});
+
+adminRouter.patch('/config', async (req, res) => {
+  const body = req.body as {
+    business?: Partial<ISPSkillConfig['business']>;
+    plans?: ISPSkillConfig['plans'];
+    coveredNeighborhoods?: string[];
+    toneOverride?: string | null;
+    llmDailyBudget?: number | null;
+  };
+
+  const tenant = await findTenantRow();
+
+  const currentSettings: TenantSettings = tenant?.settings ?? {};
+  const currentSkill: Partial<ISPSkillConfig> = currentSettings.skill ?? {};
+
+  const nextSkill: Partial<ISPSkillConfig> = { ...currentSkill };
+  if (body.business) {
+    nextSkill.business = { ...(currentSkill.business ?? {}), ...body.business } as ISPSkillConfig['business'];
+  }
+  if (Array.isArray(body.plans)) nextSkill.plans = body.plans;
+  if (Array.isArray(body.coveredNeighborhoods)) nextSkill.coveredNeighborhoods = body.coveredNeighborhoods;
+  if (body.toneOverride !== undefined) {
+    nextSkill.toneOverride = body.toneOverride ?? undefined;
+  }
+
+  const nextSettings: TenantSettings = { ...currentSettings, skill: nextSkill };
+  if (body.llmDailyBudget !== undefined) {
+    nextSettings.llmDailyBudget = body.llmDailyBudget ?? undefined;
+  }
+
+  if (tenant) {
+    const { error } = await supabase
+      .from('tenants')
+      .update({ settings: nextSettings, updated_at: new Date().toISOString() })
+      .eq('id', tenant.id);
+    if (error) {
+      res.status(500).json({ error: 'failed to persist config' });
+      return;
+    }
+  } else {
+    const id = env.DEFAULT_TENANT_ID;
+    const { error } = await supabase.from('tenants').insert({
+      id,
+      name: 'SalesNet Telecom',
+      slug: `salesnet-${id}`,
+      settings: nextSettings,
+    });
+    if (error) {
+      res.status(500).json({ error: 'failed to create tenant config' });
+      return;
+    }
+  }
+
+  clearSkillConfigCache();
+  res.status(200).json({ ok: true });
 });
