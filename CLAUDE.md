@@ -34,6 +34,7 @@ Monorepo:
 1.  isHumanMode(phone)              → abandona silenciosamente se humano ativo
 2.  startMs = Date.now()            → timer para processing_ms
 3.  sanitizeUserInput(message)      → trunca 2000 chars, remove 15 padrões injection PT+EN
+3.5 handleBringForwardReply(phone)  → captura SIM/NÃO de oferta de antecipação de visita pendente (janela 20min); encerra se consumida
 4.  getPendingNps(phone)            → verifica se NPS está pendente para este número
     4a. NPS não enviado → cancela NPS, continua
     4b. NPS enviado + resposta numérica → salva, agradece, encerra
@@ -165,6 +166,38 @@ Metadados em `data.Info`, não direto em `data`. Campo `IsFromMe` (não `FromMe`
 
 O Evolution Go **perde a config de webhook quando reinicia**. `bootstrap.ts` chama `connectInstance()` a cada startup do backend. **Nunca remova essa chamada.**
 
+### Validação de webhook (HMAC) — armadilha em produção
+
+Confirmado em produção (2026-05): a Evolution Go **não envia** `x-webhook-signature` nos POSTs de webhook. A documentação oficial só cita `WEBHOOK_URL` / `webhookUrl` no connect — não HMAC outbound.
+
+`validateWebhook` em `evolution-go.ts`:
+
+- **Com** `x-webhook-signature` → valida HMAC (tenta `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_INSTANCE_TOKEN`, `EVOLUTION_API_KEY`, token do Supabase). HMAC inválido → `return false` (rejeita).
+- **Sem** assinatura (padrão Evolution):
+  - se vier header `apikey` **e** ele **não** casar com nenhum secret configurado → `return false` (rejeita) — correção aplicada e confirmada no código (`evolution-go.ts`, ~linha 478).
+  - se vier `apikey` e casar, ou se o token da instância no body casar → aceita.
+  - se **não** vier `apikey` nenhum (caso padrão do Evolution Go) → aceita (não há como validar).
+- `EVOLUTION_WEBHOOK_SKIP_HMAC=true` → desliga tudo (só emergência).
+
+`EVOLUTION_WEBHOOK_SECRET` no serviço Railway **evolution-go** não é variável oficial da Evolution — só o backend **salesnet** usa para verificar, se um dia a Evolution assinar.
+
+**Sintoma de regressão:** logs `Missing x-webhook-signature — rejected` e zero `event=Message` processado. Boot deve mostrar `validation enabled (HMAC if x-webhook-signature sent; else apikey or open for Evolution Go)`.
+
+`connectInstance` envia `webhookSecret` no body (undocumented); fingerprint no log: `fp=df0bb2ea` para `salesnet-token-2026`. Diagnóstico no boot: `[webhook-hmac]` em `webhook-hmac-diagnostics.ts`.
+
+### Mídia recebida (áudio/imagem) — download e descriptografia
+
+Mídia recebida **não vem em claro** (a menos que `WEBHOOK_FILES=true` no Evolution Go). O `data.Message` traz a sub-mensagem (`audioMessage`, `imageMessage`, `videoMessage`, `documentMessage`) com os campos do protocolo whatsmeow.
+
+**Armadilha de caixa:** os campos são `URL` (maiúsculo!), `mediaKey`, `mimetype`, `directPath`, `fileEncSHA256`. Código antigo lia `url` minúsculo → `undefined` → áudio nunca funcionou. Leia tolerando caixa (`pickField`).
+
+`backend/src/integrations/whatsapp/media-download.ts` baixa o `.enc` da CDN e **descriptografa localmente** (HKDF-SHA256 + AES-256-CBC, descartando o MAC de 10 bytes; info strings `"WhatsApp Audio/Image/Video/Document Keys"`). Funciona pra todos os tipos, sem depender de endpoint.
+
+- `detectMediaType(msg)` identifica o tipo pela presença da sub-mensagem (mais confiável que `Info.Type`).
+- `resolveMessageBody` (método de `EvolutionGoProvider`) baixa, descriptografa e chama `transcribeAudio` (Groq Whisper) ou `analyzeImage` (Gemini). Vídeo/documento → texto orientando o cliente.
+- **Fallback só para imagem:** `POST /message/downloadimage` (body = `Message` proto completa, auth de instância) — único endpoint de download do Evolution Go. Não há rota para áudio (por isso a descriptografia local é obrigatória).
+- Sempre confirme a rota real no Swagger da instância: `GET /swagger/doc.json` (header `apikey`).
+
 ---
 
 ## Módulo NPS (`nps-flow.ts`)
@@ -202,6 +235,27 @@ CREATE TABLE nps_responses (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
+
+---
+
+## Módulo de agendamento de visitas
+
+### Capacidade — 1 vaga por turno (`visit-scheduling.ts`)
+
+Regra de negócio: **1 visita por turno** (1 manhã + 1 tarde por dia útil; atende seg–sáb, pula domingo). Evita empilhar atendimentos e dá folga à equipe.
+
+- `isSlotAvailable(date, period)` — turno livre se há `< 1` visita com status `scheduled` naquele `(data, turno)`. `cancelled`/`done` liberam a vaga.
+- `nextAvailableSlots(fromDate, n)` — próximos turnos livres (pula domingo), pra Sofia oferecer alternativas concretas.
+- Tool `consultar_disponibilidade_visita` — Sofia consulta ANTES de prometer horário.
+- `agendar_visita` recusa turno cheio (`reason: periodo_indisponivel`) e devolve `alternativas` — nunca empilha. Também corrige o `phone` gravado (usa o WhatsApp do contato; `getCustomerById` não traz telefone).
+
+### Antecipação manual (`bring-forward-flow.ts`)
+
+Quando a equipe abre folga, o operador clica em "Oferecer antecipação" no painel (`POST /api/admin/schedules/:id/oferecer-antecipacao`):
+
+- `offerBringForward(visitId)` marca `bring_forward_status='offered'` + `offered_at` e envia a oferta ao cliente.
+- `handleBringForwardReply(phone, msg)` (topo do `processMessage`, antes do NPS): **SIM** dentro de 20min → antecipa a visita pra hoje (`accepted`) e confirma; **NÃO** → `declined` mantém horário; ambíguo → ignora e segue fluxo normal.
+- Estado em colunas de `scheduled_visits` (migration `022`), sobrevive a restart — diferente do NPS (memória).
 
 ---
 
@@ -280,23 +334,37 @@ Ordem de precedência:
 | `nps_responses` | `nps-flow.ts` | `reports.ts` |
 | `whatsapp_instances` | `instance-manager.ts` | `webhook-router.ts`, `bootstrap.ts` |
 | `leads` | `tools.ts` (registrar_interesse) | painel admin |
-| `scheduled_visits` | `tools.ts` (agendar_visita) | automations |
+| `scheduled_visits` | `tools.ts` (agendar_visita), `schedules.ts`, `bring-forward-flow.ts` | `visit-scheduling.ts`, `schedules.ts` (painel), automations |
 | `outage_reports` | `tools.ts` (abrir_chamado técnico) | `tools.ts` (detectar_apagao_bairro) |
 | `sofia_tickets` | `tools.ts` (abrir_chamado) | `tools.ts` (listar_chamados_sofia) |
 | `billing_notifications` | automações, `registrar_negociacao` | `getHabitualLatePayerIds`, automações |
 | `scheduled_messages` | `nps-flow.ts` | `scheduled-messages.ts` (cron 10 min) |
 
+**Schema base (tabelas):** não há um único `schema.sql` em `migrations/`. As tabelas
+base ficam distribuídas em arquivos `schema.sql` por domínio — rode todos uma vez no
+Supabase SQL Editor antes das migrations:
+- `backend/src/agent/schema.sql` — `conversation_threads`, `interaction_logs`, etc.
+- `backend/src/routes/schema.sql` — `otp_codes`, `client_sessions`, `tenants`, etc.
+- `backend/src/automations/schema.sql` — `billing_notifications`, etc.
+- `backend/src/automations/campaigns/schema.sql` — `campaign_sends`, `referral_links`, `churn_risks`
+
 Migrations em `backend/src/db/migrations/` (executar em ordem):
-- `schema.sql` — tabelas base
-- `002_enable_rls.sql`
+- `002_enable_rls.sql` — RLS service_role-only em todas as tabelas (inclui `scheduled_visits`)
 - `003_add_session_mode_to_interaction_logs.sql`
 - `011_nps.sql` — tabela `nps_responses`
 - `012_add_processing_ms.sql` — coluna `processing_ms INTEGER` em `interaction_logs`
 - `013_scheduled_messages.sql` — tabela `scheduled_messages` (mensagens adiadas pós-NPS)
 - `014_client_notes.sql` — coluna `notes TEXT` em `conversation_threads`
 - `015_sofia_tickets.sql` — tabela `sofia_tickets` (chamados abertos via Sofia)
-- `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez)
-- `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (só via psql, uma statement por vez)
+- `016_rls_new_tables.sql` — RLS em `nps_responses`, `scheduled_messages`, `sofia_tickets`
+- `017_message_dedup.sql` — tabela `processed_message_ids` (dedupe de webhooks)
+- `018_llm_usage_columns.sql` — colunas de custo/uso de LLM em `interaction_logs`
+- `019_tenant_skill_settings.sql` — coluna `tenants.settings` (override de skill por tenant)
+- `020_tenant_scoped_conversations.sql` — `conversation_threads`/`interaction_logs` escopados por `(tenant_id, phone)`
+- `021_schedules_improvements.sql` — `scheduled_visits`: colunas `type`, `address`, `notes`, `updated_at`, `cancelled_at`, `done_at` + índices
+- `022_visit_bring_forward.sql` — `scheduled_visits`: colunas `bring_forward_status`, `bring_forward_offered_at` (antecipação)
+- `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez). **Foi este o executado em produção** (via SQL Editor).
+- `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (alternativa só via psql, uma statement por vez; **não** usar no SQL Editor — erro 25001)
 
 ---
 
@@ -355,7 +423,8 @@ SGP_API_TOKEN=<uuid>
 
 EVOLUTION_API_KEY=<chave_global_admin>
 EVOLUTION_INSTANCE_TOKEN=<token_instancia>
-GEMINI_API_KEY=AIza...   # Google AI Studio — usado em vision.ts para OCR de imagens
+GEMINI_API_KEY=AIza...   # Google AI Studio — vision.ts: análise de imagens (comprovantes)
+GROQ_API_KEY=gsk_...     # console.groq.com — transcribe.ts: transcrição de áudio (Whisper). Sem a chave, áudio é ignorado
 
 BACKEND_URL=https://salesnet-production.up.railway.app
 ```
@@ -385,15 +454,17 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 ## Arquivos mais importantes — leia nesta ordem
 
 1. `backend/src/agent/processor.ts` — orquestração principal
-2. `backend/src/agent/tools.ts` — 20 ferramentas + stubs documentados
+2. `backend/src/agent/tools.ts` — ferramentas (inclui `consultar_disponibilidade_visita`) + stubs documentados
 3. `backend/src/agent/skill/` — prompt dinâmico e config por tenant (substitui prompt estático)
 4. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
 5. `backend/src/agent/customer-memory.ts` — insights cross-session
 6. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
 7. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
-8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks
-9. `backend/src/agent/vision.ts` — análise de imagens via Gemini Flash
-10. `backend/src/agent/prompt.ts` — camada de compat (delega à skill)
+8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks + resolução de mídia
+9. `backend/src/integrations/whatsapp/media-download.ts` — download + descriptografia de mídia WhatsApp
+10. `backend/src/agent/vision.ts` (Gemini) e `transcribe.ts` (Groq Whisper) — imagem e áudio
+11. `backend/src/agent/visit-scheduling.ts` + `bring-forward-flow.ts` — capacidade e antecipação de visitas
+12. `backend/src/agent/prompt.ts` — camada de compat (delega à skill)
 
 ---
 
@@ -435,6 +506,25 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - `BUSINESS_INFO.installationFee` alterada para `50`.
 - Frontend público (`src/pages/Home.tsx` e `src/pages/Plans.tsx`) atualizado para refletir os novos planos e taxa de instalação.
 
+### 5) Suporte a áudio e imagem (implementado)
+
+- `media-download.ts`: download + descriptografia local (HKDF + AES-256-CBC) de mídia WhatsApp, tolerante a caixa de campos (`URL`/`mediaKey`).
+- `evolution-go.ts.resolveMessageBody`: áudio → Groq Whisper (`transcribe.ts`), imagem → Gemini (`vision.ts`); fallback `POST /message/downloadimage` para imagem.
+- `transcribe.ts`/`vision.ts` agora recebem buffer descriptografado (`DecryptedMedia`), não URL.
+- Requer `GROQ_API_KEY` (áudio) e `GEMINI_API_KEY` (imagem).
+
+### 6) Agendamento com capacidade e antecipação (implementado)
+
+- `visit-scheduling.ts`: 1 vaga por turno; tool `consultar_disponibilidade_visita`; `agendar_visita` recusa turno cheio e oferece alternativas.
+- `bring-forward-flow.ts` + migration `022`: oferta manual de antecipação pelo painel, captura SIM/NÃO em 20min no topo do `processMessage`.
+- Painel `src/pages/admin/Schedules.tsx`: ação "Oferecer antecipação" + badges de status.
+
+### 7) Atendimento AI-first (prompt reforçado)
+
+- Prompt da skill reduz escaladas: Sofia resolve sozinha; só `transferir_humano` em pedido explícito do cliente, cancelamento ou ameaça jurídica.
+- `safeExecuteTool` em `processor.ts`: erro de ferramenta não derruba o fluxo do LLM.
+- `getCustomerByPhone` tenta variação do 9º dígito (BR) ao buscar cliente.
+
 ---
 
 ## Gaps prioritários — briefing para melhoria da Sofia
@@ -458,16 +548,11 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 
 **Próximo passo:** ampliar heurística de duplicidade (ex.: comparar similaridade de descrição/tipo e janela de tempo) antes de abrir novo chamado.
 
-### 3. Suporte a áudio e imagem
+### 3. Suporte a áudio e imagem ✅ implementado
 
-**Hoje:** Evolution Go entrega `audioMessage`, `imageMessage`, `documentMessage` no webhook, mas o processor só processa `conversation` (texto puro).
+**Status atual:** áudio (Groq Whisper) e imagem (Gemini) processados de ponta a ponta — ver "Mídia recebida" no Evolution Go e atualização recente (5).
 
-**Impacto:** >40% dos usuários WhatsApp enviam áudio. Comprovante de PIX em imagem é caso crítico (cliente manda foto → Sofia não vê → acredita que não pagou).
-
-**Direção:**
-- Áudio → Whisper API (transcrição) → texto → processamento normal
-- Imagem de pagamento → Anthropic vision para extrair valor/data/beneficiário
-- Documento PDF → parse para confirmar se é boleto da SalesNet
+**Próximo passo:** suporte a documento PDF (parse de boleto) — hoje vídeo/documento só geram texto orientando o cliente a reenviar como foto/texto.
 
 ### 4. Script de diagnóstico de velocidade
 
@@ -477,11 +562,16 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 
 **Direção:** tool `solicitar_teste_velocidade` que envia link fast.com + instrução. Tool `interpretar_resultado_velocidade` que compara com plano contratado e decide: problema do cliente (interferência, posição do roteador) vs problema da rede (abrir chamado).
 
-### 5. NPS com ação em score baixo
+### 5. NPS com ação em score baixo ✅ implementado
 
-**Hoje:** score 1-2 salvo no banco + `console.warn`. Nada mais.
+**Status atual:** `applyNpsScoreActions` em `nps-flow.ts` (chamado por `saveNpsResponse`, best-effort):
+- **Score ≤ 2:** `markChurnRiskByPhone(phone, tenantId)` + enfileira mensagem de recuperação (`RECOVERY_MESSAGE`) em `scheduled_messages` com `send_after = +24h`.
+- **Score 3:** soft — nenhuma ação automática (sem ruído).
+- **Score 4-5:** enfileira convite de indicação (`REFERRAL_NPS_MESSAGE`) com `send_after = +48h`, exceto se já houve campanha `referral` para o cliente (`hasReferralCampaign`).
 
-**Direção:** score ≤ 2 → `marcar_churn_risk` automático + enfileirar mensagem de recuperação no dia seguinte. Score 3 → soft follow-up. Score 4-5 → trigger de campanha de indicação.
+O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de score baixo); a ação real vem de `applyNpsScoreActions`. As mensagens adiadas são enviadas pelo cron `scheduled-messages.ts`.
+
+**Próximo passo:** ajustar tom/cadência das mensagens de recuperação com base na taxa de resposta observada.
 
 ### 6. Memória semântica cross-session
 
@@ -510,8 +600,12 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - **Não use `JSON.stringify` para body das chamadas SGP** — use `URLSearchParams` + `systemParams()`
 - **Não mude `DomainEvent.payload`** para `message_received` — `onIncomingMessage` espera `{ phone, body, profileName }`
 - **Não remova `connectInstance()` no bootstrap** — Evolution Go perde webhook no restart
+- **Não exija `x-webhook-signature` quando o header não veio** — Evolution Go não assina outbound; ver seção “Validação de webhook (HMAC)”
 - **Não adicione bairros em `COVERED_NEIGHBORHOODS`** sem confirmar com o usuário
 - **Não implemente cancelamento automático** — sempre `transferir_humano`
 - **Não remova `sanitizeUserInput()`** no início de `processMessage` — única defesa contra prompt injection via WhatsApp
 - **Não processe mensagens com `phone` ou `body` undefined** — guard no `index.ts` já bloqueia, não remova
 - **Não use asteriscos para negrito no texto de resposta** — WhatsApp Web não renderiza `*palavra*` corretamente
+- **Não leia campos de mídia em minúsculo** — whatsmeow usa `URL`/`mediaKey` (maiúsculo); use `pickField` em `media-download.ts`
+- **Não empilhe visitas no mesmo turno** — `agendar_visita` deve checar `isSlotAvailable` (1 por turno); ofereça alternativas
+- **Não transfira para humano por padrão** — Sofia é AI-first; só `transferir_humano` em pedido explícito, cancelamento ou ameaça jurídica

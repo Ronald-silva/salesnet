@@ -1,20 +1,5 @@
 import type { ISPSkillConfig } from './types';
 
-function buildPlansText(config: ISPSkillConfig): string {
-  return config.plans
-    .map(
-      (p) =>
-        `- ${p.name}: ${p.downloadMbps} Mbps / R$ ${p.priceMonthly.toFixed(2)}/mês` +
-        (p.popular ? ' (mais popular)' : '') +
-        (p.description ? ` — ${p.description}` : ''),
-    )
-    .join('\n');
-}
-
-function buildNeighborhoodsText(config: ISPSkillConfig): string {
-  return config.coveredNeighborhoods.map((b) => `- ${b}`).join('\n');
-}
-
 export function buildSystemPrompt(config: ISPSkillConfig): string {
   const b = config.business;
   const pronoun = b.agentGender === 'f' ? 'a' : 'o';
