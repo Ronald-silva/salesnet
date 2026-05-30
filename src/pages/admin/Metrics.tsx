@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { BarChart, Bar, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { adminApi } from '@/api/admin';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 export default function Metrics() {
   const metrics = useQuery({
@@ -14,6 +15,15 @@ export default function Metrics() {
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">KPIs do dia/semana/mês</h2>
+
+      {metrics.isError && (
+        <Alert variant="destructive">
+          <AlertTitle>Erro ao carregar métricas</AlertTitle>
+          <AlertDescription>
+            {(metrics.error as Error)?.message ?? 'Tente novamente em instantes.'}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <div className="rounded-lg border border-border/50 p-4"><p className="text-sm text-muted-foreground">Total de conversas</p><p className="text-2xl font-bold">{data?.totalConversations ?? 0}</p></div>

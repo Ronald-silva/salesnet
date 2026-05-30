@@ -95,6 +95,14 @@ export default function Reports() {
                   : '— sem respostas'
               }
             />
+            <MetricCard
+              label="Custo LLM (estimado)"
+              value={`US$ ${data.custo_llm_usd.toFixed(2)}`}
+            />
+            <MetricCard
+              label="Tokens consumidos"
+              value={data.total_tokens.toLocaleString('pt-BR')}
+            />
           </div>
 
           {modeEntries.length > 0 && (
