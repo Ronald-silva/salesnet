@@ -59,9 +59,9 @@ function addDays(dateIso: string, days: number): string {
   return d.toISOString().split('T')[0]!;
 }
 
-function isWeekend(dateIso: string): boolean {
-  const day = new Date(`${dateIso}T12:00:00Z`).getUTCDay();
-  return day === 0 || day === 6;
+/** Só domingo é folga — a equipe atende de segunda a sábado. */
+function isNonWorkingDay(dateIso: string): boolean {
+  return new Date(`${dateIso}T12:00:00Z`).getUTCDay() === 0;
 }
 
 function slotLabel(slot: VisitSlot): string {
@@ -107,7 +107,7 @@ export async function isSlotAvailable(date: string, period: VisitPeriod): Promis
 
 /**
  * Retorna os próximos turnos livres a partir de `fromDate` (inclusive),
- * pulando fins de semana. Usado pra Sofia oferecer alternativas concretas.
+ * pulando domingos (equipe atende seg–sáb). Usado pra Sofia oferecer alternativas.
  */
 export async function nextAvailableSlots(
   fromDate: string,
@@ -120,7 +120,7 @@ export async function nextAvailableSlots(
   const suggestions: SlotSuggestion[] = [];
   for (let i = 0; i <= horizonDays && suggestions.length < maxResults; i++) {
     const date = addDays(fromDate, i);
-    if (isWeekend(date)) continue;
+    if (isNonWorkingDay(date)) continue;
     for (const period of PERIOD_ORDER) {
       const count = occupancy.get(`${date}::${period}`) ?? 0;
       if (count < VISIT_CAPACITY_PER_PERIOD) {
