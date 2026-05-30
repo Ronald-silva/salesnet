@@ -174,6 +174,10 @@ export const adminApi = {
     }),
   cancelSchedule: (id: string) =>
     request<{ ok: true }>(`/schedules/${id}`, { method: 'DELETE' }),
+  offerBringForward: (id: string) =>
+    request<{ ok: true; phone: string }>(`/schedules/${id}/oferecer-antecipacao`, {
+      method: 'POST',
+    }),
 };
 
 export type SchedulePeriod = 'morning' | 'afternoon';
@@ -198,6 +202,7 @@ export interface ScheduleItem {
   status: string;
   type: string;
   address?: string;
+  bring_forward_status?: string;
   created_at: string;
 }
 

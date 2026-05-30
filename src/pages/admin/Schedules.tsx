@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Calendar, MoreHorizontal, Check, CalendarClock, X } from 'lucide-react';
+import { Calendar, MoreHorizontal, Check, CalendarClock, X, Zap } from 'lucide-react';
 import {
   adminApi,
   type ScheduleItem,
@@ -192,6 +192,21 @@ export default function Schedules() {
     },
   });
 
+  const [bringForwardFeedback, setBringForwardFeedback] = useState<string | null>(null);
+
+  const bringForwardMutation = useMutation({
+    mutationFn: (id: string) => adminApi.offerBringForward(id),
+    onSuccess: () => {
+      setBringForwardFeedback(
+        'Oferta de antecipação enviada ao cliente. Ele tem 20 minutos para responder SIM.',
+      );
+      invalidate();
+    },
+    onError: (err: Error) => {
+      setBringForwardFeedback(err?.message ?? 'Falha ao enviar a oferta de antecipação.');
+    },
+  });
+
   function openReschedule(item: ScheduleItem) {
     setRescheduleId(item.id);
     setRescheduleDate(item.visit_date < TODAY ? TODAY : item.visit_date);
@@ -314,6 +329,19 @@ export default function Schedules() {
         </Alert>
       )}
 
+      {/* ── Feedback de antecipação ─────────────────────────────────────── */}
+      {bringForwardFeedback && (
+        <Alert variant={bringForwardMutation.isError ? 'destructive' : 'default'}>
+          <AlertTitle>Antecipação</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4">
+            <span>{bringForwardFeedback}</span>
+            <Button variant="ghost" size="sm" onClick={() => setBringForwardFeedback(null)}>
+              Fechar
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* ── Tabela ──────────────────────────────────────────────────────── */}
       <div className="rounded-lg border border-border/50">
         <Table>
@@ -363,7 +391,25 @@ export default function Schedules() {
                   <TableCell>{formatPhone(item.phone)}</TableCell>
                   <TableCell className="max-w-[200px] truncate">{item.address ?? '—'}</TableCell>
                   <TableCell>
-                    <StatusBadge status={item.status} />
+                    <div className="flex flex-col gap-1">
+                      <StatusBadge status={item.status} />
+                      {item.bring_forward_status === 'offered' && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-500/15 text-amber-400 border-amber-500/30 w-fit"
+                        >
+                          Antecipação ofertada
+                        </Badge>
+                      )}
+                      {item.bring_forward_status === 'accepted' && (
+                        <Badge
+                          variant="outline"
+                          className="bg-violet-500/15 text-violet-400 border-violet-500/30 w-fit"
+                        >
+                          Antecipada
+                        </Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -381,6 +427,16 @@ export default function Schedules() {
                             Marcar como Concluído
                           </DropdownMenuItem>
                         )}
+                        {item.status === 'scheduled' &&
+                          item.bring_forward_status !== 'accepted' && (
+                            <DropdownMenuItem
+                              disabled={bringForwardMutation.isPending}
+                              onClick={() => bringForwardMutation.mutate(item.id)}
+                            >
+                              <Zap className="h-4 w-4 mr-2" />
+                              Oferecer antecipação
+                            </DropdownMenuItem>
+                          )}
                         <DropdownMenuItem onClick={() => openReschedule(item)}>
                           <CalendarClock className="h-4 w-4 mr-2" />
                           Reagendar

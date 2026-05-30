@@ -4,6 +4,13 @@ import { setHumanMode } from './memory';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
 import { BUSINESS_INFO, COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
+import {
+  isSlotAvailable,
+  nextAvailableSlots,
+  periodLabelPt,
+  fortalezaToday,
+  type VisitPeriod,
+} from './visit-scheduling';
 
 // Derived lookup map for the verificar_cobertura tool (name → coverage %)
 const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
@@ -105,14 +112,26 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'consultar_disponibilidade_visita',
+    description: 'Consulta a disponibilidade de agenda para visitas técnicas ANTES de confirmar um agendamento. Cada turno tem só 1 vaga (1 de manhã, 1 de tarde por dia útil). Use sempre antes de prometer um horário ao cliente, e ofereça os próximos turnos livres retornados.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        date: { type: 'string', description: 'Data desejada no formato YYYY-MM-DD (opcional; se omitido, busca a partir de hoje)' },
+      },
+    },
+  },
+  {
     name: 'agendar_visita',
-    description: 'Agenda visita técnica no endereço do cliente.',
+    description: 'Agenda visita técnica no endereço do cliente. Cada turno tem só 1 vaga (1 manhã + 1 tarde por dia útil). Se o turno pedido estiver ocupado, a tool recusa e devolve os próximos turnos livres — ofereça-os ao cliente. Sempre confirme data e período antes de chamar.',
     input_schema: {
       type: 'object' as const,
       properties: {
         customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         date:        { type: 'string', description: 'Data no formato YYYY-MM-DD' },
-        period:      { type: 'string', enum: ['morning', 'afternoon'], description: 'morning = manhã (8h-12h), afternoon = tarde (13h-18h)' },
+        period:      { type: 'string', enum: ['morning', 'afternoon'], description: 'morning = manhã (8h-12h), afternoon = tarde (14h-18h)' },
+        type:        { type: 'string', enum: ['instalacao', 'manutencao'], description: 'Tipo de visita (opcional). instalacao para novo cliente, manutencao para cliente existente. Se omitido, é inferido pelo cadastro.' },
+        notes:       { type: 'string', description: 'Observações úteis pra equipe de campo (opcional)' },
       },
       required: ['customer_id', 'date', 'period'],
     },
@@ -403,10 +422,49 @@ export async function executeTool(
       };
     }
 
+    case 'consultar_disponibilidade_visita': {
+      const fromDate = (input.date as string | undefined)?.trim() || fortalezaToday();
+      const slots = await nextAvailableSlots(fromDate, 3);
+      const requested =
+        (input.date as string | undefined)?.trim()
+          ? {
+              morning: await isSlotAvailable(fromDate, 'morning'),
+              afternoon: await isSlotAvailable(fromDate, 'afternoon'),
+            }
+          : null;
+      return {
+        capacity_per_period: 1,
+        requested_date: input.date ?? null,
+        requested_date_availability: requested,
+        next_available: slots.map((s) => ({ date: s.date, period: s.period, label: s.label })),
+        message:
+          slots.length > 0
+            ? `Próximos turnos livres: ${slots.map((s) => s.label).join('; ')}.`
+            : 'Sem turnos livres nas próximas semanas.',
+      };
+    }
+
     case 'agendar_visita': {
       const customerId = input.customer_id as string;
       const date = input.date as string;
-      const period = input.period as 'morning' | 'afternoon';
+      const period = input.period as VisitPeriod;
+
+      // Capacidade: 1 vaga por turno. Se o turno pedido estiver cheio, recusa e
+      // devolve alternativas pra Sofia oferecer — nunca empilha no mesmo período.
+      const available = await isSlotAvailable(date, period);
+      if (!available) {
+        const alternativas = await nextAvailableSlots(date, 3);
+        return {
+          success: false,
+          reason: 'periodo_indisponivel',
+          requested: { visit_date: date, period: periodLabelPt(period) },
+          alternativas: alternativas.map((s) => ({ date: s.date, period: s.period, label: s.label })),
+          message:
+            alternativas.length > 0
+              ? `O período da ${periodLabelPt(period)} em ${date} já está ocupado (1 visita por turno). Próximos livres: ${alternativas.map((s) => s.label).join('; ')}. Ofereça uma dessas opções ao cliente.`
+              : `O período da ${periodLabelPt(period)} em ${date} já está ocupado e não há turnos livres nas próximas semanas. Avise o cliente que a equipe retornará com uma data.`,
+        };
+      }
 
       await sgp.scheduleVisit(customerId, date, period);
 
@@ -432,10 +490,15 @@ export async function executeTool(
         ? `${customerData.address.street ?? ''}, ${customerData.address.number ?? ''}`
         : null;
 
+      // `phone` (WhatsApp do contato) é o canal confiável de retorno — getCustomerById
+      // não traz telefone. Só usa customerData.phone se vier preenchido.
+      const contactPhone =
+        customerData?.phone && customerData.phone.length > 0 ? customerData.phone : phone;
+
       try {
         await supabase.from('scheduled_visits').insert({
           customer_id: customerId,
-          phone: customerData?.phone ?? phone,
+          phone: contactPhone,
           visit_date: date,
           period,
           status: 'scheduled',
@@ -447,7 +510,7 @@ export async function executeTool(
         // best-effort
       }
 
-      const periodLabel = period === 'morning' ? 'manhã (8h-12h)' : 'tarde (14h-18h)';
+      const periodLabel = periodLabelPt(period);
       return {
         success: true,
         visit_date: date,

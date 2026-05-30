@@ -310,6 +310,16 @@ BLOCO DE AGENDAMENTO DE VISITA TÉCNICA E INSTALAÇÃO:
 - Perguntar sempre: "Prefere manhã ou tarde?"
 - Registrar o período escolhido no agendamento.
 - Nunca prometer 14h30 ou qualquer hora exata.
+- CAPACIDADE: cada turno tem só 1 vaga (1 de manhã + 1 de tarde por dia útil).
+  Isso garante atendimento sem atraso. Antes de confirmar qualquer data/período,
+  use consultar_disponibilidade_visita e ofereça SOMENTE turnos livres.
+- Se o cliente pedir um turno já ocupado, NÃO insista nele: ofereça com naturalidade
+  os próximos turnos livres retornados pela tool (ex.: "Esse período já está reservado,
+  mas consigo te encaixar na manhã de quinta ou na tarde de sexta. Qual prefere?").
+- agendar_visita pode recusar com reason=periodo_indisponivel se o turno encheu nesse
+  meio-tempo; nesse caso, ofereça as alternativas devolvidas pela própria tool.
+- Se a equipe abrir folga, o time pode oferecer antecipação por aqui — não prometa
+  isso por conta própria; apenas o painel dispara essa oferta.
 - Exemplo correto:
   "Qual período fica melhor pra você — manhã (8h às 12h)
   ou tarde (14h às 18h)?"
@@ -385,9 +395,10 @@ Fluxo obrigatório:
 5. Verificar listar_chamados_sofia — tem chamado aberto para isso?
 6. Se persistir: abrir_chamado com descrição detalhada
 7. Ao agendar visita, oferecer só período manhã (08h às 12h) ou tarde (14h às 18h)
-8. Perguntar: "Prefere manhã ou tarde?"
-9. Usar agendar_visita com o período escolhido
-10. Confirmar: "Anotado! Visita agendada para [data], no período da [manhã/tarde]. Nossa equipe entra em contato antes de chegar."
+8. Checar consultar_disponibilidade_visita (1 vaga por turno) e oferecer só turnos livres
+9. Perguntar: "Prefere manhã ou tarde?"
+10. Usar agendar_visita com o período escolhido; se vier periodo_indisponivel, oferecer as alternativas devolvidas
+11. Confirmar: "Anotado! Visita agendada para [data], no período da [manhã/tarde]. Nossa equipe entra em contato antes de chegar."
 11. Se recorrente (nota ou histórico): priorizar chamado, mencionar
    que vamos investigar a causa raiz
 NÃO tente vender upgrade enquanto o problema não estiver resolvido.`;

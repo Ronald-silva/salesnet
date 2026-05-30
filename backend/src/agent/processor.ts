@@ -15,6 +15,7 @@ import { formatOutgoingWhatsApp, sanitizeUserInput } from './sanitize';
 import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendingNps, clearPendingNps } from './nps-flow';
+import { handleBringForwardReply } from './bring-forward-flow';
 import { randomUUID } from 'crypto';
 import { withPhoneLock } from '../utils/phone-mutex';
 import { warnIfDailyBudgetExceeded } from './llm-budget';
@@ -537,6 +538,13 @@ export async function processMessage(
 
   const startMs = Date.now();
   const clean = sanitizeUserInput(message);
+
+  // ── Antecipação de visita: captura SIM/NÃO se há oferta pendente (20 min) ─────
+  try {
+    if (await handleBringForwardReply(phone, clean, tenantId)) return;
+  } catch (err) {
+    console.error('[processor] bring-forward reply error:', err);
+  }
 
   // ── NPS: captura resposta se pergunta estava pendente ────────────────────────
   const nps = getPendingNps(phone);

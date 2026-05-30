@@ -8,6 +8,8 @@ import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone } from '../integrations/sgp';
+import { offerBringForward } from '../agent/bring-forward-flow';
+import { env } from '../config/env';
 
 export const schedulesRouter = Router();
 schedulesRouter.use(adminAuthMiddleware);
@@ -23,6 +25,7 @@ interface VisitRow {
   status: string;
   type: string | null;
   address: string | null;
+  bring_forward_status: string | null;
   created_at: string;
 }
 
@@ -37,6 +40,7 @@ interface EnrichedVisit {
   status: string;
   type: string;
   address?: string;
+  bring_forward_status: string;
   created_at: string;
 }
 
@@ -67,6 +71,7 @@ async function enrichVisits(rows: VisitRow[]): Promise<EnrichedVisit[]> {
         status: row.status,
         type: row.type ?? 'manutencao',
         address: row.address ?? undefined,
+        bring_forward_status: row.bring_forward_status ?? 'none',
         created_at: row.created_at,
       };
     }),
@@ -74,7 +79,7 @@ async function enrichVisits(rows: VisitRow[]): Promise<EnrichedVisit[]> {
 }
 
 const SELECT_COLUMNS =
-  'id, customer_id, phone, visit_date, period, status, type, address, created_at';
+  'id, customer_id, phone, visit_date, period, status, type, address, bring_forward_status, created_at';
 
 /** GET / — lista agendamentos com filtros e paginação. */
 schedulesRouter.get('/', async (req, res) => {
@@ -204,6 +209,16 @@ schedulesRouter.patch('/:id/reschedule', async (req, res) => {
   }
 
   res.status(200).json({ ok: true, visit_date, period });
+});
+
+/** POST /:id/oferecer-antecipacao — envia ao cliente a oferta de antecipar a visita pra hoje. */
+schedulesRouter.post('/:id/oferecer-antecipacao', async (req, res) => {
+  const result = await offerBringForward(req.params.id, env.DEFAULT_TENANT_ID);
+  if (!result.ok) {
+    res.status(400).json({ error: result.error });
+    return;
+  }
+  res.status(200).json({ ok: true, phone: result.phone });
 });
 
 /** DELETE /:id — cancela (soft) o agendamento; nunca remove fisicamente. */
