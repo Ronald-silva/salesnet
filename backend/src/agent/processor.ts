@@ -9,6 +9,7 @@ import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { lookupCustomer, extractCpfFromText, buildIdentificationContext } from './customer-lookup';
+import { buildMediaMessageContext } from './media-context';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
@@ -708,6 +709,7 @@ export async function processMessage(
       knowledgePromise,
     ]);
     const identificationContext = buildIdentificationContext(lookupResult, phone);
+    const mediaContext = buildMediaMessageContext(clean);
     const systemWithContext =
       `${getFortalezaContext()}\n\n${systemPrompt}` +
       `\n\n## Contexto do cliente atual` +
@@ -716,6 +718,7 @@ export async function processMessage(
       `\nDados: ${JSON.stringify(safeCustomerData)}` +
       modeContext +
       identificationContext +
+      mediaContext +
       coverageContext +
       insightsContext +
       qualityExamples +

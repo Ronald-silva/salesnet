@@ -16,6 +16,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
 import { normalizePhone, phoneFromWhatsAppJid, toWhatsAppSendDigits } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
+import { formatVoiceMessage } from '../../../agent/media-context';
 import { analyzeImage, formatImageBody } from '../../../agent/vision';
 import {
   detectMediaType,
@@ -602,7 +603,7 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       const decrypted = await this.downloadMedia(type, media, msg, instanceName);
       if (decrypted) {
         const transcript = await transcribeAudio(decrypted);
-        const body = `[áudio] ${transcript}`;
+        const body = formatVoiceMessage(transcript);
         console.log(`[media] audio resolved (${decrypted.buffer.length} bytes): ${body.slice(0, 120)}`);
         return body;
       }
