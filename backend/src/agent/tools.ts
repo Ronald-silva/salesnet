@@ -154,7 +154,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'transferir_humano',
-    description: 'Pausa o bot e transfere o atendimento para um agente humano.',
+    description: 'ÚLTIMO RECURSO. Pausa o bot e transfere para um agente humano. Use SOMENTE em 3 casos: (1) o cliente pedir explicitamente para falar com uma pessoa/atendente; (2) cancelamento/rescisão de contrato; (3) ameaça legal (Procon, Anatel ou via judicial). Para qualquer outra coisa, resolva você mesma ou registre a ação com abrir_chamado, agendar_visita, registrar_interesse ou solicitar_upgrade — isso é resolver, não transferir.',
     input_schema: {
       type: 'object' as const,
       properties: {
