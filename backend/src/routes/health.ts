@@ -5,13 +5,17 @@ import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 
 type CheckResult = { ok: boolean; latencyMs?: number };
 
-async function checkSupabase(): Promise<CheckResult & { latencyMs: number }> {
+async function checkSupabase(): Promise<CheckResult & { latencyMs: number; error?: string }> {
   const start = Date.now();
   try {
     const { error } = await supabase.from('whatsapp_instances').select('id').limit(1);
-    return { ok: !error, latencyMs: Date.now() - start };
-  } catch {
-    return { ok: false, latencyMs: Date.now() - start };
+    return {
+      ok: !error,
+      latencyMs: Date.now() - start,
+      ...(error ? { error: error.message } : {}),
+    };
+  } catch (err) {
+    return { ok: false, latencyMs: Date.now() - start, error: (err as Error).message };
   }
 }
 
