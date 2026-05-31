@@ -36,11 +36,12 @@ export function buildMediaMessageContext(message: string): string {
     );
   }
 
-  if (message.startsWith('[imagem:') || message.startsWith('[imagem enviada]')) {
+  if (message.startsWith('[imagem')) {
     return (
-      `\n\n## Imagem recebida agora` +
+      `\n\n## Imagem recebida agora (PRIORIDADE)` +
       `\n${message}` +
-      `\nResponda ao conteúdo desta imagem na mensagem atual.`
+      `\nResponda PRIMEIRO ao conteúdo desta imagem.` +
+      `\nNão confunda com áudios ou textos anteriores no histórico.`
     );
   }
 

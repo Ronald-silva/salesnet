@@ -24,4 +24,10 @@ describe('media-context', () => {
   it('formatVoiceMessage escapes quotes', () => {
     expect(formatVoiceMessage('disse "oi"')).toBe('(voz do cliente): "disse \'oi\'"');
   });
+
+  it('builds priority context for image messages', () => {
+    const ctx = buildMediaMessageContext('[imagem: teste de velocidade 300 Mbps]');
+    expect(ctx).toContain('PRIORIDADE');
+    expect(ctx).toContain('300 Mbps');
+  });
 });

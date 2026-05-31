@@ -23,6 +23,7 @@ import {
   fetchAndDecryptWAMedia,
   extractBase64FromResponse,
   pickField,
+  unwrapWhatsAppMessage,
   type DecryptedMedia,
   type WAMediaType,
 } from '../media-download';
@@ -594,7 +595,8 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       | undefined;
     if (extended) return extended;
 
-    const detected = detectMediaType(msg);
+    const unwrapped = unwrapWhatsAppMessage(msg);
+    const detected = detectMediaType(unwrapped);
     if (!detected) {
       // Sem mídia conhecida e sem texto — pode ser sticker, reação, etc.
       return `[mensagem do tipo ${msgType || 'desconhecido'} não suportada — responda pedindo para enviar em texto]`;
@@ -604,14 +606,16 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     const caption = pickField(media, ['caption', 'Caption']) as string | undefined;
 
     if (type === 'image') {
-      const decrypted = await this.downloadMedia(type, media, msg, instanceName);
+      const decrypted = await this.downloadMedia(type, media, unwrapped, instanceName);
       if (decrypted) {
         const analysis = await analyzeImage(decrypted);
         const body = formatImageBody(analysis, caption);
         console.log(`[media] image resolved (${decrypted.buffer.length} bytes): ${body.slice(0, 120)}`);
         return body;
       }
-      const fallback = caption ? `[imagem] ${caption}` : '[imagem não processada]';
+      const fallback = caption
+        ? `[imagem: ${caption}]`
+        : '[imagem não processada — peça ao cliente para reenviar ou descrever]';
       console.warn(`[media] image download failed; caption=${caption ?? '-'}`);
       return fallback;
     }

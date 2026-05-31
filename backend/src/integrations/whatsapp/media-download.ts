@@ -48,10 +48,50 @@ export function pickField(
   return undefined;
 }
 
+const NESTED_MESSAGE_KEYS = [
+  'ephemeralMessage',
+  'viewOnceMessage',
+  'viewOnceMessageV2',
+  'documentWithCaptionMessage',
+  'buttonsMessage',
+  'templateMessage',
+  'interactiveMessage',
+  'lottieStickerMessage',
+] as const;
+
+/** Desembrulha wrappers whatsmeow (view once, ephemeral, etc.) até achar mídia/texto. */
+export function unwrapWhatsAppMessage(
+  msg: Record<string, unknown>,
+  depth = 0,
+): Record<string, unknown> {
+  if (depth > 4) return msg;
+
+  const map: Array<[string, WAMediaType]> = [
+    ['audioMessage', 'audio'],
+    ['imageMessage', 'image'],
+    ['videoMessage', 'video'],
+    ['documentMessage', 'document'],
+  ];
+  for (const [key] of map) {
+    if (msg[key] && typeof msg[key] === 'object') return msg;
+  }
+
+  for (const wrapper of NESTED_MESSAGE_KEYS) {
+    const node = msg[wrapper] as Record<string, unknown> | undefined;
+    const inner = node?.['message'] ?? node?.['Message'];
+    if (inner && typeof inner === 'object') {
+      return unwrapWhatsAppMessage(inner as Record<string, unknown>, depth + 1);
+    }
+  }
+
+  return msg;
+}
+
 /** Identifica o tipo de mídia pelo conteúdo da Message proto (mais confiável que Info.Type). */
 export function detectMediaType(
   msg: Record<string, unknown>,
 ): { type: WAMediaType; media: Record<string, unknown> } | null {
+  const root = unwrapWhatsAppMessage(msg);
   const map: Array<[string, WAMediaType]> = [
     ['audioMessage', 'audio'],
     ['imageMessage', 'image'],
@@ -59,7 +99,7 @@ export function detectMediaType(
     ['documentMessage', 'document'],
   ];
   for (const [key, type] of map) {
-    const media = msg[key] as Record<string, unknown> | undefined;
+    const media = root[key] as Record<string, unknown> | undefined;
     if (media && typeof media === 'object') return { type, media };
   }
   return null;
