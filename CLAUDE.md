@@ -53,6 +53,8 @@ Monorepo:
       getFortalezaContext()          ← hora local (UTC-3)
       + SYSTEM_PROMPT
       + "Contexto do cliente atual: telefone, modo, dados JSON (sem senha/login)"
+      + buildIdentificationContext() ← aviso se identificado via CPF ou não encontrado
+      + buildMediaMessageContext()   ← PRIORIDADE se mensagem atual é áudio/imagem
       + getXxxModeContext()          ← bloco de contexto por modo
       + coverageContext              ← se relevante
       + buildInsightsContext()       ← avisos baseados no histórico
@@ -186,6 +188,22 @@ Confirmado em produção (2026-05): a Evolution Go **não envia** `x-webhook-sig
 
 `connectInstance` envia `webhookSecret` no body (undocumented); fingerprint no log: `fp=df0bb2ea` para `salesnet-token-2026`. Diagnóstico no boot: `[webhook-hmac]` em `webhook-hmac-diagnostics.ts`.
 
+### JIDs — telefone, LID e canais (não confundir com falha de atendimento)
+
+WhatsApp pode enviar JIDs que **não são chat 1:1**. Tudo em `backend/src/lib/phone.ts` + filtro em `evolution-go.ts` e `webhook-router.ts`.
+
+| Sufixo | O que é | Comportamento |
+|--------|---------|---------------|
+| `@s.whatsapp.net` | Celular BR | Telefone E.164 normal |
+| `@lid` | Contato sem número exposto (privacidade Meta) | Thread `lid:<id>`; envio via `@lid`; telefone real em `SenderAlt`/`senderPn`/`remoteJidAlt` quando disponível |
+| `@newsletter` | Canal WhatsApp | **Ignorado** — log `[webhook] ignored non-chat JID` |
+| `@broadcast`, `@g.us`, `@status` | Lista, grupo, status | **Ignorado** |
+
+- `resolveWebhookContact()` / `collectWebhookJidCandidates()` — ordem: `Sender`, `SenderAlt`, `Participant`, `key.senderPn`, `key.remoteJid`.
+- `isIgnorableWhatsAppJid()` roda **antes** de mídia/LLM; `webhook-router` tem segunda camada se `fromPhone` faltar.
+- Eventos `type: 'unknown'` (canal/grupo) retornam 200 e **não** enfileiram no event bus.
+- **Sintoma de regressão:** `message_received without valid phone` em JIDs `@newsletter` → deploy antigo (pré-`ec65e08`/`c9a6ff4`).
+
 ### Mídia recebida (áudio/imagem) — download e descriptografia
 
 Mídia recebida **não vem em claro** (a menos que `WEBHOOK_FILES=true` no Evolution Go). O `data.Message` traz a sub-mensagem (`audioMessage`, `imageMessage`, `videoMessage`, `documentMessage`) com os campos do protocolo whatsmeow.
@@ -194,10 +212,50 @@ Mídia recebida **não vem em claro** (a menos que `WEBHOOK_FILES=true` no Evolu
 
 `backend/src/integrations/whatsapp/media-download.ts` baixa o `.enc` da CDN e **descriptografa localmente** (HKDF-SHA256 + AES-256-CBC, descartando o MAC de 10 bytes; info strings `"WhatsApp Audio/Image/Video/Document Keys"`). Funciona pra todos os tipos, sem depender de endpoint.
 
+- `unwrapWhatsAppMessage(msg)` desembrulha `viewOnceMessage`, `viewOnceMessageV2`, `ephemeralMessage`, etc., antes de `detectMediaType`.
 - `detectMediaType(msg)` identifica o tipo pela presença da sub-mensagem (mais confiável que `Info.Type`).
 - `resolveMessageBody` (método de `EvolutionGoProvider`) baixa, descriptografa e chama `transcribeAudio` (Groq Whisper) ou `analyzeImage` (Gemini). Vídeo/documento → texto orientando o cliente.
-- **Fallback só para imagem:** `POST /message/downloadimage` (body = `Message` proto completa, auth de instância) — único endpoint de download do Evolution Go. Não há rota para áudio (por isso a descriptografia local é obrigatória).
+- **Fallback só para imagem:** `POST /message/downloadimage` (body = `Message` proto desembrulhada, auth de instância) — único endpoint de download do Evolution Go. Não há rota para áudio (por isso a descriptografia local é obrigatória).
 - Sempre confirme a rota real no Swagger da instância: `GET /swagger/doc.json` (header `apikey`).
+
+**Áudio (`transcribe.ts`):** modelo `whisper-large-v3`, upload via `toFile` do groq-sdk, mime normalizado (`audio/ogg; codecs=opus` → `audio/ogg`). Log: `[transcribe] ok`. Corpo injetado: `(voz do cliente): "..."`.
+
+**Imagem (`vision.ts`):** modelo primário **`gemini-2.5-flash`** ( `gemini-2.0-flash` retorna 404 para chaves novas). Fallbacks: `gemini-2.0-flash-lite`, `gemini-1.5-flash`. Descreve qualquer imagem em PT + detecta comprovante. Log: `[vision] ok`. Corpo: `[imagem: descrição...]`.
+
+**Contexto no prompt (`media-context.ts`):** áudio e imagem da mensagem **atual** ganham bloco `PRIORIDADE` — evita Sofia responder à mídia anterior do histórico.
+
+**Boot:** `bootstrap.ts` avisa se faltar `GEMINI_API_KEY` ou `GROQ_API_KEY`. `index.ts` loga `commit=<sha7>` via `RAILWAY_GIT_COMMIT_SHA` — use para confirmar deploy.
+
+**Logs saudáveis em produção:**
+```
+[media] image resolved (...): [imagem: ...]
+[vision] ok (gemini-2.5-flash, ...): ...
+[transcribe] ok (...): ...
+[media] audio resolved (...): (voz do cliente): "..."
+```
+
+---
+
+## Identificação do cliente — telefone e CPF (`customer-lookup.ts`)
+
+Ordem automática em **toda mensagem** (`processor.ts` passo 8):
+
+```
+1. getCustomerByPhone(whatsappPhone)     → SGP consultacliente?telefone=
+2. Se falhar → getCustomerByCpf(cpf)     → SGP consultacliente?cpf=
+3. Se falhar → tryLookupByStoredCpfPhone → outro phone na thread com mesmo CPF
+```
+
+**Fontes de CPF:** `extractCpfFromText(message)` (formatado `049.763.013-38` ou `cpf: 04976301338`) + `conversation_threads.cpf` (migration `023`).
+
+**Limitações intencionais:**
+- Se telefone **já encontra** cliente, CPF na mesma mensagem **não** re-identifica.
+- 11 dígitos soltos **não** são extraídos automaticamente (overlap com telefone BR) — Sofia deve usar `buscar_cliente(cpf=...)` ou `salvar_cpf_cliente`.
+- Contato `@lid` sem telefone no payload depende de CPF informado ou salvo na thread.
+
+**Tools:** `buscar_cliente` (campo `cpf`), `salvar_cpf_cliente` (persiste + tenta SGP). Auditoria em `interaction_logs.tool_calls` → `buscar_cliente._lookup.method` (`phone` | `cpf` | `cpf_stored_phone`).
+
+**Arquivos:** `customer-lookup.ts`, `lib/cpf.ts`, `integrations/sgp/customers.ts` (`getCustomerByCpf`).
 
 ---
 
@@ -285,7 +343,7 @@ anomalias em escala antes que virem reclamação massiva e grava em `operational
 |---------------------|--------|---------|----------------|
 | `outage_cluster` | 2h | ≥ 3 quedas no mesmo bairro | `outage_reports` (`neighborhood`/`reported_at`) |
 | `billing_spike` | 2h | sessões `billing` > 2x média por janela de 2h dos 7 dias anteriores (com mínimo absoluto ≥ 3) | `interaction_logs.session_mode` |
-| `churn_wave` | 24h | > 5 chamadas de `marcar_churn_risk` | `interaction_logs.tool_calls` (`@>` jsonb) |
+| `churn_wave` | 24h | > 5 chamadas de `marcar_churn_risk` | `interaction_logs.tool_calls` (scan em memória — **não** usar `.contains()` PostgREST em jsonb) |
 | `slow_speed_cluster` | 4h | ≥ 3 reclamações de lentidão do mesmo bairro | `interaction_logs` (support) + `conversation_threads.messages` + bairro via SGP |
 | `nps_drop` | 24h vs 7d | média de NPS cai > 1 ponto (mín. 3 respostas em 24h) | `nps_responses.score` |
 
@@ -300,6 +358,8 @@ anomalias em escala antes que virem reclamação massiva e grava em `operational
 - **`slow_speed_cluster` faz lookups no SGP** só para os telefones que casaram a keyword de
   lentidão (controle de custo).
 - Todos os detectores rodam em `Promise.allSettled` — falha de um não derruba os demais.
+- **`churn_wave`:** query antiga com `.contains('tool_calls', [{name}])` falhava silenciosamente (`churn query failed:`). Corrigido em `1090dec` — busca `tool_calls` das últimas 24h e filtra `.some(t => t.name === 'marcar_churn_risk')`.
+- **Migration `026`:** se `CREATE TABLE operational_alerts` falhar com `already exists`, a tabela já está ok — rode só índices/RLS idempotentes.
 
 ### Painel
 
@@ -368,7 +428,7 @@ Ordem de precedência:
 | Tabela | Quem escreve | Quem lê |
 |--------|-------------|---------|
 | `conversation_threads` | `memory.ts`, `tools.ts` | `processor.ts`, `admin.ts` |
-| `interaction_logs` | `processor.ts` (inclui `processing_ms`) | `reports.ts`, `customer-memory.ts`, `nps-flow.ts` |
+| `interaction_logs` | `processor.ts` (inclui `processing_ms`) | `reports.ts`, `customer-memory.ts`, `nps-flow.ts`, `pattern-detector.ts` |
 | `nps_responses` | `nps-flow.ts` | `reports.ts` |
 | `whatsapp_instances` | `instance-manager.ts` | `webhook-router.ts`, `bootstrap.ts` |
 | `leads` | `tools.ts` (registrar_interesse) | painel admin |
@@ -405,7 +465,8 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `023_cpf_index.sql` — `conversation_threads.cpf` + índice parcial (fallback quando telefone mudou; identificação primária via SGP `consultacliente` com `cpf`)
 - `024_quality_feedback.sql` — tabela `conversation_quality` (feedback loop NPS↔conversa)
 - `025_knowledge_base.sql` — tabela `knowledge_base` (soluções reutilizáveis, GIN em `problem_keywords`)
-- `026_pattern_detection.sql` — tabela `operational_alerts` (detecção de padrões operacionais; RLS service_role-only)
+- `026_pattern_detection.sql` — tabela `operational_alerts` (detecção de padrões operacionais; RLS service_role-only). **Em produção** (9 colunas confirmadas).
+- `027_rls_service_role_policies.sql` — políticas `service_role_only` + GRANT em tabelas das migrations 016/024/025/026
 - `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez). **Foi este o executado em produção** (via SQL Editor).
 - `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (alternativa só via psql, uma statement por vez; **não** usar no SQL Editor — erro 25001)
 
@@ -470,15 +531,20 @@ SGP_BASE_URL=https://salesnet.sgp.tsmx.com.br
 SGP_APP_NAME=Ronald                          # nome exato no painel SGP
 SGP_API_TOKEN=<uuid>
 
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...             # role service_role — NÃO usar chave anon (permission denied)
+
 EVOLUTION_API_KEY=<chave_global_admin>
 EVOLUTION_INSTANCE_TOKEN=<token_instancia>
-GEMINI_API_KEY=AIza...   # Google AI Studio — vision.ts: análise de imagens (comprovantes)
-GROQ_API_KEY=gsk_...     # console.groq.com — transcribe.ts: transcrição de áudio (Whisper). Sem a chave, áudio é ignorado
+GEMINI_API_KEY=AIza...   # Google AI Studio — vision.ts (gemini-2.5-flash). Sem ela: [imagem enviada]
+GROQ_API_KEY=gsk_...     # console.groq.com — transcribe.ts (whisper-large-v3). Sem ela: áudio não transcrito
 
 BACKEND_URL=https://salesnet-production.up.railway.app
 
 ADMIN_ALERT_PHONE=5585996032957 # WhatsApp (dígitos) que recebe alertas operacionais (pattern-detector). Sem ela, alertas vão pro painel mas não pro WhatsApp
 ```
+
+`config/supabase.ts` valida no boot que `SUPABASE_SERVICE_ROLE_KEY` decodifica como `service_role`; loga erro se for chave anon.
 
 ---
 
@@ -505,17 +571,20 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 ## Arquivos mais importantes — leia nesta ordem
 
 1. `backend/src/agent/processor.ts` — orquestração principal
-2. `backend/src/agent/tools.ts` — ferramentas (inclui `consultar_disponibilidade_visita`) + stubs documentados
-3. `backend/src/agent/skill/` — prompt dinâmico e config por tenant (substitui prompt estático)
-4. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
-5. `backend/src/agent/customer-memory.ts` — insights cross-session
-6. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
-7. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
-8. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks + resolução de mídia
-9. `backend/src/integrations/whatsapp/media-download.ts` — download + descriptografia de mídia WhatsApp
-10. `backend/src/agent/vision.ts` (Gemini) e `transcribe.ts` (Groq Whisper) — imagem e áudio
-11. `backend/src/agent/visit-scheduling.ts` + `bring-forward-flow.ts` — capacidade e antecipação de visitas
-12. `backend/src/agent/prompt.ts` — camada de compat (delega à skill)
+2. `backend/src/agent/customer-lookup.ts` — identificação telefone → CPF
+3. `backend/src/agent/tools.ts` — ferramentas (inclui `consultar_disponibilidade_visita`, `salvar_cpf_cliente`) + stubs documentados
+4. `backend/src/agent/skill/` — prompt dinâmico e config por tenant (substitui prompt estático)
+5. `backend/src/agent/nps-flow.ts` — fluxo NPS completo
+6. `backend/src/agent/customer-memory.ts` — insights cross-session
+7. `backend/src/agent/quick-reply.ts` — FAQ sem LLM
+8. `backend/src/lib/phone.ts` — JID/LID/newsletter, normalização BR
+9. `backend/src/integrations/sgp/client.ts` — comunicação com SGP
+10. `backend/src/integrations/whatsapp/providers/evolution-go.ts` — parser de webhooks + resolução de mídia
+11. `backend/src/integrations/whatsapp/media-download.ts` — download + descriptografia + unwrap
+12. `backend/src/agent/vision.ts`, `transcribe.ts`, `media-context.ts` — imagem, áudio, prioridade no prompt
+13. `backend/src/automations/pattern-detector.ts` — alertas operacionais (cron 30 min)
+14. `backend/src/agent/visit-scheduling.ts` + `bring-forward-flow.ts` — capacidade e antecipação de visitas
+15. `backend/src/agent/prompt.ts` — camada de compat (delega à skill)
 
 ---
 
@@ -557,12 +626,13 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - `BUSINESS_INFO.installationFee` alterada para `50`.
 - Frontend público (`src/pages/Home.tsx` e `src/pages/Plans.tsx`) atualizado para refletir os novos planos e taxa de instalação.
 
-### 5) Suporte a áudio e imagem (implementado)
+### 5) Suporte a áudio e imagem ✅ produção (2026-05)
 
-- `media-download.ts`: download + descriptografia local (HKDF + AES-256-CBC) de mídia WhatsApp, tolerante a caixa de campos (`URL`/`mediaKey`).
-- `evolution-go.ts.resolveMessageBody`: áudio → Groq Whisper (`transcribe.ts`), imagem → Gemini (`vision.ts`); fallback `POST /message/downloadimage` para imagem.
-- `transcribe.ts`/`vision.ts` agora recebem buffer descriptografado (`DecryptedMedia`), não URL.
-- Requer `GROQ_API_KEY` (áudio) e `GEMINI_API_KEY` (imagem).
+- Download + descriptografia local (HKDF + AES-256-CBC); `unwrapWhatsAppMessage` para view-once/ephemeral.
+- Áudio: Groq `whisper-large-v3`, formato `(voz do cliente): "..."`, prioridade no prompt.
+- Imagem: Gemini **`gemini-2.5-flash`** com fallbacks; descreve qualquer foto em PT (não só comprovante).
+- Requer `GROQ_API_KEY` e `GEMINI_API_KEY` no Railway (serviço `salesnet`, não Evolution/Vercel).
+- Logs confirmados: `[vision] ok`, `[transcribe] ok`, `[media] image/audio resolved`.
 
 ### 6) Agendamento com capacidade e antecipação (implementado)
 
@@ -583,6 +653,24 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - Dedup por tipo (+bairro) em 4h; notificação WhatsApp ao `ADMIN_ALERT_PHONE`.
 - Painel `src/pages/admin/Alerts.tsx` (`/admin/alertas`) + rotas `GET/PATCH /api/admin/alerts`
   + badge de contagem de abertos no `AdminLayout`.
+- Fix `churn_wave` (`1090dec`): contagem em memória — PostgREST `.contains()` em `tool_calls` falhava.
+
+### 9) Identificação por CPF (implementado)
+
+- `lookupCustomer`: telefone → CPF (mensagem/thread) → phone armazenado por CPF.
+- Tools `buscar_cliente(cpf)` e `salvar_cpf_cliente`; migration `023` (`conversation_threads.cpf`).
+- SGP `consultacliente` aceita parâmetro `cpf` (11 dígitos).
+
+### 10) JIDs LID e filtro de canais (implementado)
+
+- Suporte `@lid` + resolução de telefone via `SenderAlt`/`senderPn`.
+- Ignora `@newsletter`, `@broadcast`, `@g.us`, `@status` antes do processamento.
+- Boot log `commit=<sha>` para verificar deploy no Railway.
+
+### 11) Supabase service_role (implementado)
+
+- Validação de JWT no boot (`config/supabase.ts`).
+- Migration `027` — políticas RLS faltantes em tabelas novas.
 
 ---
 
@@ -607,11 +695,17 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 
 **Próximo passo:** ampliar heurística de duplicidade (ex.: comparar similaridade de descrição/tipo e janela de tempo) antes de abrir novo chamado.
 
-### 3. Suporte a áudio e imagem ✅ implementado
+### 3. Suporte a áudio e imagem ✅ implementado em produção
 
-**Status atual:** áudio (Groq Whisper) e imagem (Gemini) processados de ponta a ponta — ver "Mídia recebida" no Evolution Go e atualização recente (5).
+**Status atual:** confirmado em logs Railway — `gemini-2.5-flash` + `whisper-large-v3`.
 
 **Próximo passo:** suporte a documento PDF (parse de boleto) — hoje vídeo/documento só geram texto orientando o cliente a reenviar como foto/texto.
+
+### 3b. Identificação por CPF ✅ implementado (validar cenário real)
+
+**Status atual:** cascata telefone → CPF no código; migration `023` em produção.
+
+**Próximo passo:** teste com WhatsApp não cadastrado + CPF válido no SGP; melhorar extração quando Sofia pediu CPF e cliente responde só 11 dígitos.
 
 ### 4. Script de diagnóstico de velocidade
 
@@ -668,3 +762,7 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não leia campos de mídia em minúsculo** — whatsmeow usa `URL`/`mediaKey` (maiúsculo); use `pickField` em `media-download.ts`
 - **Não empilhe visitas no mesmo turno** — `agendar_visita` deve checar `isSlotAvailable` (1 por turno); ofereça alternativas
 - **Não transfira para humano por padrão** — Sofia é AI-first; só `transferir_humano` em pedido explícito, cancelamento ou ameaça jurídica
+- **Não use `.contains()` PostgREST em `interaction_logs.tool_calls`** — falha silenciosa no detector de churn; filtrar em memória ou usar SQL/RPC
+- **Não trate logs `@newsletter` como falha de atendimento** — são canais WhatsApp; devem ser ignorados silenciosamente
+- **Não use chave anon do Supabase como `SUPABASE_SERVICE_ROLE_KEY`** — causa `permission denied for table whatsapp_instances`
+- **Não use `gemini-2.0-flash` para visão** — 404 em chaves novas; usar `gemini-2.5-flash`

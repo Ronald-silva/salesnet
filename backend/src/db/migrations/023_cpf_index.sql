@@ -1,8 +1,7 @@
 -- 023_cpf_index.sql
--- O SGP não aceita CPF como parâmetro de busca (/api/ura/consultacliente/ só
--- aceita telefone ou contrato). Mantemos um índice próprio no Supabase: quando
--- o cliente informa o CPF numa conversa, gravamos em conversation_threads.cpf
--- (associado ao phone) para localizar o contrato em contatos futuros.
+-- Índice local de CPF por thread (telefone WhatsApp ↔ cpf). Identificação primária
+-- via SGP consultacliente com parâmetro cpf= (11 dígitos). Gravamos cpf quando o
+-- cliente informa ou quando encontramos pelo telefone, para contatos futuros.
 
 ALTER TABLE conversation_threads
   ADD COLUMN IF NOT EXISTS cpf TEXT;
