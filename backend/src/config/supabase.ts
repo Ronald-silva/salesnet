@@ -17,7 +17,16 @@ export function normalizeSupabaseKey(raw: string): string {
 }
 
 export function getNormalizedSupabaseUrl(): string {
-  return env.SUPABASE_URL.replace(/^\uFEFF/, '').trim().replace(/\/$/, '');
+  return env.SUPABASE_URL
+    .replace(/^\uFEFF/, '')
+    .trim()
+    .replace(/\/$/, '')
+    .replace(/\/rest\/v1\/?$/i, '');
+}
+
+/** True when SUPABASE_URL is exactly https://<ref>.supabase.co */
+export function isCanonicalSupabaseUrl(): boolean {
+  return getSupabaseUrlProjectRef() !== null;
 }
 
 export function getNormalizedSupabaseKey(): string {
@@ -87,7 +96,16 @@ export function assertSupabaseServiceRoleKey(): void {
 
 assertSupabaseServiceRoleKey();
 
-export const supabase = createClient(
-  getNormalizedSupabaseUrl(),
-  getNormalizedSupabaseKey(),
-);
+export const supabase = createClient(getNormalizedSupabaseUrl(), getNormalizedSupabaseKey(), {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
+});
+
+/** PostgREST hints often name the role that actually ran the query (e.g. anon, not service_role). */
+export function inferPostgrestRoleFromHint(hint: string | null | undefined): string | null {
+  const match = hint?.match(/TO\s+(\w+)/i);
+  return match?.[1] ?? null;
+}

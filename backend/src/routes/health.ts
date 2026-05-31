@@ -7,34 +7,90 @@ import {
   isSupabaseServiceRoleKey,
   getSupabaseKeyFingerprint,
   getNormalizedSupabaseKey,
+  getNormalizedSupabaseUrl,
   isSupabaseKeyExpired,
+  isCanonicalSupabaseUrl,
+  inferPostgrestRoleFromHint,
 } from '../config/supabase';
 import { env } from '../config/env';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 
 type CheckResult = { ok: boolean; latencyMs?: number };
 
-async function checkSupabase(): Promise<CheckResult & { latencyMs: number; error?: string }> {
-  const start = Date.now();
+async function checkSupabaseDirectRest(): Promise<{
+  ok: boolean;
+  status?: number;
+  error?: string;
+}> {
+  const url = getNormalizedSupabaseUrl();
+  const key = getNormalizedSupabaseKey();
   try {
-    const { error } = await supabase.from('whatsapp_instances').select('id').limit(1);
-    const permissionDenied = Boolean(error?.message && /permission denied/i.test(error.message));
-    const keyOk = isSupabaseServiceRoleKey();
-    let hint: string | undefined;
-    if (permissionDenied) {
-      hint = keyOk
-        ? 'JWT role is service_role but API still denied. DB grants are OK if SET ROLE service_role worked in SQL Editor. Re-copy the current service_role secret into Railway SUPABASE_SERVICE_ROLE_KEY (no quotes), compare keyFp with local .env, redeploy backend.'
-        : 'SUPABASE_SERVICE_ROLE_KEY must be the service_role secret (Supabase → Settings → API), not anon/public.';
+    const res = await fetch(`${url}/rest/v1/whatsapp_instances?select=id&limit=1`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      return { ok: false, status: res.status, error: body.slice(0, 200) };
     }
-    return {
-      ok: !error,
-      latencyMs: Date.now() - start,
-      ...(error ? { error: error.message } : {}),
-      ...(hint ? { hint } : {}),
-    };
+    return { ok: true, status: res.status };
   } catch (err) {
-    return { ok: false, latencyMs: Date.now() - start, error: (err as Error).message };
+    return { ok: false, error: (err as Error).message };
   }
+}
+
+async function checkSupabase(): Promise<
+  CheckResult & {
+    latencyMs: number;
+    error?: string;
+    code?: string;
+    restDirectOk?: boolean;
+    restDirectStatus?: number;
+    restDirectError?: string;
+    postgrestHint?: string | null;
+    postgrestRole?: string | null;
+    hint?: string;
+  }
+> {
+  const start = Date.now();
+  const [clientResult, directResult] = await Promise.all([
+    supabase.from('whatsapp_instances').select('id').limit(1),
+    checkSupabaseDirectRest(),
+  ]);
+  const error = clientResult.error;
+  const permissionDenied = Boolean(error?.message && /permission denied/i.test(error.message));
+  let hint: string | undefined;
+  if (error) {
+    const effectiveRole = inferPostgrestRoleFromHint(error.hint);
+    if (!isCanonicalSupabaseUrl()) {
+      hint =
+        'SUPABASE_URL must be https://<ref>.supabase.co (no /rest/v1). Check Railway Variables and Supabase plugin overrides.';
+    } else if (effectiveRole && effectiveRole !== 'service_role') {
+      hint = `PostgREST effective role is "${effectiveRole}" (not service_role). JWT may be invalid on this host or wrong API key is active. Compare keyFp/keyLen with local curl.`;
+    } else if (directResult.ok && permissionDenied) {
+      hint = 'REST fetch OK but supabase-js client denied — check client auth options.';
+    } else if (!directResult.ok && permissionDenied) {
+      hint =
+        'PostgREST denied access from this host. If local curl with the same key works, check Railway env overrides and SUPABASE_URL.';
+    } else if (!isSupabaseServiceRoleKey()) {
+      hint = 'SUPABASE_SERVICE_ROLE_KEY JWT payload role is not service_role.';
+    }
+  }
+  return {
+    ok: !error,
+    latencyMs: Date.now() - start,
+    ...(error
+      ? {
+          error: error.message,
+          code: error.code,
+          postgrestHint: error.hint ?? null,
+          postgrestRole: inferPostgrestRoleFromHint(error.hint),
+        }
+      : {}),
+    restDirectOk: directResult.ok,
+    restDirectStatus: directResult.status,
+    ...(directResult.error ? { restDirectError: directResult.error } : {}),
+    ...(hint ? { hint } : {}),
+  };
 }
 
 async function checkEvolutionGo(): Promise<CheckResult> {
@@ -63,9 +119,16 @@ export async function buildHealthPayload(): Promise<{
       keyFp?: string;
       keyLen?: number;
       keyExpired?: boolean;
+      supabaseUrl?: string;
+      urlCanonical?: boolean;
       urlProjectRef?: string | null;
       jwtProjectRef?: string | null;
       projectRefMatch?: boolean;
+      restDirectOk?: boolean;
+      restDirectStatus?: number;
+      restDirectError?: string;
+      postgrestHint?: string | null;
+      postgrestRole?: string | null;
     };
     evolutionGo: CheckResult;
   };
@@ -96,6 +159,8 @@ export async function buildHealthPayload(): Promise<{
         keyFp: getSupabaseKeyFingerprint(),
         keyLen: getNormalizedSupabaseKey().length,
         keyExpired: isSupabaseKeyExpired(),
+        supabaseUrl: getNormalizedSupabaseUrl(),
+        urlCanonical: isCanonicalSupabaseUrl(),
         urlProjectRef,
         jwtProjectRef,
         projectRefMatch: urlProjectRef !== null && jwtProjectRef !== null && urlProjectRef === jwtProjectRef,
