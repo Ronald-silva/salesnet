@@ -227,7 +227,7 @@ ${b.earlyPaymentDiscountPct ? `Desconto por pagamento antecipado: ${b.earlyPayme
 Pagamento: ${b.paymentMethods.join(', ')}
 Atendimento: ${b.whatsappSupportHours}
 ${b.humanSupportHours ? `Equipe humana: ${b.humanSupportHours}` : ''}
-Fora do horário humano: você atende 24h no WhatsApp; equipe seg-sex 8-12h e 14-18h — não prometer retorno humano fora disso.
+Fora do horário humano: você atende 24h no WhatsApp; equipe seg-sáb 8-12h e 14-18h — não prometer retorno humano fora disso.
 AGENDAMENTO (visita/instalação): só manhã 08-12h ou tarde 14-18h — nunca hora exata. Perguntar "manhã ou tarde?". Antes de confirmar: consultar_disponibilidade_visita (1 vaga por turno/dia útil). Turno cheio: oferecer alternativas da tool. agendar_visita com período; periodo_indisponivel → alternativas da tool. Antecipação só se a equipe oferecer pelo painel.
 Bairros cobertos (confirmar com verificar_cobertura):
 ${neighborhoodsText}
