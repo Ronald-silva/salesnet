@@ -11,6 +11,7 @@
 
 import { supabase } from '../config/supabase';
 import { whatsappService } from '../services/whatsapp-service';
+import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 import {
   fortalezaToday,
   fortalezaCurrentPeriod,
@@ -97,7 +98,7 @@ export async function offerBringForward(
     `Se preferir manter o horário que já estava combinado, é só responder NÃO ou ignorar esta mensagem.`;
 
   try {
-    await whatsappService.sendText(tenantId, visit.phone, message);
+    await whatsappService.sendText(tenantId, visit.phone, sanitizeOutgoingMessage(message));
   } catch (err) {
     // Reverte a oferta se não conseguimos avisar o cliente.
     await supabase
@@ -157,8 +158,10 @@ export async function handleBringForwardReply(
     await whatsappService.sendText(
       tenantId,
       phone,
-      `Perfeito! ✅ Encaixei a sua ${typeLabel(offer.type)} pra hoje no período da ${periodLabelPt(period)}. ` +
-        `A equipe vai entrar em contato antes de chegar. Qualquer coisa, é só me chamar!`,
+      sanitizeOutgoingMessage(
+        `Perfeito! ✅ Encaixei a sua ${typeLabel(offer.type)} pra hoje no período da ${periodLabelPt(period)}. ` +
+          `A equipe vai entrar em contato antes de chegar. Qualquer coisa, é só me chamar!`,
+      ),
     );
     return true;
   }
@@ -172,7 +175,7 @@ export async function handleBringForwardReply(
     await whatsappService.sendText(
       tenantId,
       phone,
-      `Sem problema! 😊 Mantemos o horário que já estava combinado. Até lá!`,
+      sanitizeOutgoingMessage(`Sem problema! 😊 Mantemos o horário que já estava combinado. Até lá!`),
     );
     return true;
   }

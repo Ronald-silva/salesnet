@@ -21,6 +21,7 @@ import { shouldSendNps, parseNpsResponse, saveNpsResponse, scheduleNps, getPendi
 import { handleBringForwardReply } from './bring-forward-flow';
 import { randomUUID } from 'crypto';
 import { withPhoneLock } from '../utils/phone-mutex';
+import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 import { warnIfDailyBudgetExceeded } from './llm-budget';
 import { isSendableWhatsAppTarget } from '../lib/phone';
 
@@ -781,7 +782,8 @@ export async function processMessage(
     }
 
     await saveMessage(phone, 'assistant', finalText, tenantId);
-    await whatsappService.sendText(tenantId, phone, finalText);
+    const safeResponse = sanitizeOutgoingMessage(finalText);
+    await whatsappService.sendText(tenantId, phone, safeResponse);
 
     // Schedule NPS before inserting the log so shouldSendNps sees the previous session
     if (sessionMode !== 'prospect') {

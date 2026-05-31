@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase';
 import { whatsappService } from '../services/whatsapp-service';
 import { env } from '../config/env';
+import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 
 interface VisitRow {
   id: string;
@@ -24,7 +25,11 @@ export async function sendVisitReminders(): Promise<void> {
     const msg = `Lembrete: o técnico da SalesNet chegará no seu endereço hoje pela ${period}. Certifique-se de que alguém estará em casa. 🔧`;
 
     try {
-      await whatsappService.sendText(env.DEFAULT_TENANT_ID, visit.phone, msg);
+      await whatsappService.sendText(
+        env.DEFAULT_TENANT_ID,
+        visit.phone,
+        sanitizeOutgoingMessage(msg),
+      );
       await supabase
         .from('scheduled_visits')
         .update({ reminder_sent: true })
@@ -50,7 +55,11 @@ export async function sendVisitFollowups(): Promise<void> {
     const msg = `Oi! O técnico da SalesNet passou aí. Seu problema foi resolvido? Responda 👍 se sim ou 👎 se ainda tiver alguma pendência.`;
 
     try {
-      await whatsappService.sendText(env.DEFAULT_TENANT_ID, visit.phone, msg);
+      await whatsappService.sendText(
+        env.DEFAULT_TENANT_ID,
+        visit.phone,
+        sanitizeOutgoingMessage(msg),
+      );
       await supabase
         .from('scheduled_visits')
         .update({ followup_sent: true })

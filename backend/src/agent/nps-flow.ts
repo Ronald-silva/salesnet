@@ -1,6 +1,7 @@
 import { supabase } from '../config/supabase';
 import { getCustomerByPhone } from '../integrations/sgp/customers';
 import { markChurnRiskByPhone } from './tools';
+import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 
 type NpsPending = {
   sessionId: string;
@@ -250,11 +251,10 @@ export function scheduleNps(
       if (!current || current.sessionId !== sessionId) return;
 
       try {
-        await sendFn(
-          tenantId,
-          phone,
+        const npsMessage = sanitizeOutgoingMessage(
           'Obrigada por falar com a SalesNet!\n\nComo você avalia o atendimento de hoje? Responda só com o número:\n1 - Muito ruim\n2 - Ruim\n3 - Regular\n4 - Bom\n5 - Excelente',
         );
+        await sendFn(tenantId, phone, npsMessage);
         current.sent = true;
       } catch (err) {
         console.error('[nps] failed to send NPS question:', err);

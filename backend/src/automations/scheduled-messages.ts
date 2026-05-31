@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
 import { whatsappService } from '../services/whatsapp-service';
+import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 
 interface ScheduledMessageRow {
   id: string;
@@ -26,7 +27,11 @@ export async function processScheduledMessages(): Promise<void> {
 
   for (const row of (data ?? []) as ScheduledMessageRow[]) {
     try {
-      await whatsappService.sendText(row.tenant_id, row.phone, row.message);
+      await whatsappService.sendText(
+        row.tenant_id,
+        row.phone,
+        sanitizeOutgoingMessage(row.message),
+      );
       const { error: updateError } = await supabase
         .from('scheduled_messages')
         .update({ sent: true, sent_at: new Date().toISOString() })
