@@ -5,6 +5,7 @@ import { Wifi, WifiOff, RefreshCw, CheckCircle2, Loader2, Plus, Trash2 } from 'l
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 
 type Status = 'loading' | 'connected' | 'disconnected' | 'error';
 
@@ -70,7 +71,8 @@ function ConnectionCard() {
   }, [status, qrCode, fetchQR]);
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card p-6 space-y-4 max-w-2xl">
+    <Card className="border-border/50 rounded-xl overflow-hidden">
+      <CardContent className="p-4 sm:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="font-medium flex items-center gap-2">
           {status === 'connected' ? (
@@ -156,7 +158,8 @@ function ConnectionCard() {
           Verificando status...
         </div>
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -185,7 +188,8 @@ function InstancesCard() {
   const list = instances.data?.instances ?? [];
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card p-6 space-y-4 max-w-2xl">
+    <Card className="border-border/50 rounded-xl overflow-hidden">
+      <CardContent className="p-4 sm:p-6 space-y-4">
       <h2 className="font-medium">Instâncias WhatsApp</h2>
 
       <div className="flex gap-2">
@@ -238,13 +242,14 @@ function InstancesCard() {
           </div>
         ))}
       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 export default function WhatsAppSettings() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ConnectionCard />
       <InstancesCard />
     </div>

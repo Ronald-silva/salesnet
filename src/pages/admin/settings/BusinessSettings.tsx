@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Card, CardContent } from '@/components/ui/card';
 import { Plus, Trash2 } from 'lucide-react';
 
 type PlanDraft = BusinessConfig['plans'][number];
@@ -95,9 +96,9 @@ export default function BusinessSettings() {
   }
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* ── Agente e atendimento ─────────────────────────────────────────── */}
-      <section className="rounded-xl border border-border/50 p-6 space-y-4">
+    <div className="space-y-4">
+      <Card className="border-border/50 rounded-xl overflow-hidden">
+        <CardContent className="p-4 sm:p-6 space-y-4">
         <h2 className="font-medium">Agente e atendimento</h2>
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
@@ -142,10 +143,11 @@ export default function BusinessSettings() {
             onChange={(e) => setLlmBudget(e.target.value)}
           />
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      {/* ── Planos ───────────────────────────────────────────────────────── */}
-      <section className="rounded-xl border border-border/50 p-6 space-y-4">
+      <Card className="border-border/50 rounded-xl overflow-hidden">
+        <CardContent className="p-4 sm:p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Planos</h2>
           <Button variant="outline" size="sm" onClick={addPlan}>
@@ -155,7 +157,7 @@ export default function BusinessSettings() {
         </div>
         <div className="space-y-3">
           {plans.map((plan, index) => (
-            <div key={index} className="grid gap-2 sm:grid-cols-[1fr_repeat(3,90px)_auto] items-end">
+            <div key={index} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_repeat(3,100px)_auto] items-end">
               <div className="space-y-1">
                 <Label className="text-xs">Nome</Label>
                 <Input value={plan.name} onChange={(e) => updatePlan(index, 'name', e.target.value)} />
@@ -198,10 +200,11 @@ export default function BusinessSettings() {
             <p className="text-sm text-muted-foreground">Nenhum plano cadastrado.</p>
           )}
         </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      {/* ── Bairros cobertos ─────────────────────────────────────────────── */}
-      <section className="rounded-xl border border-border/50 p-6 space-y-3">
+      <Card className="border-border/50 rounded-xl overflow-hidden">
+        <CardContent className="p-4 sm:p-6 space-y-3">
         <h2 className="font-medium">Bairros cobertos</h2>
         <p className="text-sm text-muted-foreground">Um bairro por linha.</p>
         <Textarea
@@ -209,9 +212,10 @@ export default function BusinessSettings() {
           value={neighborhoods}
           onChange={(e) => setNeighborhoods(e.target.value)}
         />
-      </section>
+        </CardContent>
+      </Card>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 pt-1">
         <Button onClick={handleSave} disabled={save.isPending}>
           {save.isPending ? 'Salvando...' : 'Salvar configurações'}
         </Button>
