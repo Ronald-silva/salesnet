@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone, getCustomerById, getCurrentInvoice } from '../integrations/sgp';
+import { getCustomerByCpf } from '../integrations/sgp/customers';
 import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
@@ -733,7 +734,9 @@ adminRouter.get('/customers/search', async (req, res) => {
   let customer: unknown = null;
 
   try {
-    if (digits.length >= 10) {
+    if (digits.length === 11 && !digits.startsWith('55')) {
+      customer = await getCustomerByCpf(digits).catch(() => null);
+    } else if (digits.length >= 10) {
       customer = await getCustomerByPhone(digits);
     } else {
       customer = await getCustomerById(q);
