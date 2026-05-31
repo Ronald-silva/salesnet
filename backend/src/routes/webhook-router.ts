@@ -75,7 +75,9 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
 
     // Só enfileira mensagens recebidas que tenham telefone e corpo
     if (parsed.type === 'message_received' && !parsed.data.fromPhone) {
-      console.warn(`[webhook] message_received without valid phone instance=${instanceName}`);
+      console.warn(
+        `[webhook] message_received without valid phone instance=${instanceName} from=${parsed.data.from ?? '-'}`,
+      );
       return;
     }
     if (parsed.type === 'message_received' && !parsed.data.body) return;

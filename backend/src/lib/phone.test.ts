@@ -1,49 +1,86 @@
-import { isValidBrazilWhatsAppDigits, normalizePhone, phoneFromWhatsAppJid, toWhatsAppSendDigits } from './phone';
+import {
+  collectWebhookJidCandidates,
+  isSendableWhatsAppTarget,
+  lidThreadKey,
+  phoneFromWhatsAppJid,
+  resolveWebhookContact,
+  toWhatsAppSendJid,
+} from './phone';
 
-describe('normalizePhone', () => {
-  it('normalizes number already in E.164 with +55', () => {
-    expect(normalizePhone('+55 85 99199-3833')).toBe('+5585991993833');
+describe('resolveWebhookContact', () => {
+  it('resolves phone from standard JID', () => {
+    const result = resolveWebhookContact(
+      { Sender: '5585991993833@s.whatsapp.net' },
+      {},
+    );
+    expect(result.fromPhone).toBe('+5585991993833');
+    expect(result.replyJid).toBe('5585991993833@s.whatsapp.net');
   });
 
-  it('normalizes number with 55 prefix but no plus sign', () => {
-    expect(normalizePhone('5585991993833')).toBe('+5585991993833');
+  it('resolves phone from SenderAlt when Sender is LID', () => {
+    const result = resolveWebhookContact(
+      {
+        Sender: '218923106434420@lid',
+        SenderAlt: '5585991993833@s.whatsapp.net',
+      },
+      {},
+    );
+    expect(result.fromPhone).toBe('+5585991993833');
+    expect(result.replyJid).toBe('218923106434420@lid');
   });
 
-  it('normalizes local mobile number with 9th digit', () => {
-    expect(normalizePhone('(85) 99199-3833')).toBe('+5585991993833');
+  it('falls back to lid thread key when only LID is available', () => {
+    const result = resolveWebhookContact(
+      { Sender: '218923106434420@lid' },
+      {},
+    );
+    expect(result.fromPhone).toBe('lid:218923106434420');
+    expect(result.replyJid).toBe('218923106434420@lid');
   });
 
-  it('normalizes WhatsApp JID', () => {
-    expect(normalizePhone('5585991993833@s.whatsapp.net')).toBe('+5585991993833');
+  it('reads senderPn from nested key', () => {
+    const result = resolveWebhookContact(
+      { Sender: '218923106434420@lid' },
+      { key: { senderPn: '5585888887777@s.whatsapp.net' } },
+    );
+    expect(result.fromPhone).toBe('+5585888887777');
   });
 });
 
-describe('isValidBrazilWhatsAppDigits', () => {
-  it('accepts valid BR mobile', () => {
-    expect(isValidBrazilWhatsAppDigits('5585991993833')).toBe(true);
+describe('toWhatsAppSendJid', () => {
+  it('builds JID for LID thread key', () => {
+    expect(toWhatsAppSendJid('lid:218923106434420')).toBe('218923106434420@lid');
   });
 
-  it('rejects malformed long JID digits', () => {
-    expect(isValidBrazilWhatsAppDigits('55120363284547575710')).toBe(false);
+  it('builds JID for BR phone', () => {
+    expect(toWhatsAppSendJid('+5585991993833')).toBe('5585991993833@s.whatsapp.net');
+  });
+});
+
+describe('isSendableWhatsAppTarget', () => {
+  it('accepts lid thread keys', () => {
+    expect(isSendableWhatsAppTarget('lid:218923106434420')).toBe(true);
+  });
+});
+
+describe('collectWebhookJidCandidates', () => {
+  it('deduplicates JIDs', () => {
+    const list = collectWebhookJidCandidates(
+      { Sender: '5585991993833@s.whatsapp.net', Chat: '5585991993833@s.whatsapp.net' },
+      {},
+    );
+    expect(list).toHaveLength(1);
+  });
+});
+
+describe('lidThreadKey', () => {
+  it('extracts local part', () => {
+    expect(lidThreadKey('218923106434420@lid')).toBe('lid:218923106434420');
   });
 });
 
 describe('phoneFromWhatsAppJid', () => {
-  it('returns E.164 for valid JID', () => {
-    expect(phoneFromWhatsAppJid('5585991993833@s.whatsapp.net')).toBe('+5585991993833');
-  });
-
-  it('returns null for invalid JID', () => {
-    expect(phoneFromWhatsAppJid('55120363284547575710@s.whatsapp.net')).toBeNull();
-  });
-});
-
-describe('toWhatsAppSendDigits', () => {
-  it('returns digits for valid phone', () => {
-    expect(toWhatsAppSendDigits('+5585991993833')).toBe('5585991993833');
-  });
-
-  it('returns null for invalid phone', () => {
-    expect(toWhatsAppSendDigits('55120363284547575710')).toBeNull();
+  it('returns null for LID JID', () => {
+    expect(phoneFromWhatsAppJid('218923106434420@lid')).toBeNull();
   });
 });

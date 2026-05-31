@@ -22,7 +22,7 @@ import { handleBringForwardReply } from './bring-forward-flow';
 import { randomUUID } from 'crypto';
 import { withPhoneLock } from '../utils/phone-mutex';
 import { warnIfDailyBudgetExceeded } from './llm-budget';
-import { toWhatsAppSendDigits } from '../lib/phone';
+import { isSendableWhatsAppTarget } from '../lib/phone';
 
 type Provider = 'anthropic' | 'deepseek';
 
@@ -813,7 +813,7 @@ export async function processMessage(
     await warnIfDailyBudgetExceeded();
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);
-    if (toWhatsAppSendDigits(phone)) {
+    if (isSendableWhatsAppTarget(phone)) {
       await whatsappService
         .sendText(tenantId, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.')
         .catch((e: unknown) => console.error('[processor] failed to send error reply:', e));

@@ -14,7 +14,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
-import { normalizePhone, phoneFromWhatsAppJid, toWhatsAppSendDigits } from '../../../lib/phone';
+import { normalizePhone, resolveWebhookContact, collectWebhookJidCandidates, toWhatsAppSendJid } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
 import { formatVoiceMessage } from '../../../agent/media-context';
 import { analyzeImage, formatImageBody } from '../../../agent/vision';
@@ -94,11 +94,11 @@ interface EvoGoWebhookPayload {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function phoneToJid(phone: string): string {
-  const digits = toWhatsAppSendDigits(phone);
-  if (!digits) {
+  const jid = toWhatsAppSendJid(phone);
+  if (!jid) {
     throw new Error(`invalid WhatsApp number for send: ${phone}`);
   }
-  return `${digits}@s.whatsapp.net`;
+  return jid;
 }
 
 function mapEventType(event: string): WebhookEventType {
@@ -508,8 +508,6 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     // Evolution Go nests message metadata under data.Info in some versions;
     // other versions (or media events) put fields directly on data.
     const info = data.Info ?? {};
-    const chatJid   = info.Chat     ?? (data as unknown as { Chat?: string }).Chat     ?? '';
-    const senderJid = info.Sender   ?? (data as unknown as { Sender?: string }).Sender ?? '';
     const pushName  = info.PushName ?? (data as unknown as { PushName?: string }).PushName;
     const msgId     = info.ID       ?? (data as unknown as { ID?: string }).ID;
     const isFromMe  = info.IsFromMe ?? (data as unknown as { IsFromMe?: boolean }).IsFromMe ?? false;
@@ -536,18 +534,24 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     if (eventType === 'message_received' && !isFromMe) {
-      const jid = senderJid || chatJid;
       const msg = data.Message as Record<string, unknown> | undefined;
       const msgType = info.Type ?? '';
 
       const messageBody = await this.resolveMessageBody(msgType, msg, instanceName);
+      const contact = resolveWebhookContact(info as Record<string, unknown>, data as Record<string, unknown>);
+
+      if (!contact.fromPhone) {
+        console.warn(
+          `[webhook] could not resolve phone from JIDs: [${collectWebhookJidCandidates(info as Record<string, unknown>, data as Record<string, unknown>).join(', ')}]`,
+        );
+      }
 
       return {
         type: 'message_received',
         instanceName,
         data: {
-          from: jid,
-          fromPhone: jid ? phoneFromWhatsAppJid(jid) ?? undefined : undefined,
+          from: contact.replyJid,
+          fromPhone: contact.fromPhone,
           profileName: pushName,
           body: messageBody,
           messageId: msgId,
