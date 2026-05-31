@@ -16,6 +16,17 @@ export function isLidJid(jid: string): boolean {
   return jid.includes('@lid');
 }
 
+/** Canais, broadcast e grupos — não são atendimento 1:1. */
+export function isIgnorableWhatsAppJid(jid: string): boolean {
+  const lower = jid.toLowerCase();
+  return (
+    lower.endsWith('@newsletter') ||
+    lower.endsWith('@broadcast') ||
+    lower.endsWith('@g.us') ||
+    lower.endsWith('@status')
+  );
+}
+
 /** Chave estável para threads quando só há LID (sem telefone exposto). */
 export function lidThreadKey(jid: string): string {
   const local = jid.replace(/@[^@]+$/, '').replace(/\D/g, '');

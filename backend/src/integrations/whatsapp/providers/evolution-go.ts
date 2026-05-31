@@ -14,7 +14,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { env } from '../../../config/env';
-import { normalizePhone, resolveWebhookContact, collectWebhookJidCandidates, toWhatsAppSendJid } from '../../../lib/phone';
+import { normalizePhone, resolveWebhookContact, collectWebhookJidCandidates, toWhatsAppSendJid, isIgnorableWhatsAppJid } from '../../../lib/phone';
 import { transcribeAudio } from '../../../agent/transcribe';
 import { formatVoiceMessage } from '../../../agent/media-context';
 import { analyzeImage, formatImageBody } from '../../../agent/vision';
@@ -534,15 +534,24 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     if (eventType === 'message_received' && !isFromMe) {
+      const infoRecord = info as Record<string, unknown>;
+      const dataRecord = data as Record<string, unknown>;
+      const jidCandidates = collectWebhookJidCandidates(infoRecord, dataRecord);
+
+      if (jidCandidates.some(isIgnorableWhatsAppJid)) {
+        console.log(`[webhook] ignored non-chat JID: ${jidCandidates[0] ?? '-'}`);
+        return { type: 'unknown', instanceName, data: { raw: rawBody }, timestamp };
+      }
+
       const msg = data.Message as Record<string, unknown> | undefined;
       const msgType = info.Type ?? '';
 
       const messageBody = await this.resolveMessageBody(msgType, msg, instanceName);
-      const contact = resolveWebhookContact(info as Record<string, unknown>, data as Record<string, unknown>);
+      const contact = resolveWebhookContact(infoRecord, dataRecord);
 
       if (!contact.fromPhone) {
         console.warn(
-          `[webhook] could not resolve phone from JIDs: [${collectWebhookJidCandidates(info as Record<string, unknown>, data as Record<string, unknown>).join(', ')}]`,
+          `[webhook] could not resolve phone from JIDs: [${jidCandidates.join(', ')}]`,
         );
       }
 

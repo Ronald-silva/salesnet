@@ -1,6 +1,7 @@
 import {
   collectWebhookJidCandidates,
   isSendableWhatsAppTarget,
+  isIgnorableWhatsAppJid,
   lidThreadKey,
   phoneFromWhatsAppJid,
   resolveWebhookContact,
@@ -79,8 +80,12 @@ describe('lidThreadKey', () => {
   });
 });
 
-describe('phoneFromWhatsAppJid', () => {
-  it('returns null for LID JID', () => {
-    expect(phoneFromWhatsAppJid('218923106434420@lid')).toBeNull();
+describe('isIgnorableWhatsAppJid', () => {
+  it('ignores newsletter channels', () => {
+    expect(isIgnorableWhatsAppJid('120363404701403742@newsletter')).toBe(true);
+  });
+
+  it('allows standard chat JIDs', () => {
+    expect(isIgnorableWhatsAppJid('5585991993833@s.whatsapp.net')).toBe(false);
   });
 });
