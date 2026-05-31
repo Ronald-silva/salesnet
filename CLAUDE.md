@@ -31,39 +31,43 @@ Monorepo:
 ### Ordem exata de execução em `processMessage(phone, message)`
 
 ```
-1.  isHumanMode(phone)              → abandona silenciosamente se humano ativo
-2.  startMs = Date.now()            → timer para processing_ms
-3.  sanitizeUserInput(message)      → trunca 2000 chars, remove 15 padrões injection PT+EN
-3.5 handleBringForwardReply(phone)  → captura SIM/NÃO de oferta de antecipação de visita pendente (janela 20min); encerra se consumida
-4.  getPendingNps(phone)            → verifica se NPS está pendente para este número
-    4a. NPS não enviado → cancela NPS, continua
-    4b. NPS enviado + resposta numérica → salva, agradece, encerra
-    4c. NPS enviado + resposta não-numérica → descarta NPS, continua
-5.  quickReply(clean, phone)        → FAQ sem LLM
-    5a. plans_list + cliente existente → retorna null (passa para LLM)
-    5b. qualquer outro match → retorna string, salva histórico, envia, encerra
-6.  saveMessage(phone, 'user', clean)
-7.  getThread(phone)                → histórico de conversa do Supabase
-8.  [parallel] lookupCustomer(phone → CPF) + getCustomerInsights(phone, tenantId)
-9.  get_fatura_atual(customerId)    → pré-executado se cliente existe (best-effort, não joga)
-10. verificar_cobertura('*')        → pré-executado se mensagem tem keyword de bairro
-11. classifySession(message, customerData, invoiceStatus)
-12. classifyMessageComplexity(message)
-13. monta systemWithContext:
-      getFortalezaContext()          ← hora local (UTC-3)
-      + SYSTEM_PROMPT
+1.   isHumanMode(phone, tenantId)     → abandona silenciosamente se humano ativo
+2.5  dedup por messageId              → insert em processed_message_ids; código 23505 = mensagem duplicada, encerra
+2.   startMs = Date.now()             → timer para processing_ms
+3.   sanitizeUserInput(message)       → trunca 2000 chars, remove 15 padrões injection PT+EN
+3.5  handleBringForwardReply(phone)   → captura SIM/NÃO de oferta de antecipação de visita pendente (janela 20min); encerra se consumida
+4.   getPendingNps(phone)             → verifica se NPS está pendente para este número
+     4a. NPS não enviado → cancela NPS, continua
+     4b. NPS enviado + resposta numérica → salva, agradece, encerra
+     4c. NPS enviado + resposta não-numérica → descarta NPS, continua
+5.   quickReply(clean, phone)         → FAQ sem LLM
+     5a. plans_list + cliente existente → retorna null (passa para LLM)
+     5b. qualquer outro match → retorna string, salva histórico, envia, encerra
+6.   saveMessage(phone, 'user', clean)
+7.   getThread(phone, tenantId)      → histórico de conversa do Supabase
+8.   [parallel] lookupCustomer(phone/CPF) + getCustomerInsights(phone, tenantId) + getSkillConfig(tenantId)
+9.   get_fatura_atual(customerId)     → pré-executado se cliente existe (best-effort, não joga)
+10.  verificar_cobertura('*')         → pré-executado se mensagem tem keyword de bairro (e não pede planos)
+11.  classifySession(message, customerData, invoiceStatus)
+11.5 disambiguateSessionMode(...)     → LLM leve em casos ambíguos; fallback para regex; registra session_classifier no tool log
+12.  monta systemWithContext:
+      getFortalezaContext()           ← hora local (UTC-3)
+      + buildSystemPrompt(skillConfig)
       + "Contexto do cliente atual: telefone, modo, dados JSON (sem senha/login)"
-      + buildIdentificationContext() ← aviso se identificado via CPF ou não encontrado
-      + buildMediaMessageContext()   ← PRIORIDADE se mensagem atual é áudio/imagem
-      + getXxxModeContext()          ← bloco de contexto por modo
-      + coverageContext              ← se relevante
-      + buildInsightsContext()       ← avisos baseados no histórico
-14. resolveTieredRouting(complexity, sessionMode)
-15. runLLMFlow(provider, history, systemWithContext, phone, initialToolLog, options)
-    └── loop tool-calling até cap do tier
-16. shouldSendNps(phone, tenantId)  ← consultado ANTES do insert (reflete sessão anterior)
-    scheduleNps(...)                ← setTimeout de 30min em memória (não persiste no banco)
-17. supabase.interaction_logs.insert({ phone, session_mode, tool_calls, response, processing_ms })
+      + buildModeContext(sessionMode, skillConfig)
+      + buildIdentificationContext()  ← aviso se identificado via CPF ou não encontrado
+      + buildMediaMessageContext()    ← PRIORIDADE se mensagem atual é áudio/imagem
+      + coverageContext               ← se relevante
+      + buildInsightsContext()        ← avisos baseados no histórico
+      + buildQualityExamples()        ← few-shot NPS (promise iniciada após passo 11)
+      + lookupKnowledge()             ← base de conhecimento (promise iniciada após passo 11)
+13.  (dentro de LLM_ROUTING_MODE=tiered) resolveTieredRouting(clean)
+      └── chama classifyMessageComplexity(message) internamente; escolhe provider e caps de tokens/rounds
+14.  runLLMFlow(provider, history, systemWithContext, phone, initialToolLog, options)
+      └── loop tool-calling até cap do tier
+15.  shouldSendNps(phone, tenantId)   ← consultado ANTES do insert (reflete sessão anterior)
+      scheduleNps(...)                ← setTimeout de 30min em memória (não persiste no banco)
+16.  supabase.interaction_logs.insert({ phone, session_mode, tool_calls, response, processing_ms })
 ```
 
 **Ponto crítico:** `shouldSendNps` é chamado ANTES do insert, portanto a query para "última sessão" ainda verifica a sessão anterior. Isso é intencional — evita enviar NPS na mesma sessão que acionou o check.
