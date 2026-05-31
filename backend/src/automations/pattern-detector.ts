@@ -198,20 +198,36 @@ async function detectBillingSpike(tenantId: string): Promise<void> {
 }
 
 // ── Detector 3 — onda de churn ───────────────────────────────────────────────
-async function detectChurnWave(tenantId: string): Promise<void> {
-  const { count, error } = await supabase
+async function countChurnRiskToolCalls(tenantId: string, sinceIso: string): Promise<number> {
+  const { data, error } = await supabase
     .from('interaction_logs')
-    .select('id', { count: 'exact', head: true })
+    .select('tool_calls')
     .eq('tenant_id', tenantId)
-    .gte('created_at', hoursAgoIso(24))
-    .contains('tool_calls', [{ name: 'marcar_churn_risk' }]);
+    .gte('created_at', sinceIso);
 
   if (error) {
-    console.error('[pattern-detector] churn query failed:', error.message);
-    return;
+    const detail =
+      error.message ||
+      (error as { code?: string; details?: string }).code ||
+      (error as { details?: string }).details ||
+      JSON.stringify(error);
+    throw new Error(detail);
   }
 
-  const total = count ?? 0;
+  return (data ?? []).filter((row) => {
+    const calls = row.tool_calls as Array<{ name?: string }> | null;
+    return Array.isArray(calls) && calls.some((t) => t.name === 'marcar_churn_risk');
+  }).length;
+}
+
+async function detectChurnWave(tenantId: string): Promise<void> {
+  let total: number;
+  try {
+    total = await countChurnRiskToolCalls(tenantId, hoursAgoIso(24));
+  } catch (err) {
+    console.error('[pattern-detector] churn query failed:', err instanceof Error ? err.message : err);
+    return;
+  }
   if (total <= 5) return;
   if (await existsRecentOpenAlert(tenantId, 'churn_wave')) return;
 
