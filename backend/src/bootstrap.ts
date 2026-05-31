@@ -12,7 +12,12 @@ import { EvolutionGoProvider } from './integrations/whatsapp/providers/evolution
 import { TwilioLegacyProvider } from './integrations/whatsapp/providers/twilio-legacy';
 import { instanceManager } from './services/instance-manager';
 import { logEvolutionWebhookHmacConfig } from './integrations/whatsapp/webhook-hmac-diagnostics';
-import { getSupabaseKeyRole, isSupabaseServiceRoleKey } from './config/supabase';
+import {
+  getSupabaseKeyRole,
+  isSupabaseServiceRoleKey,
+  getSupabaseKeyFingerprint,
+  getNormalizedSupabaseKey,
+} from './config/supabase';
 import { supabase } from './config/supabase';
 
 export function bootstrapProviders(): void {
@@ -67,7 +72,8 @@ export async function ensureDefaultInstance(): Promise<void> {
 
   const keyRole = getSupabaseKeyRole();
   console.log(
-    `[supabase] JWT role in SUPABASE_SERVICE_ROLE_KEY: ${keyRole ?? 'unknown'} (ok=${isSupabaseServiceRoleKey()})`,
+    `[supabase] JWT role in SUPABASE_SERVICE_ROLE_KEY: ${keyRole ?? 'unknown'} (ok=${isSupabaseServiceRoleKey()}) ` +
+      `fp=${getSupabaseKeyFingerprint()} len=${getNormalizedSupabaseKey().length}`,
   );
   const { error: probeError } = await supabase.from('whatsapp_instances').select('id').limit(1);
   if (probeError) {

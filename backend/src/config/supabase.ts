@@ -1,29 +1,68 @@
+import { createHash } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { env } from './env';
 
-function decodeJwtPayload(token: string): { role?: string; ref?: string } | null {
+type JwtPayload = { role?: string; ref?: string; exp?: number; iss?: string };
+
+/** Strip BOM, whitespace, and accidental surrounding quotes from Railway/env paste. */
+export function normalizeSupabaseKey(raw: string): string {
+  let key = raw.replace(/^\uFEFF/, '').trim();
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+  return key;
+}
+
+export function getNormalizedSupabaseUrl(): string {
+  return env.SUPABASE_URL.replace(/^\uFEFF/, '').trim().replace(/\/$/, '');
+}
+
+export function getNormalizedSupabaseKey(): string {
+  return normalizeSupabaseKey(env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function decodeJwtPayload(token: string): JwtPayload | null {
   const parts = token.split('.');
   if (parts.length < 2) return null;
   try {
     return JSON.parse(
       Buffer.from(parts[1]!.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
-    ) as { role?: string; ref?: string };
+    ) as JwtPayload;
   } catch {
     return null;
   }
 }
 
-/** Role claim from SUPABASE_SERVICE_ROLE_KEY JWT (for diagnostics only). */
+/** SHA-256 fingerprint (first 8 hex) — safe to log; never exposes the secret. */
+export function getSupabaseKeyFingerprint(): string {
+  return createHash('sha256').update(getNormalizedSupabaseKey(), 'utf8').digest('hex').slice(0, 8);
+}
+
+/** Role claim from SUPABASE_SERVICE_ROLE_KEY JWT (for diagnostics only; signature not verified). */
 export function getSupabaseKeyRole(): string | null {
-  return decodeJwtPayload(env.SUPABASE_SERVICE_ROLE_KEY.trim())?.role ?? null;
+  return decodeJwtPayload(getNormalizedSupabaseKey())?.role ?? null;
 }
 
 export function getSupabaseKeyProjectRef(): string | null {
-  return decodeJwtPayload(env.SUPABASE_SERVICE_ROLE_KEY.trim())?.ref ?? null;
+  return decodeJwtPayload(getNormalizedSupabaseKey())?.ref ?? null;
+}
+
+export function getSupabaseKeyExpiry(): number | null {
+  const exp = decodeJwtPayload(getNormalizedSupabaseKey())?.exp;
+  return typeof exp === 'number' ? exp : null;
+}
+
+export function isSupabaseKeyExpired(): boolean {
+  const exp = getSupabaseKeyExpiry();
+  if (exp === null) return false;
+  return exp * 1000 < Date.now();
 }
 
 export function getSupabaseUrlProjectRef(): string | null {
-  const match = env.SUPABASE_URL.trim().match(/^https:\/\/([^.]+)\.supabase\.co\/?$/);
+  const match = getNormalizedSupabaseUrl().match(/^https:\/\/([^.]+)\.supabase\.co\/?$/);
   return match?.[1] ?? null;
 }
 
@@ -49,6 +88,6 @@ export function assertSupabaseServiceRoleKey(): void {
 assertSupabaseServiceRoleKey();
 
 export const supabase = createClient(
-  env.SUPABASE_URL.trim(),
-  env.SUPABASE_SERVICE_ROLE_KEY.trim(),
+  getNormalizedSupabaseUrl(),
+  getNormalizedSupabaseKey(),
 );

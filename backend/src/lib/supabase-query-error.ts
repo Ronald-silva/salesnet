@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 
 const MISCONFIGURED_HINT =
-  'SUPABASE_SERVICE_ROLE_KEY must be the service_role secret from Supabase → Project Settings → API (not the anon/public key).';
+  'Supabase denied table access. If SET ROLE service_role works in SQL Editor, re-copy the current service_role secret into Railway (no quotes), redeploy, and compare /health keyFp with local .env.';
 
 /** Maps Supabase PostgREST errors to admin API responses; logs the raw message. */
 export function respondSupabaseQueryError(
