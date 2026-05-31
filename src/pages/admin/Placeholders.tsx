@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Users, Phone, CreditCard, Wifi, Receipt } from 'lucide-react';
+import { Search, Users, Phone, CreditCard, Wifi, Receipt, type LucideIcon } from 'lucide-react';
 import { adminApi } from '@/api/admin';
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader';
 import { Button } from '@/components/ui/button';
@@ -42,11 +42,23 @@ type InvoiceResult = {
   status?: 'open' | 'paid' | 'overdue' | 'cancelled';
 };
 type CustomerResult = {
-  name?: string;
-  status?: string;
-  plan?: { name?: string };
-  phone?: string;
   id?: string;
+  name?: string;
+  document?: string;
+  phone?: string;
+  status?: string;
+  plan?: { name?: string; downloadMbps?: number };
+  address?: {
+    street?: string;
+    number?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+  };
+  contratoValorAberto?: number;
+  contratoTitulosAReceber?: number;
+  cobVencimento?: number;
   invoice?: InvoiceResult | null;
 };
 
@@ -54,11 +66,13 @@ const CUSTOMER_STATUS_LABEL: Record<string, string> = {
   active: 'Ativo',
   inactive: 'Inativo',
   suspended: 'Suspenso',
+  cancelled: 'Cancelado',
 };
 const CUSTOMER_STATUS_CLASS: Record<string, string> = {
   active: 'bg-green-500/15 text-green-400 border-green-500/30',
   inactive: 'bg-muted/40 text-muted-foreground border-border',
   suspended: 'bg-destructive/15 text-destructive border-destructive/30',
+  cancelled: 'bg-destructive/15 text-destructive border-destructive/30',
 };
 const INVOICE_STATUS_LABEL: Record<string, string> = {
   open: 'Em aberto',
@@ -72,6 +86,45 @@ const INVOICE_STATUS_CLASS: Record<string, string> = {
   overdue: 'bg-destructive/15 text-destructive border-destructive/30',
   cancelled: 'bg-muted/40 text-muted-foreground border-border',
 };
+
+function fmt(v: string | number | undefined | null, fallback = '—'): string {
+  if (v == null || v === '') return fallback;
+  return String(v);
+}
+
+function fmtCpf(doc: string | undefined): string {
+  if (!doc) return '—';
+  const d = doc.replace(/\D/g, '');
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  return doc;
+}
+
+function fmtCurrency(v: number | undefined): string {
+  if (v == null) return '—';
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function Row({ icon: Icon, label, value }: { icon: React.ReactElement<{ className?: string }>; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-muted-foreground shrink-0">
+        {React.cloneElement(Icon as React.ReactElement<{ className: string }>, { className: 'h-4 w-4' })}
+      </span>
+      <span className="text-muted-foreground">{label}</span>
+      <span className="ml-auto font-medium text-right">{value}</span>
+    </div>
+  );
+}
+
+function fmtAddress(a: CustomerResult['address']): string {
+  if (!a) return '—';
+  const parts = [
+    a.street && a.number ? `${a.street}, ${a.number}` : a.street,
+    a.neighborhood,
+    a.city,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' — ') : '—';
+}
 
 export function ClientesPage() {
   const [query, setQuery] = useState('');
@@ -136,65 +189,88 @@ export function ClientesPage() {
       )}
 
       {customer && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* ── Dados cadastrais ── */}
           <Card className="rounded-xl border-border/50 overflow-hidden">
             <CardContent className="p-4 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent mt-0.5">
                   <Users className="h-4 w-4" />
                 </div>
-                <div className="min-w-0">
-                  <p className="font-semibold truncate">{customer.name ?? '—'}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold leading-tight">{fmt(customer.name)}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{fmtCpf(customer.document)}</p>
                   <Badge
                     variant="outline"
-                    className={`mt-1 text-xs ${CUSTOMER_STATUS_CLASS[customer.status ?? ''] ?? 'bg-muted/40 text-muted-foreground border-border'}`}
+                    className={`mt-2 text-xs ${CUSTOMER_STATUS_CLASS[customer.status ?? ''] ?? 'bg-muted/40 text-muted-foreground border-border'}`}
                   >
                     {CUSTOMER_STATUS_LABEL[customer.status ?? ''] ?? customer.status ?? '—'}
                   </Badge>
                 </div>
               </div>
 
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="text-muted-foreground">Contrato</span>
-                  <span className="ml-auto font-medium">{customer.id ?? '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="text-muted-foreground">Telefone</span>
-                  <span className="ml-auto font-medium">{customer.phone ?? '—'}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Wifi className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="text-muted-foreground">Plano</span>
-                  <span className="ml-auto font-medium">{customer.plan?.name ?? '—'}</span>
-                </div>
+              <div className="space-y-2 text-sm border-t border-border/40 pt-3">
+                <Row icon={<CreditCard />} label="Contrato" value={fmt(customer.id)} />
+                <Row icon={<Phone />} label="Telefone" value={fmt(customer.phone)} />
+                <Row icon={<Wifi />} label="Plano" value={fmt(customer.plan?.name)} />
+                <Row
+                  icon={<Receipt />}
+                  label="Vencimento"
+                  value={customer.cobVencimento ? `Todo dia ${customer.cobVencimento}` : '—'}
+                />
               </div>
+
+              {customer.address && (
+                <div className="text-sm border-t border-border/40 pt-3 space-y-0.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Endereço</p>
+                  <p className="text-foreground">{fmtAddress(customer.address)}</p>
+                  {customer.address.zipCode && (
+                    <p className="text-muted-foreground text-xs">CEP {customer.address.zipCode}</p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl border-border/50 overflow-hidden">
+          {/* ── Situação financeira ── */}
+          <Card className={`rounded-xl overflow-hidden border ${
+            (customer.contratoValorAberto ?? 0) > 0
+              ? 'border-destructive/40 bg-destructive/5'
+              : 'border-border/50'
+          }`}>
             <CardContent className="p-4 space-y-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent/15 text-accent">
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                  (customer.contratoValorAberto ?? 0) > 0
+                    ? 'bg-destructive/15 text-destructive'
+                    : 'bg-accent/15 text-accent'
+                }`}>
                   <Receipt className="h-4 w-4" />
                 </div>
-                <p className="font-semibold">Fatura atual</p>
+                <p className="font-semibold">Situação financeira</p>
               </div>
 
-              {customer.invoice ? (
-                <div className="space-y-2 text-sm">
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Saldo em aberto</span>
+                  <span className={`font-semibold ${(customer.contratoValorAberto ?? 0) > 0 ? 'text-destructive' : 'text-green-400'}`}>
+                    {fmtCurrency(customer.contratoValorAberto)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Faturas em aberto</span>
+                  <span className={`font-medium ${(customer.contratoTitulosAReceber ?? 0) > 0 ? 'text-destructive' : ''}`}>
+                    {customer.contratoTitulosAReceber ?? 0}
+                  </span>
+                </div>
+              </div>
+
+              {customer.invoice && (
+                <div className="space-y-2 text-sm border-t border-border/40 pt-3">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Fatura atual</p>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Valor</span>
-                    <span className="font-medium">
-                      {customer.invoice.amount != null
-                        ? customer.invoice.amount.toLocaleString('pt-BR', {
-                            style: 'currency',
-                            currency: 'BRL',
-                          })
-                        : '—'}
-                    </span>
+                    <span className="font-medium">{fmtCurrency(customer.invoice.amount)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Vencimento</span>
@@ -210,14 +286,14 @@ export function ClientesPage() {
                       variant="outline"
                       className={`text-xs ${INVOICE_STATUS_CLASS[customer.invoice.status ?? ''] ?? ''}`}
                     >
-                      {INVOICE_STATUS_LABEL[customer.invoice.status ?? ''] ??
-                        customer.invoice.status ??
-                        '—'}
+                      {INVOICE_STATUS_LABEL[customer.invoice.status ?? ''] ?? customer.invoice.status ?? '—'}
                     </Badge>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Nenhuma fatura em aberto.</p>
+              )}
+
+              {!customer.invoice && (customer.contratoValorAberto ?? 0) === 0 && (
+                <p className="text-sm text-green-400">Sem pendências financeiras.</p>
               )}
             </CardContent>
           </Card>
