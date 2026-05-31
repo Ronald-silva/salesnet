@@ -42,20 +42,46 @@ export function ClientesPage() {
     retry: false,
   });
 
-  const customer = search.data as
-    | { name?: string; status?: string; plan?: { name?: string }; phone?: string; id?: string }
-    | undefined;
+  type InvoiceResult = {
+    id?: string;
+    amount?: number;
+    dueDate?: string;
+    status?: 'open' | 'paid' | 'overdue' | 'cancelled';
+  };
+  type CustomerResult = {
+    name?: string;
+    status?: string;
+    plan?: { name?: string };
+    phone?: string;
+    id?: string;
+    invoice?: InvoiceResult | null;
+  };
+
+  const customer = search.data as CustomerResult | undefined;
+
+  const INVOICE_STATUS_LABEL: Record<string, string> = {
+    open: 'Em aberto',
+    paid: 'Pago',
+    overdue: 'Vencido',
+    cancelled: 'Cancelado',
+  };
+  const INVOICE_STATUS_COLOR: Record<string, string> = {
+    open: 'text-yellow-600',
+    paid: 'text-green-600',
+    overdue: 'text-destructive font-semibold',
+    cancelled: 'text-muted-foreground',
+  };
 
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold">Clientes</h2>
       <p className="text-sm text-muted-foreground">
-        Busca pontual no SGP por telefone ou número de contrato.
+        Busca pontual no SGP por telefone, CPF ou número de contrato.
       </p>
 
       <div className="flex gap-2 max-w-md">
         <Input
-          placeholder="Telefone ou contrato"
+          placeholder="Telefone, CPF ou contrato"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && setSubmitted(query.trim())}
@@ -70,12 +96,12 @@ export function ClientesPage() {
       {search.isError && (
         <Alert variant="destructive" className="max-w-md">
           <AlertTitle>Cliente não encontrado</AlertTitle>
-          <AlertDescription>Verifique o telefone ou o número do contrato.</AlertDescription>
+          <AlertDescription>Verifique o telefone, CPF ou número do contrato.</AlertDescription>
         </Alert>
       )}
 
       {customer && (
-        <div className="rounded-lg border border-border/50 p-6 max-w-md space-y-2">
+        <div className="rounded-lg border border-border/50 p-6 max-w-md space-y-4">
           <p className="text-lg font-semibold">{customer.name ?? '—'}</p>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <span className="text-muted-foreground">Contrato</span>
@@ -87,6 +113,34 @@ export function ClientesPage() {
             <span className="text-muted-foreground">Status</span>
             <span>{customer.status ?? '—'}</span>
           </div>
+
+          {customer.invoice ? (
+            <div className="border-t border-border/50 pt-4 space-y-2">
+              <p className="text-sm font-semibold">Fatura atual</p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <span className="text-muted-foreground">Valor</span>
+                <span>
+                  {customer.invoice.amount != null
+                    ? `R$ ${customer.invoice.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                    : '—'}
+                </span>
+                <span className="text-muted-foreground">Vencimento</span>
+                <span>
+                  {customer.invoice.dueDate
+                    ? new Date(customer.invoice.dueDate + 'T12:00:00').toLocaleDateString('pt-BR')
+                    : '—'}
+                </span>
+                <span className="text-muted-foreground">Situação</span>
+                <span className={INVOICE_STATUS_COLOR[customer.invoice.status ?? ''] ?? ''}>
+                  {INVOICE_STATUS_LABEL[customer.invoice.status ?? ''] ?? customer.invoice.status ?? '—'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground border-t border-border/50 pt-4">
+              Nenhuma fatura em aberto.
+            </p>
+          )}
         </div>
       )}
     </div>

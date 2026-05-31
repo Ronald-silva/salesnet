@@ -750,7 +750,10 @@ adminRouter.get('/customers/search', async (req, res) => {
     return;
   }
 
-  res.status(200).json(customer);
+  const c = customer as { id?: string };
+  const invoice = c.id ? await getCurrentInvoice(c.id).catch(() => null) : null;
+
+  res.status(200).json({ ...c, invoice });
 });
 
 // ── Configurações de negócio (skill) ──────────────────────────────────────────
