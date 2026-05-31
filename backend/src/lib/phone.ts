@@ -18,7 +18,7 @@ export function isLidJid(jid: string): boolean {
 
 /** Canais, broadcast e grupos — não são atendimento 1:1. */
 export function isIgnorableWhatsAppJid(jid: string): boolean {
-  const lower = jid.toLowerCase();
+  const lower = jid.trim().toLowerCase();
   return (
     lower.endsWith('@newsletter') ||
     lower.endsWith('@broadcast') ||

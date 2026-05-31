@@ -550,9 +550,13 @@ export class EvolutionGoProvider implements WhatsAppProvider {
       const contact = resolveWebhookContact(infoRecord, dataRecord);
 
       if (!contact.fromPhone) {
-        console.warn(
-          `[webhook] could not resolve phone from JIDs: [${jidCandidates.join(', ')}]`,
-        );
+        const allIgnorable =
+          jidCandidates.length > 0 && jidCandidates.every(isIgnorableWhatsAppJid);
+        if (!allIgnorable) {
+          console.warn(
+            `[webhook] could not resolve phone from JIDs: [${jidCandidates.join(', ')}]`,
+          );
+        }
       }
 
       return {

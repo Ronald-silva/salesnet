@@ -14,6 +14,7 @@ import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { eventBus } from '../services/event-bus';
 import type { DomainEvent } from '../services/event-bus';
 import type { ParsedWebhookEvent } from '../integrations/whatsapp/whatsapp-provider';
+import { isIgnorableWhatsAppJid } from '../lib/phone';
 
 type RawRequest = Request & { rawBody?: Buffer };
 
@@ -57,6 +58,8 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
     // Normalizar payload → evento de domínio (pode fazer I/O: transcrição de áudio, visão)
     const parsed: ParsedWebhookEvent = await provider.parseWebhook(req.body, headers);
 
+    if (parsed.type === 'unknown') return;
+
     // Atualizar status de conexão no banco
     if (parsed.type === 'connection_update' && parsed.data.connectionState) {
       await instanceManager.handleConnectionEvent(instanceName, parsed.data.connectionState);
@@ -75,8 +78,13 @@ router.post('/:instanceName', async (req: Request, res: Response) => {
 
     // Só enfileira mensagens recebidas que tenham telefone e corpo
     if (parsed.type === 'message_received' && !parsed.data.fromPhone) {
+      const from = parsed.data.from;
+      if (from && isIgnorableWhatsAppJid(from)) {
+        console.log(`[webhook] ignored non-chat JID: ${from}`);
+        return;
+      }
       console.warn(
-        `[webhook] message_received without valid phone instance=${instanceName} from=${parsed.data.from ?? '-'}`,
+        `[webhook] message_received without valid phone instance=${instanceName} from=${from ?? '-'}`,
       );
       return;
     }

@@ -94,7 +94,8 @@ if (env.NODE_ENV !== 'test') {
 
 // ── Start ──────────────────────────────────────────────────────────────────
 app.listen(env.PORT, () => {
-  console.log(`🚀 SalesNet backend running on port ${env.PORT} [${env.NODE_ENV}]`);
+  const gitSha = process.env['RAILWAY_GIT_COMMIT_SHA']?.slice(0, 7) ?? 'local';
+  console.log(`🚀 SalesNet backend running on port ${env.PORT} [${env.NODE_ENV}] commit=${gitSha}`);
   console.log(`   Health:    http://localhost:${env.PORT}/health`);
   console.log(`   Webhook:   http://localhost:${env.PORT}/webhook/whatsapp/${env.EVOLUTION_INSTANCE_NAME}`);
   console.log(`   Provider:  ${env.WHATSAPP_PROVIDER} | instance: ${env.EVOLUTION_INSTANCE_NAME}`);
