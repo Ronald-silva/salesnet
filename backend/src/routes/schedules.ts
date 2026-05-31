@@ -10,6 +10,7 @@ import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone } from '../integrations/sgp';
 import { offerBringForward } from '../agent/bring-forward-flow';
 import { env } from '../config/env';
+import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 
 export const schedulesRouter = Router();
 schedulesRouter.use(adminAuthMiddleware);
@@ -144,8 +145,7 @@ schedulesRouter.get('/', async (req, res) => {
 
   const { data: rows, error, count } = await query;
   if (error) {
-    console.error('[admin] schedules fetch failed:', error.message);
-    res.status(500).json({ error: 'failed to fetch schedules' });
+    respondSupabaseQueryError(res, error, 'failed to fetch schedules', 'schedules fetch failed');
     return;
   }
 
@@ -174,8 +174,7 @@ schedulesRouter.get('/today', async (_req, res) => {
     .order('created_at', { ascending: false });
 
   if (todayError) {
-    console.error('[admin] schedules/today fetch failed:', todayError.message);
-    res.status(500).json({ error: 'failed to fetch today schedules' });
+    respondSupabaseQueryError(res, todayError, 'failed to fetch today schedules', 'schedules/today fetch failed');
     return;
   }
 

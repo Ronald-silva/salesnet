@@ -10,6 +10,7 @@ import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { env } from '../config/env';
 import { adminTenantIds } from '../lib/admin-tenant';
+import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 
 export const alertsRouter = Router();
 alertsRouter.use(adminAuthMiddleware);
@@ -32,8 +33,7 @@ alertsRouter.get('/', async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
-    console.error('[admin] alerts fetch failed:', error.message);
-    res.status(500).json({ error: 'failed to fetch alerts' });
+    respondSupabaseQueryError(res, error, 'failed to fetch alerts', 'alerts fetch failed');
     return;
   }
 

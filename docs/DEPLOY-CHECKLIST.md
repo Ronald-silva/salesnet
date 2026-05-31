@@ -122,9 +122,14 @@ curl https://evolution-salesnet.up.railway.app/
 ### 3.3 Verificar deploy
 
 ```bash
-curl https://salesnet-backend.up.railway.app/health
-# Esperado: { "status": "ok", "provider": "evolution-go", ... }
+curl -s https://salesnet-production.up.railway.app/health | jq .
+# Esperado: status "ok" e checks.supabase.ok true
+# Se checks.supabase.error contém "permission denied":
+#   → SUPABASE_SERVICE_ROLE_KEY no Railway está com a chave anon/public.
+#   → Corrigir: Supabase → Project Settings → API → service_role (Reveal) → colar no Railway.
 ```
+
+Painel admin (Conversas / Agendamentos / Alertas) retorna 500/503 se `checks.supabase.ok` for false.
 
 Nos logs do Railway, deve aparecer:
 ```

@@ -12,6 +12,8 @@ import { EvolutionGoProvider } from './integrations/whatsapp/providers/evolution
 import { TwilioLegacyProvider } from './integrations/whatsapp/providers/twilio-legacy';
 import { instanceManager } from './services/instance-manager';
 import { logEvolutionWebhookHmacConfig } from './integrations/whatsapp/webhook-hmac-diagnostics';
+import { getSupabaseKeyRole, isSupabaseServiceRoleKey } from './config/supabase';
+import { supabase } from './config/supabase';
 
 export function bootstrapProviders(): void {
   if (env.WHATSAPP_PROVIDER === 'evolution-go') {
@@ -62,6 +64,18 @@ export async function ensureDefaultInstance(): Promise<void> {
   if (env.WHATSAPP_PROVIDER !== 'evolution-go') return;
 
   logEvolutionWebhookHmacConfig();
+
+  const keyRole = getSupabaseKeyRole();
+  console.log(
+    `[supabase] JWT role in SUPABASE_SERVICE_ROLE_KEY: ${keyRole ?? 'unknown'} (ok=${isSupabaseServiceRoleKey()})`,
+  );
+  const { error: probeError } = await supabase.from('whatsapp_instances').select('id').limit(1);
+  if (probeError) {
+    console.error('[supabase] whatsapp_instances probe failed:', probeError.message);
+    console.error(
+      '[supabase] Se for "permission denied", rode backend/src/db/migrations/028_grants_service_role_core.sql no SQL Editor.',
+    );
+  }
 
   const instanceName = env.EVOLUTION_INSTANCE_NAME;
   const tenantId = env.DEFAULT_TENANT_ID;

@@ -9,6 +9,7 @@ import { env } from '../config/env';
 import { adminTenantIds } from '../lib/admin-tenant';
 import { getSkillConfig, clearSkillConfigCache } from '../agent/skill';
 import type { ISPSkillConfig } from '../agent/skill/types';
+import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 
 export const adminRouter = Router();
 
@@ -98,8 +99,7 @@ adminRouter.get('/conversations', async (req, res) => {
 
   const { data, error } = await query;
   if (error) {
-    console.error('[admin] conversations fetch failed:', error.message);
-    res.status(500).json({ error: 'failed to fetch conversations' });
+    respondSupabaseQueryError(res, error, 'failed to fetch conversations', 'conversations fetch failed');
     return;
   }
 

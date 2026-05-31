@@ -216,7 +216,11 @@ class InstanceManager {
 
   /** Roda health check em todas as instâncias e reconecta as desconectadas */
   async healthCheckAll(): Promise<void> {
-    const { data } = await supabase.from('whatsapp_instances').select('*');
+    const { data, error } = await supabase.from('whatsapp_instances').select('*');
+    if (error) {
+      console.error('[instance-manager] healthCheckAll list failed:', error.message);
+      return;
+    }
     if (!data) return;
 
     for (const row of data as InstanceRow[]) {
