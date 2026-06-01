@@ -622,6 +622,11 @@ export async function executeTool(
       const download = input.download_mbps as number;
       const plan = input.plan_mbps as number;
       const viaWifi = (input.via_wifi as boolean | undefined) ?? true;
+
+      if (plan <= 0) {
+        return { diagnosis: 'invalid_input', message: 'Não foi possível interpretar o resultado: velocidade do plano não informada.' };
+      }
+
       const ratio = download / plan;
 
       if (ratio >= 0.8) {
