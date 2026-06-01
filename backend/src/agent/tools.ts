@@ -652,19 +652,83 @@ export async function executeTool(
       };
     }
 
-    case 'solicitar_upgrade':
-      return {
-        status: 'queued',
-        new_plan: input.new_plan,
-        message: `Solicitação de upgrade para ${String(input.new_plan)} registrada. Um atendente confirmará em até 24h.`,
-      };
+    case 'solicitar_upgrade': {
+      const customerId = input.customer_id as string;
+      const newPlan = String(input.new_plan ?? '');
+      const description = `Upgrade solicitado pelo cliente via Sofia. Plano desejado: ${newPlan}.`;
 
-    case 'aplicar_cortesia':
+      try {
+        await supabase.from('sofia_tickets').insert({
+          tenant_id: tenantId,
+          phone,
+          contrato:  customerId,
+          tipo:      'comercial',
+          descricao: description,
+          status:    'aberto',
+        });
+      } catch (err) {
+        console.warn('[tools] solicitar_upgrade: failed to persist sofia_ticket:', err);
+      }
+
+      try {
+        const adminPhone = env.ADMIN_ALERT_PHONE;
+        if (adminPhone) {
+          const { whatsappService } = await import('../services/whatsapp-service');
+          await whatsappService.sendText(
+            tenantId,
+            adminPhone,
+            `[Upgrade] Contrato ${customerId} solicitou upgrade para ${newPlan}.`,
+          );
+        }
+      } catch {
+        // best-effort
+      }
+
       return {
         status: 'queued',
-        reason: input.reason,
-        message: 'Solicitação de cortesia registrada para análise. Você receberá confirmação em breve.',
+        new_plan: newPlan,
+        message: `Solicitação de upgrade para ${newPlan} registrada. Nossa equipe confirmará a ativação em até 24h.`,
       };
+    }
+
+    case 'aplicar_cortesia': {
+      const customerId = input.customer_id as string;
+      const reason = String(input.reason ?? '');
+      const description = `Cortesia solicitada via Sofia. Motivo: ${reason}`;
+
+      try {
+        await supabase.from('sofia_tickets').insert({
+          tenant_id: tenantId,
+          phone,
+          contrato:  customerId,
+          tipo:      'financeiro',
+          descricao: description,
+          status:    'aberto',
+        });
+      } catch (err) {
+        console.warn('[tools] aplicar_cortesia: failed to persist sofia_ticket:', err);
+      }
+
+      try {
+        const adminPhone = env.ADMIN_ALERT_PHONE;
+        if (adminPhone) {
+          const { whatsappService } = await import('../services/whatsapp-service');
+          await whatsappService.sendText(
+            tenantId,
+            adminPhone,
+            `[Cortesia] Contrato ${customerId} precisa de cortesia. Motivo: ${reason}`,
+          );
+        }
+      } catch {
+        // best-effort
+      }
+
+      return {
+        status: 'queued',
+        reason,
+        message: 'Solicitação de cortesia registrada. Nossa equipe analisará e confirmará em breve.',
+      };
+    }
 
     case 'transferir_humano': {
       await setHumanMode(phone, true, tenantId);
