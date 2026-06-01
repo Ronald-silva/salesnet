@@ -96,16 +96,35 @@ export function assertSupabaseServiceRoleKey(): void {
 
 assertSupabaseServiceRoleKey();
 
-export const supabase = createClient(getNormalizedSupabaseUrl(), getNormalizedSupabaseKey(), {
+// supabase-js auth state can override the Authorization header (e.g. SIGNED_IN/TOKEN_REFRESHED
+// events calling rest.setAuth()). A custom global fetch ensures every request always carries
+// the service_role key, regardless of internal auth state.
+function makeServiceRoleFetch(key: string): typeof fetch {
+  return (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const headers = new Headers(init?.headers);
+    headers.set('apikey', key);
+    headers.set('Authorization', `Bearer ${key}`);
+    return globalThis.fetch(input, { ...init, headers });
+  };
+}
+
+const _key = getNormalizedSupabaseKey();
+
+export const supabase = createClient(getNormalizedSupabaseUrl(), _key, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
     detectSessionInUrl: false,
   },
+  global: {
+    fetch: makeServiceRoleFetch(_key),
+  },
 });
 
 /** PostgREST hints often name the role that actually ran the query (e.g. anon, not service_role). */
 export function inferPostgrestRoleFromHint(hint: string | null | undefined): string | null {
-  const match = hint?.match(/TO\s+(\w+)/i);
-  return match?.[1] ?? null;
+  // Match the role in "GRANT ... TO <role>" — use the last TO capture to avoid
+  // matching "to the" in the surrounding English prose.
+  const matches = [...(hint?.matchAll(/\bTO\s+(\w+)/gi) ?? [])];
+  return matches.at(-1)?.[1] ?? null;
 }
