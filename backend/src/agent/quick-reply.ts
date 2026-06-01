@@ -81,9 +81,20 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
   return { intent: null };
 }
 
-type ActiveQuickReplyIntent = never;
+type ActiveQuickReplyIntent =
+  | 'coverage_list'
+  | 'coverage_check'
+  | 'faq_installation'
+  | 'faq_payment'
+  | 'faq_support';
 
-const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([]);
+const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
+  'coverage_list',
+  'coverage_check',
+  'faq_installation',
+  'faq_payment',
+  'faq_support',
+]);
 
 function isQuickReplyEnabled(intent: Intent): intent is ActiveQuickReplyIntent {
   return intent !== null && ENABLED_QUICK_REPLY_INTENTS.has(intent as ActiveQuickReplyIntent);
@@ -135,6 +146,23 @@ function formatCoverageCheck(neighborhood: string): string {
   );
 }
 
+function formatFaqPayment(): string {
+  return (
+    `Aceitamos PIX e boleto bancário.\n\n` +
+    `PIX: gero o código aqui mesmo pra você — é só pedir.\n` +
+    `Boleto: disponível se preferir, basta solicitar.\n\n` +
+    `Prefere já gerar o PIX da fatura atual?`
+  );
+}
+
+function formatFaqSupport(): string {
+  return (
+    `Atendimento Sofia: 24h via WhatsApp.\n` +
+    `Equipe humana: segunda a sábado, 8h-12h e 14h-18h.\n\n` +
+    `Como posso te ajudar agora?`
+  );
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -165,6 +193,20 @@ export async function quickReply(message: string, phone: string): Promise<string
         `A taxa de instalação é R$ ${BUSINESS_INFO.installationFee} e o prazo é de até ${BUSINESS_INFO.installationDaysMax} dias úteis ` +
         `após a assinatura do contrato. O roteador já está incluso no plano.`
       );
+
+    case 'coverage_check': {
+      if (!neighborhood) return null;
+      console.log(`[quick-reply] coverage_check → ${neighborhood}`);
+      return formatCoverageCheck(neighborhood);
+    }
+
+    case 'faq_payment':
+      console.log('[quick-reply] faq_payment → formatFaqPayment()');
+      return formatFaqPayment();
+
+    case 'faq_support':
+      console.log('[quick-reply] faq_support → formatFaqSupport()');
+      return formatFaqSupport();
 
     default:
       return null;
