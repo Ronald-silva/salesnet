@@ -40,6 +40,9 @@ type InvoiceResult = {
   amount?: number;
   dueDate?: string;
   status?: 'open' | 'paid' | 'overdue' | 'cancelled';
+  pixCode?: string;
+  canGeneratePix?: boolean;
+  barcode?: string;
 };
 type CustomerResult = {
   id?: string;

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
-import { getCustomerByPhone, getCustomerById, getCurrentInvoice } from '../integrations/sgp';
-import { getCustomerByCpf } from '../integrations/sgp/customers';
+import { getCustomerByPhone, getCustomerById, getCurrentInvoice, getCustomerByCpf } from '../integrations/sgp';
+import type { Customer } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
@@ -731,13 +731,20 @@ adminRouter.get('/customers/search', async (req, res) => {
   }
 
   const digits = q.replace(/\D/g, '');
-  let customer: unknown = null;
+  // Detect formatted CPF (xxx.xxx.xxx-xx or xxx xxx xxx xx) from the original query
+  const isCpfFormatted = /^\d{3}[.\s]\d{3}[.\s]\d{3}[-\s]?\d{2}$/.test(q.trim());
+  let customer: Customer | null = null;
 
   try {
-    if (digits.length === 11 && !digits.startsWith('55')) {
+    if (isCpfFormatted) {
       customer = await getCustomerByCpf(digits).catch(() => null);
     } else if (digits.length >= 10) {
-      customer = await getCustomerByPhone(digits);
+      // Try phone first; for 11-digit bare numbers also try CPF as fallback
+      // (Brazilian mobiles and CPFs are both 11 digits — phone takes priority)
+      customer = await getCustomerByPhone(digits).catch(() => null);
+      if (!customer && digits.length === 11) {
+        customer = await getCustomerByCpf(digits).catch(() => null);
+      }
     } else {
       customer = await getCustomerById(q);
     }
@@ -750,10 +757,9 @@ adminRouter.get('/customers/search', async (req, res) => {
     return;
   }
 
-  const c = customer as { id?: string };
-  const invoice = c.id ? await getCurrentInvoice(c.id).catch(() => null) : null;
+  const invoice = await getCurrentInvoice(customer.id).catch(() => null);
 
-  res.status(200).json({ ...c, invoice });
+  res.status(200).json({ ...customer, invoice });
 });
 
 // ── Configurações de negócio (skill) ──────────────────────────────────────────
