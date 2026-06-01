@@ -535,6 +535,12 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     if (eventType === 'message_received' && !isFromMe) {
+      const isGroup = info.IsGroup ?? (data as unknown as { IsGroup?: boolean }).IsGroup ?? false;
+      if (isGroup) {
+        console.log(`[webhook] ignored group message (IsGroup=true): ${info.Chat ?? '-'}`);
+        return { type: 'unknown', instanceName, data: { raw: rawBody }, timestamp };
+      }
+
       const infoRecord = info as Record<string, unknown>;
       const dataRecord = data as Record<string, unknown>;
       const jidCandidates = collectWebhookJidCandidates(infoRecord, dataRecord);

@@ -95,10 +95,12 @@ export function collectWebhookJidCandidates(
 ): string[] {
   const key = (data.key ?? data.Key) as Record<string, unknown> | undefined;
   const raw: Array<string | undefined> = [
-    pickString(info, ['Sender', 'sender', 'Chat', 'chat']),
+    pickString(info, ['Sender', 'sender']),
+    pickString(info, ['Chat', 'chat']),          // separado: @g.us deve entrar nos candidatos mesmo quando Sender existe
     pickString(info, ['SenderAlt', 'senderAlt', 'ChatAlt', 'chatAlt']),
     pickString(info, ['Participant', 'participant', 'ParticipantAlt', 'participantAlt']),
-    pickString(data, ['Sender', 'sender', 'Chat', 'chat']),
+    pickString(data, ['Sender', 'sender']),
+    pickString(data, ['Chat', 'chat']),
     key ? pickString(key, ['senderPn', 'SenderPn', 'remoteJidAlt', 'RemoteJidAlt']) : undefined,
     key ? pickString(key, ['remoteJid', 'RemoteJid', 'participant', 'Participant']) : undefined,
   ];
