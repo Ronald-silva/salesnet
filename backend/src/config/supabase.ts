@@ -96,15 +96,23 @@ export function assertSupabaseServiceRoleKey(): void {
 
 assertSupabaseServiceRoleKey();
 
-// supabase-js auth state can override the Authorization header (e.g. SIGNED_IN/TOKEN_REFRESHED
-// events calling rest.setAuth()). A custom global fetch ensures every request always carries
-// the service_role key, regardless of internal auth state.
+// supabase-js auth state can override the Authorization header on PostgREST requests
+// (e.g. SIGNED_IN/TOKEN_REFRESHED events calling rest.setAuth()). We intercept only
+// /rest/v1/ calls to enforce the service_role key. Auth endpoint calls (/auth/v1/)
+// must NOT be intercepted — supabase.auth.getUser(token) sends the user's token in
+// Authorization and overriding it with service_role breaks JWT validation.
 function makeServiceRoleFetch(key: string): typeof fetch {
   return (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
-    const headers = new Headers(init?.headers);
-    headers.set('apikey', key);
-    headers.set('Authorization', `Bearer ${key}`);
-    return globalThis.fetch(input, { ...init, headers });
+    const url = typeof input === 'string' ? input
+      : input instanceof URL ? input.href
+      : (input as Request).url;
+    if (url.includes('/rest/v1/')) {
+      const headers = new Headers(init?.headers);
+      headers.set('apikey', key);
+      headers.set('Authorization', `Bearer ${key}`);
+      return globalThis.fetch(input, { ...init, headers });
+    }
+    return globalThis.fetch(input, init);
   };
 }
 
