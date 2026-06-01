@@ -653,7 +653,7 @@ export async function executeTool(
     }
 
     case 'solicitar_upgrade': {
-      const customerId = input.customer_id as string;
+      const customerId = String(input.customer_id ?? '');
       const newPlan = String(input.new_plan ?? '');
       const description = `Upgrade solicitado pelo cliente via Sofia. Plano desejado: ${newPlan}.`;
 
@@ -692,7 +692,7 @@ export async function executeTool(
     }
 
     case 'aplicar_cortesia': {
-      const customerId = input.customer_id as string;
+      const customerId = String(input.customer_id ?? '');
       const reason = String(input.reason ?? '');
       const description = `Cortesia solicitada via Sofia. Motivo: ${reason}`;
 
