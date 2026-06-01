@@ -102,14 +102,27 @@ describe('runBillingCadenceD2', () => {
     );
   });
 
-  it('does not send to non-habitual payers', async () => {
+  it('sends reminder to non-habitual payers too (different message)', async () => {
     mockHabituals([]); // no habituals
     (sgp.getCustomersDueInDays as jest.Mock).mockResolvedValue([
       { customerId: 'c1', name: 'João', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90 },
     ]);
+    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open' });
+    (sgp.generatePixKey as jest.Mock).mockResolvedValue({ pixKey: '00020126abc' });
 
     await runBillingCadenceD2();
 
-    expect(whatsappService.sendText).not.toHaveBeenCalled();
+    expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
+    // non-habitual gets a gentle reminder (not the warning)
+    expect(whatsappService.sendText).toHaveBeenCalledWith(
+      expect.any(String),
+      '+5585999990001',
+      expect.stringContaining('2 dias'),
+    );
+    expect(whatsappService.sendText).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.stringContaining('suspensa'),
+    );
   });
 });

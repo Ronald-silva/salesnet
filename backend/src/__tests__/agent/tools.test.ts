@@ -5,15 +5,16 @@ jest.mock('../../config/env', () => ({
 }));
 
 jest.mock('../../integrations/sgp', () => ({
-  getCustomerByPhone:  jest.fn(),
-  getCustomerByCpf:    jest.fn(),
-  getCurrentInvoice:   jest.fn(),
-  generatePixKey:      jest.fn(),
-  getCustomerTickets:  jest.fn(),
-  openTicket:          jest.fn(),
-  scheduleVisit:       jest.fn(),
-  getConnectionStatus: jest.fn(),
-  getCustomerById:     jest.fn(),
+  getCustomerByPhone:    jest.fn(),
+  getCustomerByCpf:      jest.fn(),
+  getCurrentInvoice:     jest.fn(),
+  getCustomerInvoices:   jest.fn(),
+  generatePixKey:        jest.fn(),
+  getCustomerTickets:    jest.fn(),
+  openTicket:            jest.fn(),
+  scheduleVisit:         jest.fn(),
+  getConnectionStatus:   jest.fn(),
+  getCustomerById:       jest.fn(),
 }));
 
 jest.mock('../../agent/memory', () => ({
@@ -39,8 +40,8 @@ import { lookupCustomer } from '../../agent/customer-lookup';
 const PHONE = '+5585999990000';
 
 describe('TOOL_DEFINITIONS', () => {
-  it('exports exactly 21 tools', () => {
-    expect(TOOL_DEFINITIONS).toHaveLength(21);
+  it('exports exactly 25 tools', () => {
+    expect(TOOL_DEFINITIONS).toHaveLength(25);
   });
 
   it('every tool has name, description, and input_schema', () => {
@@ -175,14 +176,14 @@ describe('executeTool — detectar_apagao_bairro', () => {
 
 describe('executeTool — confirmar_pagamento', () => {
   it('returns paid true when invoice status is paid', async () => {
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'paid', amount: 90 });
+    (sgp.getCustomerInvoices as jest.Mock).mockResolvedValue([{ id: 'inv1', status: 'paid', amount: 90 }]);
 
     const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
     expect(result).toEqual({ paid: true, status: 'paid' });
   });
 
   it('returns paid false when invoice status is open', async () => {
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open', amount: 90 });
+    (sgp.getCustomerInvoices as jest.Mock).mockResolvedValue([{ id: 'inv1', status: 'open', amount: 90 }]);
 
     const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
     expect(result).toEqual({ paid: false, status: 'open' });

@@ -1,3 +1,19 @@
+jest.mock('../../config/env', () => ({
+  env: {
+    DEFAULT_TENANT_ID: 'default',
+    SGP_BASE_URL: 'https://example.com',
+    SGP_API_TOKEN: 'x',
+    SGP_APP_NAME: 'test',
+    SUPABASE_URL: 'https://example.com',
+    SUPABASE_SERVICE_ROLE_KEY: 'x',
+    NODE_ENV: 'test',
+  },
+}));
+
+jest.mock('../../integrations/sgp/customers', () => ({
+  getCustomerByPhone: jest.fn().mockResolvedValue({ error: 'not found' }),
+}));
+
 import { quickReply } from '../../agent/quick-reply';
 
 describe('quickReply', () => {

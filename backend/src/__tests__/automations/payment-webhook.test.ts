@@ -23,10 +23,19 @@ import { paymentWebhookRouter } from '../../automations/payment-webhook';
 import { reactivateCustomer } from '../../integrations/sgp';
 import { whatsappService } from '../../services/whatsapp-service';
 
+const DEFAULT_SECRET = 'test-secret';
+
 beforeEach(() => {
   jest.clearAllMocks();
-  mockEnv.SGP_WEBHOOK_SECRET = undefined;
+  mockEnv.SGP_WEBHOOK_SECRET = DEFAULT_SECRET;
 });
+
+function signedRequest(app: ReturnType<typeof buildApp>, body: Record<string, unknown>) {
+  return request(app)
+    .post('/webhook/sgp/payment-confirmed')
+    .set('x-sgp-signature', signBody(body, DEFAULT_SECRET))
+    .send(body);
+}
 
 function buildApp() {
   const app = express();
@@ -53,9 +62,8 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
     });
     (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
 
-    const res = await request(buildApp())
-      .post('/webhook/sgp/payment-confirmed')
-      .send({ customerId: 'cust1', phone: '+5585999990001', amount: 70 });
+    const body = { customerId: 'cust1', phone: '+5585999990001', amount: 70 };
+    const res = await signedRequest(buildApp(), body);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
@@ -68,9 +76,8 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
   });
 
   it('returns 400 when customerId or phone is missing', async () => {
-    const res = await request(buildApp())
-      .post('/webhook/sgp/payment-confirmed')
-      .send({ customerId: 'cust1' });
+    const body = { customerId: 'cust1' };
+    const res = await signedRequest(buildApp(), body);
 
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty('error');
@@ -80,13 +87,12 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
   it('returns 500 when reactivation fails', async () => {
     (reactivateCustomer as jest.Mock).mockRejectedValue(new Error('SGP timeout'));
 
-    const res = await request(buildApp())
-      .post('/webhook/sgp/payment-confirmed')
-      .send({ customerId: 'cust2', phone: '+5585999990002', amount: 60 });
+    const body = { customerId: 'cust2', phone: '+5585999990002', amount: 60 };
+    const res = await signedRequest(buildApp(), body);
 
     expect(res.status).toBe(500);
     expect(res.body).toHaveProperty('error');
-    expect(res.body.error).toBe('SGP timeout');
+    expect(res.body.error).toBe('reactivation failed');
   });
 
   it('returns 401 when secret is set and signature is missing', async () => {
@@ -141,9 +147,8 @@ describe('POST /webhook/sgp/payment-confirmed', () => {
     });
     (whatsappService.sendText as jest.Mock).mockRejectedValue(new Error('WhatsApp unavailable'));
 
-    const res = await request(buildApp())
-      .post('/webhook/sgp/payment-confirmed')
-      .send({ customerId: 'cust3', phone: '+5585999990003', amount: 70 });
+    const body = { customerId: 'cust3', phone: '+5585999990003', amount: 70 };
+    const res = await signedRequest(buildApp(), body);
 
     expect(res.status).toBe(500);
     expect(res.body).toHaveProperty('error');

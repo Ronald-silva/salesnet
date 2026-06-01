@@ -58,21 +58,34 @@ jest.mock('../../agent/skill', () => ({
     coveredNeighborhoods: [],
     erpCapabilities: {},
   }),
-  buildSystemPrompt: jest.fn().mockReturnValue('test-prompt'),
-  buildModeContext:  jest.fn().mockReturnValue(''),
+  buildSystemPrompt:    jest.fn().mockReturnValue('test-prompt'),
+  buildModeContext:     jest.fn().mockReturnValue(''),
+  buildQualityExamples: jest.fn().mockResolvedValue(''),
 }));
 
 jest.mock('../../config/anthropic', () => ({
   anthropic: { messages: { create: jest.fn() } },
 }));
 
-jest.mock('../../config/supabase', () => ({
-  supabase: {
-    from: jest.fn().mockReturnValue({
-      insert: jest.fn().mockResolvedValue({ error: null }),
-    }),
-  },
-}));
+jest.mock('../../config/supabase', () => {
+  const makeChain = () => {
+    const chain: Record<string, jest.Mock> = {};
+    const noop = () => chain;
+    for (const m of ['select','eq','neq','ilike','gte','lte','limit','order','overlaps','in','contains','not']) {
+      chain[m] = jest.fn(noop);
+    }
+    chain['insert']      = jest.fn(() => chain);
+    chain['upsert']      = jest.fn(() => chain);
+    chain['single']      = jest.fn().mockResolvedValue({ data: null, error: null });
+    chain['maybeSingle'] = jest.fn().mockResolvedValue({ data: null, error: null });
+    // make the chain itself awaitable so `await from(...).select(...)` resolves
+    (chain as unknown as { then: unknown })['then'] = jest.fn(
+      (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve)
+    );
+    return chain;
+  };
+  return { supabase: { from: jest.fn(() => makeChain()) } };
+});
 
 jest.mock('../../services/whatsapp-service', () => ({
   whatsappService: {
@@ -99,6 +112,7 @@ const CUSTOMER = { id: 'c1', name: 'João Silva', status: 'active' };
 const TEXT_RESPONSE = {
   stop_reason: 'end_turn',
   content: [{ type: 'text', text: 'Olá João! Posso ajudar?' }],
+  usage: { input_tokens: 10, output_tokens: 20 },
 };
 
 describe('processMessage — human_mode ON', () => {
@@ -129,7 +143,7 @@ describe('processMessage — normal flow', () => {
 
   it('saves user message before calling Claude', async () => {
     await processMessage(PHONE, 'Quero ver minha fatura');
-    expect(saveMessage).toHaveBeenCalledWith(PHONE, 'user', 'Quero ver minha fatura');
+    expect(saveMessage).toHaveBeenCalledWith(PHONE, 'user', 'Quero ver minha fatura', 'test-tenant');
   });
 
   it('calls lookupCustomer with phone before Claude', async () => {
@@ -150,7 +164,7 @@ describe('processMessage — normal flow', () => {
 
   it('saves assistant response to thread', async () => {
     await processMessage(PHONE, 'Oi');
-    expect(saveMessage).toHaveBeenCalledWith(PHONE, 'assistant', 'Olá João! Posso ajudar?');
+    expect(saveMessage).toHaveBeenCalledWith(PHONE, 'assistant', 'Olá João! Posso ajudar?', 'test-tenant');
   });
 });
 
@@ -182,10 +196,12 @@ describe('processMessage — tool use loop', () => {
           input: { customer_id: 'c1' },
         },
       ],
+      usage: { input_tokens: 10, output_tokens: 5 },
     };
     const finalResponse = {
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: 'Sua fatura é R$90.' }],
+      usage: { input_tokens: 15, output_tokens: 20 },
     };
 
     (anthropic.messages.create as jest.Mock)
@@ -194,7 +210,7 @@ describe('processMessage — tool use loop', () => {
 
     await processMessage(PHONE, 'Qual minha fatura?');
 
-    expect(executeTool).toHaveBeenCalledWith('get_fatura_atual', { customer_id: 'c1' }, PHONE);
+    expect(executeTool).toHaveBeenCalledWith('get_fatura_atual', { customer_id: 'c1' }, PHONE, 'test-tenant');
     expect(whatsappService.sendText).toHaveBeenCalledWith(
       expect.any(String),
       PHONE,
