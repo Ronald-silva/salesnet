@@ -150,6 +150,31 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'solicitar_teste_velocidade',
+    description: 'Envia ao cliente o link para teste de velocidade e instrução de como fazer. Use quando o cliente reclamar de internet lenta e antes de abrir chamado. Após enviar, aguarde o cliente informar o resultado e use interpretar_resultado_velocidade.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        customer_id: { type: 'string', description: 'ID do contrato no SGP (para buscar plano contratado)' },
+        plan_mbps:   { type: 'number', description: 'Velocidade do plano contratado em Mbps (ex: 400, 500, 700)' },
+      },
+    },
+  },
+  {
+    name: 'interpretar_resultado_velocidade',
+    description: 'Interpreta o resultado do teste de velocidade informado pelo cliente e decide a ação: problema local (posicionamento/Wi-Fi) ou problema de rede (abrir chamado prioritário). Use após o cliente informar o resultado do fast.com.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        download_mbps: { type: 'number', description: 'Velocidade de download medida pelo cliente em Mbps' },
+        upload_mbps:   { type: 'number', description: 'Velocidade de upload medida pelo cliente em Mbps (opcional)' },
+        plan_mbps:     { type: 'number', description: 'Velocidade do plano contratado em Mbps' },
+        via_wifi:      { type: 'boolean', description: 'O teste foi feito via Wi-Fi (true) ou cabo (false). Padrão: true.' },
+      },
+      required: ['download_mbps', 'plan_mbps'],
+    },
+  },
+  {
     name: 'solicitar_upgrade',
     description: 'Registra solicitação de upgrade de plano para análise e ativação.',
     input_schema: {
@@ -581,6 +606,46 @@ export async function executeTool(
 
     case 'status_conexao':
       return sgp.getConnectionStatus(input.customer_id as string);
+
+    case 'solicitar_teste_velocidade': {
+      const planMbps = (input.plan_mbps as number | undefined) ?? 0;
+      const minExpected = Math.round(planMbps * 0.8);
+      const instruction =
+        `Para verificar sua velocidade, acesse fast.com pelo celular ou computador conectado à sua rede.\n\n` +
+        `Seu plano é de ${planMbps > 0 ? planMbps + ' Mbps' : 'fibra óptica'}. ` +
+        `O resultado esperado é acima de ${minExpected > 0 ? minExpected + ' Mbps' : '80% do contratado'}.\n\n` +
+        `Quando tiver o resultado, me informe o número que aparecer na tela.`;
+      return { status: 'sent', instruction };
+    }
+
+    case 'interpretar_resultado_velocidade': {
+      const download = input.download_mbps as number;
+      const plan = input.plan_mbps as number;
+      const viaWifi = (input.via_wifi as boolean | undefined) ?? true;
+      const ratio = download / plan;
+
+      if (ratio >= 0.8) {
+        return {
+          diagnosis: 'ok',
+          message: `Velocidade normal! ${download} Mbps de ${plan} Mbps contratados (${Math.round(ratio * 100)}%). Se sentir lentidão em algum site específico, pode ser problema naquele servidor.`,
+        };
+      }
+
+      if (viaWifi && ratio >= 0.4) {
+        return {
+          diagnosis: 'wifi_interference',
+          action: 'local_fix',
+          message: `A velocidade via Wi-Fi (${download} Mbps) está abaixo do esperado para o plano de ${plan} Mbps. Tente conectar o cabo direto no roteador — se melhorar, é posicionamento ou interferência de Wi-Fi. Se não melhorar, abrimos chamado.`,
+        };
+      }
+
+      return {
+        diagnosis: 'network_issue',
+        action: 'open_ticket',
+        severity: ratio < 0.3 ? 'prioritario' : 'normal',
+        message: `Velocidade muito abaixo do contratado (${download} de ${plan} Mbps — ${Math.round(ratio * 100)}%). Vou abrir um chamado prioritário para a equipe técnica verificar.`,
+      };
+    }
 
     case 'solicitar_upgrade':
       return {
