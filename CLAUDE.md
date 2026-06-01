@@ -676,6 +676,66 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 - Validação de JWT no boot (`config/supabase.ts`).
 - Migration `027` — políticas RLS faltantes em tabelas novas.
 
+### 12) Busca de clientes admin — roteamento CPF/telefone corrigido (`37dfb61`)
+
+- `GET /api/admin/customers/search` agora detecta CPF pelo **formato original** da query (`xxx.xxx.xxx-xx`) via regex no campo `q` — não pelo comprimento de dígitos.
+- Para 11 dígitos sem formatação: tenta `getCustomerByPhone` primeiro (celular BR tem 11 dígitos), depois `getCustomerByCpf` como fallback se não encontrar.
+- CPF começando com `55` não é mais confundido com telefone com prefixo de país.
+- Resposta inclui `invoice` (fatura atual) embutida no objeto — campos sensíveis `contratoCentralLogin`/`contratoCentralSenha` removidos via `safeCustomer()`.
+
+### 13) Supabase `global.fetch` interceptor — fix de `permission denied` (`cf3b2c7`, `02a55cc`)
+
+**Problema:** supabase-js v2 pode sobrescrever o header `Authorization` via eventos de auth (`SIGNED_IN`/`TOKEN_REFRESHED` chamando `rest.setAuth()`), fazendo o PostgREST executar queries como `authenticated` em vez de `service_role`.
+
+**Fix:** `makeServiceRoleFetch(key)` em `config/supabase.ts` intercepta toda requisição HTTP do supabase-js e garante `Authorization: Bearer <service_role_key>` — **mas somente em `/rest/v1/`** (PostgREST/banco).
+
+**Armadilha crítica:** o interceptor **não deve** atuar em `/auth/v1/`. `supabase.auth.getUser(token)` envia o token do usuário no `Authorization`; sobrescrever com service_role quebra a validação e causa logout imediato após login. A verificação `url.includes('/rest/v1/')` é essencial.
+
+**Auth admin:** usa Supabase Auth nativo — `supabase.auth.signInWithPassword` (login) e `supabase.auth.getUser(token)` (middleware). Não usa tabela `client_sessions`.
+
+### 14) Grants Supabase — problema recorrente e solução definitiva
+
+Os GRANTs do `service_role` podem ser revogados pela manutenção do Supabase (shared pooler, pause/restore). Sintoma: `permission denied for table X ... TO authenticated` nos logs do Railway.
+
+**Não é problema de chave** — o JWT boot-check valida só a estrutura, não a assinatura.
+
+**Fix (rodar no Supabase SQL Editor):**
+```sql
+-- migrations 028 + 030
+DO $$
+DECLARE tbl TEXT;
+BEGIN
+  FOREACH tbl IN ARRAY ARRAY[
+    'conversation_threads','interaction_logs','whatsapp_instances',
+    'leads','scheduled_visits','outage_reports','billing_notifications',
+    'otp_codes','client_sessions','tenants','nps_responses',
+    'scheduled_messages','sofia_tickets','conversation_quality',
+    'knowledge_base','operational_alerts','processed_message_ids',
+    'campaign_sends','referral_links','churn_risks','whatsapp_send_log',
+    'whatsapp_sessions'
+  ]
+  LOOP
+    IF to_regclass(tbl) IS NOT NULL THEN
+      EXECUTE format('GRANT ALL ON TABLE %I TO service_role', tbl);
+    END IF;
+  END LOOP;
+END $$;
+GRANT USAGE ON SCHEMA public TO service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+-- prevenir regressão futura:
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+```
+
+### 15) Correções de segurança para produção (`cdeb46d`)
+
+- `POST /api/campaigns/expansion` era acessível sem auth — removido; usar `/api/admin/campaigns` (protegido).
+- Webhook SGP (`/webhook/sgp/payment-confirmed`) agora rejeita tudo se `SGP_WEBHOOK_SECRET` não estiver configurado (fail-secure).
+- Stack traces removidos das respostas de API (whatsapp/status, whatsapp/qr, payment-webhook).
+- `/health` oculta `supabaseUrl`, `urlProjectRef`, `jwtProjectRef`, `keyFp`, `keyLen` em `NODE_ENV=production`.
+- `safeCustomer()` em `routes/admin.ts` remove `contratoCentralLogin` e `contratoCentralSenha` de todas as respostas de customer na API admin.
+
 ---
 
 ## Gaps prioritários — briefing para melhoria da Sofia
@@ -770,3 +830,8 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não trate logs `@newsletter` como falha de atendimento** — são canais WhatsApp; devem ser ignorados silenciosamente
 - **Não use chave anon do Supabase como `SUPABASE_SERVICE_ROLE_KEY`** — causa `permission denied for table whatsapp_instances`
 - **Não use `gemini-2.0-flash` para visão** — 404 em chaves novas; usar `gemini-2.5-flash`
+- **Não remova `makeServiceRoleFetch` de `config/supabase.ts`** — sem ele, supabase-js sobrescreve o header `Authorization` via eventos de auth e todas as queries caem como `authenticated` (permission denied)
+- **Não amplie o interceptor `makeServiceRoleFetch` para além de `/rest/v1/`** — sobrescrever `/auth/v1/` quebra `supabase.auth.getUser(token)` causando logout imediato após login
+- **Não retorne objeto `Customer` direto em rotas admin** — use `safeCustomer()` para remover `contratoCentralLogin`/`contratoCentralSenha` antes de `res.json()`
+- **Não registre rotas de escrita em `/api/` sem `adminAuthMiddleware`** — `/api/campaigns` sem auth foi uma brecha real que permitia disparo de WhatsApp em massa
+- **`permission denied for table X TO authenticated` não é problema de chave** — são grants revogados; ver seção "Grants Supabase" para o fix SQL
