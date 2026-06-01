@@ -10,6 +10,7 @@
  */
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
+import { getCustomerByPhone } from '../integrations/sgp/customers';
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
 }
 
 type ActiveQuickReplyIntent =
+  | 'plans_list'
   | 'coverage_list'
   | 'coverage_check'
   | 'faq_installation'
@@ -89,6 +91,7 @@ type ActiveQuickReplyIntent =
   | 'faq_support';
 
 const ENABLED_QUICK_REPLY_INTENTS = new Set<ActiveQuickReplyIntent>([
+  'plans_list',
   'coverage_list',
   'coverage_check',
   'faq_installation',
@@ -183,6 +186,21 @@ export async function quickReply(message: string, phone: string): Promise<string
   }
 
   switch (intent) {
+    case 'plans_list': {
+      // Cliente existente: passa para LLM (contexto do contrato atual)
+      try {
+        const customer = await getCustomerByPhone(phone);
+        if (customer && !('error' in customer)) {
+          console.log('[quick-reply] plans_list → cliente existente, passa para LLM');
+          return null;
+        }
+      } catch {
+        // best-effort — não localizar não é erro crítico
+      }
+      console.log('[quick-reply] plans_list → prospect, formatPlans()');
+      return formatPlans();
+    }
+
     case 'coverage_list':
       console.log('[quick-reply] coverage_list → formatCoverageList()');
       return formatCoverageList();
