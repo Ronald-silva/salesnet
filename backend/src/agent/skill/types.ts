@@ -5,6 +5,7 @@ export interface ISPPlan {
   priceMonthly: number;
   popular?: boolean;
   description?: string;
+  minExpectedMbps?: number;
 }
 
 export interface ISPBusinessInfo {

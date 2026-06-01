@@ -10,12 +10,13 @@ export interface Plan {
   uploadMbps: number;
   priceMonthly: number;
   popular?: boolean;
+  minExpectedMbps?: number;
 }
 
 export const PLANS: Plan[] = [
-  { name: '400 Mega', downloadMbps: 400, uploadMbps: 200, priceMonthly: 79.99 },
-  { name: '500 Mega', downloadMbps: 500, uploadMbps: 250, priceMonthly: 89.99, popular: true },
-  { name: '700 Mega', downloadMbps: 700, uploadMbps: 350, priceMonthly: 109.99 },
+  { name: '400 Mega', downloadMbps: 400, uploadMbps: 200, priceMonthly: 79.99,                     minExpectedMbps: 320 },
+  { name: '500 Mega', downloadMbps: 500, uploadMbps: 250, priceMonthly: 89.99, popular: true,      minExpectedMbps: 400 },
+  { name: '700 Mega', downloadMbps: 700, uploadMbps: 350, priceMonthly: 109.99,                    minExpectedMbps: 560 },
 ];
 
 export const COVERED_NEIGHBORHOODS: string[] = [
