@@ -14,6 +14,13 @@ import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 
 export const adminRouter = Router();
 
+/** Strip SGP portal credentials before sending customer data to the admin UI. */
+function safeCustomer(c: Customer | null | undefined): Omit<Customer, 'contratoCentralLogin' | 'contratoCentralSenha'> | null {
+  if (!c) return null;
+  const { contratoCentralLogin: _l, contratoCentralSenha: _s, ...safe } = c;
+  return safe;
+}
+
 function getThreadLastText(messages: unknown): string {
   if (!Array.isArray(messages) || messages.length === 0) return '';
   const last = messages[messages.length - 1] as { content?: string };
@@ -189,7 +196,7 @@ adminRouter.get('/conversations/:id', async (req, res) => {
   res.status(200).json({
     ...thread,
     session_mode: sessionMode,
-    customer,
+    customer: safeCustomer(customer as Customer | null),
   });
 });
 
@@ -471,7 +478,7 @@ adminRouter.get('/whatsapp/status', async (_req, res) => {
     const status = await provider.getInstanceStatus(instanceName);
     res.json({ connected: status.connected, state: status.state, phoneNumber: status.phoneNumber });
   } catch (err) {
-    res.json({ connected: false, state: 'close', error: (err as Error).message });
+    res.json({ connected: false, state: 'close', error: 'unavailable' });
   }
 });
 
@@ -482,7 +489,7 @@ adminRouter.get('/whatsapp/qr', async (_req, res) => {
     const result = await provider.getQRCode(instanceName);
     res.json({ qrCode: result.qrCode });
   } catch (err) {
-    res.status(503).json({ error: (err as Error).message });
+    res.status(503).json({ error: 'qr code unavailable' });
   }
 });
 
@@ -759,7 +766,7 @@ adminRouter.get('/customers/search', async (req, res) => {
 
   const invoice = await getCurrentInvoice(customer.id).catch(() => null);
 
-  res.status(200).json({ ...customer, invoice });
+  res.status(200).json({ ...safeCustomer(customer), invoice });
 });
 
 // ── Configurações de negócio (skill) ──────────────────────────────────────────

@@ -8,7 +8,7 @@ type RawRequest = Request & { rawBody?: Buffer };
 
 function validateSgpWebhook(rawBody: unknown, headers: Record<string, string>): boolean {
   const secret = env.SGP_WEBHOOK_SECRET;
-  if (!secret) return true;
+  if (!secret) return false; // fail-secure: reject all if secret not configured
 
   if (!(rawBody instanceof Buffer)) return false;
 
@@ -64,6 +64,6 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
     res.status(200).json({ ok: true });
   } catch (err) {
     console.error(`[payment-webhook] reactivation failed for ${customerId}:`, err);
-    res.status(500).json({ error: err instanceof Error ? err.message : 'reactivation failed' });
+    res.status(500).json({ error: 'reactivation failed' });
   }
 });

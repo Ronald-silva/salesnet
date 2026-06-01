@@ -58,7 +58,6 @@ app.use('/webhook/twilio', twilioLegacyRouter);
 app.use('/webhook/sgp', paymentWebhookRouter);
 
 // ── API Routes ─────────────────────────────────────────────────────────────
-app.use('/api/campaigns', campaignExpansionRouter);
 app.use('/api/auth', apiRateLimiter, authRouter);
 app.use('/api/client', apiRateLimiter, clientRouter);
 app.use('/api/admin/campaigns', adminAuthMiddleware, campaignExpansionRouter);

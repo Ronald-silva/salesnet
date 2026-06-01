@@ -147,6 +147,7 @@ export async function buildHealthPayload(): Promise<{
   const keyRole = getSupabaseKeyRole();
   const urlProjectRef = getSupabaseUrlProjectRef();
   const jwtProjectRef = getSupabaseKeyProjectRef();
+  const isProd = env.NODE_ENV === 'production';
   return {
     status,
     uptime: process.uptime(),
@@ -156,14 +157,17 @@ export async function buildHealthPayload(): Promise<{
         ...supabaseCheck,
         keyRole,
         keyOk: isSupabaseServiceRoleKey(),
-        keyFp: getSupabaseKeyFingerprint(),
-        keyLen: getNormalizedSupabaseKey().length,
-        keyExpired: isSupabaseKeyExpired(),
-        supabaseUrl: getNormalizedSupabaseUrl(),
-        urlCanonical: isCanonicalSupabaseUrl(),
-        urlProjectRef,
-        jwtProjectRef,
-        projectRefMatch: urlProjectRef !== null && jwtProjectRef !== null && urlProjectRef === jwtProjectRef,
+        // Diagnostic fields hidden in production to avoid exposing project ref / key fingerprint
+        ...(!isProd && {
+          keyFp: getSupabaseKeyFingerprint(),
+          keyLen: getNormalizedSupabaseKey().length,
+          keyExpired: isSupabaseKeyExpired(),
+          supabaseUrl: getNormalizedSupabaseUrl(),
+          urlCanonical: isCanonicalSupabaseUrl(),
+          urlProjectRef,
+          jwtProjectRef,
+          projectRefMatch: urlProjectRef !== null && jwtProjectRef !== null && urlProjectRef === jwtProjectRef,
+        }),
       },
       evolutionGo: evolutionGoCheck,
     },
