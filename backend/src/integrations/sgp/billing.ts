@@ -12,8 +12,16 @@ import {
 
 // SGP às vezes devolve links apontando para o frontend Vercel em vez do próprio SGP.
 function fixSgpLink(url: string | undefined): string {
-  if (!url) return '';
-  return url.replace(/https?:\/\/salesnet-green\.vercel\.app/g, 'https://salesnet.sgp.tsmx.com.br');
+  if (!url) return ''
+  if (url.startsWith('https://salesnet.sgp.tsmx.com.br')) return url
+  if (url.includes('salesnet-green.vercel.app'))
+    return url.replace(
+      /https?:\/\/salesnet-green\.vercel\.app/g,
+      'https://salesnet.sgp.tsmx.com.br'
+    )
+  if (url.startsWith('/'))
+    return 'https://salesnet.sgp.tsmx.com.br' + url
+  return 'https://salesnet.sgp.tsmx.com.br/' + url
 }
 
 function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number; vencimento: string; statusid: number; codigopix?: string; gerarpix?: boolean; linhadigitavel?: string; link?: string }): Invoice {
