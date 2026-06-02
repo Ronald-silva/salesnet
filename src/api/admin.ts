@@ -66,6 +66,13 @@ export interface ConversationSummary {
   mode: 'bot' | 'human';
   churnRisk: boolean;
   updatedAt: string;
+  sessionMode: string | null;
+}
+
+export interface ConversationContext {
+  nps: { score: number; date: string } | null;
+  openTickets: number;
+  activeSchedule: { date: string; period: string } | null;
 }
 
 export interface ConversationDetail {
@@ -90,6 +97,7 @@ export interface InvoiceInfo {
   dueDate: string;
   status: 'open' | 'paid' | 'overdue' | 'cancelled';
   pixCode?: string;
+  canGeneratePix?: boolean;
   barcode?: string;
   link?: string;
 }
@@ -268,6 +276,10 @@ export const adminApi = {
 
   getConversationInvoice: (id: string) =>
     request<InvoiceInfo | null>(`/conversations/${id}/invoice`),
+  generatePix: (id: string) =>
+    request<{ pixCode: string }>(`/conversations/${id}/generate-pix`, { method: 'POST' }),
+  getConversationContext: (id: string) =>
+    request<ConversationContext>(`/conversations/${id}/context`),
 
   getLeads: (status: string) =>
     request<LeadItem[]>(`/leads?status=${encodeURIComponent(status)}`),

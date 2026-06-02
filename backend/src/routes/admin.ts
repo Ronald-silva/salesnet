@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
-import { getCustomerByPhone, getCustomerById, getCurrentInvoice, getCustomerByCpf } from '../integrations/sgp';
+import { getCustomerByPhone, getCustomerById, getCurrentInvoice, getCustomerByCpf, generatePixKey } from '../integrations/sgp';
 import type { Customer } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
@@ -120,6 +120,28 @@ adminRouter.get('/conversations', async (req, res) => {
     updated_at: string;
   }>;
 
+  // Bulk fetch latest session_mode per phone in one query
+  const phones = rows.map(r => r.phone);
+  const sessionModeMap = new Map<string, string>();
+  if (phones.length > 0) {
+    try {
+      const { data: logs } = await supabase
+        .from('interaction_logs')
+        .select('phone, session_mode, created_at')
+        .in('phone', phones)
+        .in('tenant_id', adminTenantIds())
+        .order('created_at', { ascending: false })
+        .limit(500);
+      for (const log of (logs ?? []) as Array<{ phone: string; session_mode: string | null }>) {
+        if (!sessionModeMap.has(log.phone) && log.session_mode) {
+          sessionModeMap.set(log.phone, log.session_mode);
+        }
+      }
+    } catch {
+      // best-effort — missing session_mode just means no avatar color
+    }
+  }
+
   const enriched = await Promise.all(rows.map(async (row) => {
     let name = row.phone;
     try {
@@ -137,6 +159,7 @@ adminRouter.get('/conversations', async (req, res) => {
       mode: row.human_mode ? 'human' : 'bot',
       churnRisk: row.churn_risk,
       updatedAt: row.updated_at,
+      sessionMode: sessionModeMap.get(row.phone) ?? null,
     };
   }));
 
@@ -467,6 +490,89 @@ adminRouter.get('/conversations/:id/invoice', async (req, res) => {
 
   const invoice = await getCurrentInvoice(customer.id).catch(() => null);
   res.status(200).json(invoice);
+});
+
+adminRouter.post('/conversations/:id/generate-pix', adminAuthMiddleware, async (req, res) => {
+  const { data, error } = await supabase
+    .from('conversation_threads')
+    .select('phone')
+    .eq('id', req.params.id)
+    .single();
+
+  if (error || !data) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const thread = data as { phone: string };
+  const customer = await getCustomerByPhone(thread.phone).catch(() => null);
+  if (!customer) {
+    res.status(404).json({ error: 'customer not found' });
+    return;
+  }
+
+  const invoice = await getCurrentInvoice(customer.id).catch(() => null);
+  if (!invoice) {
+    res.status(404).json({ error: 'no open invoice' });
+    return;
+  }
+
+  try {
+    const pix = await generatePixKey(invoice.id, customer.id);
+    res.status(200).json({ pixCode: pix.pixKey });
+  } catch (err) {
+    res.status(422).json({ error: (err as Error).message ?? 'PIX não disponível' });
+  }
+});
+
+adminRouter.get('/conversations/:id/context', adminAuthMiddleware, async (req, res) => {
+  const { data, error } = await supabase
+    .from('conversation_threads')
+    .select('phone')
+    .eq('id', req.params.id)
+    .single();
+
+  if (error || !data) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const { phone } = data as { phone: string };
+
+  const [npsRes, ticketsRes, scheduleRes] = await Promise.allSettled([
+    supabase
+      .from('nps_responses')
+      .select('score, created_at')
+      .eq('phone', phone)
+      .eq('tenant_id', env.DEFAULT_TENANT_ID)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('sofia_tickets')
+      .select('*', { count: 'exact', head: true })
+      .eq('phone', phone)
+      .eq('tenant_id', env.DEFAULT_TENANT_ID)
+      .eq('status', 'aberto'),
+    supabase
+      .from('scheduled_visits')
+      .select('visit_date, period')
+      .eq('phone', phone)
+      .eq('status', 'scheduled')
+      .order('visit_date', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const npsData = npsRes.status === 'fulfilled' ? (npsRes.value.data as { score: number; created_at: string } | null) : null;
+  const openTickets = ticketsRes.status === 'fulfilled' ? (ticketsRes.value.count ?? 0) : 0;
+  const scheduleData = scheduleRes.status === 'fulfilled' ? (scheduleRes.value.data as { visit_date: string; period: string } | null) : null;
+
+  res.status(200).json({
+    nps: npsData ? { score: npsData.score, date: npsData.created_at } : null,
+    openTickets,
+    activeSchedule: scheduleData ? { date: scheduleData.visit_date, period: scheduleData.period } : null,
+  });
 });
 
 // ── WhatsApp connection status + QR ──────────────────────────────────────────
