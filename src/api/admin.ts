@@ -100,6 +100,7 @@ export interface InvoiceInfo {
   canGeneratePix?: boolean;
   barcode?: string;
   link?: string;
+  pdfLink?: string;
 }
 
 export interface DashboardMetrics {

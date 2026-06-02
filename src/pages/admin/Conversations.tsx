@@ -289,8 +289,6 @@ function InvoiceSection({
     mutationFn: () => adminApi.generatePix(conversationId),
     onSuccess: ({ pixCode }) => {
       setGeneratedPix(pixCode);
-      navigator.clipboard.writeText(pixCode).catch(() => null);
-      toast({ title: 'PIX gerado e copiado!' });
       queryClient.invalidateQueries({ queryKey: ['admin-conversation-invoice', conversationId] });
     },
     onError: (err) => toast({ title: 'Erro ao gerar PIX', description: (err as Error).message, variant: 'destructive' }),
@@ -301,6 +299,29 @@ function InvoiceSection({
   function copy(text: string, label: string) {
     navigator.clipboard.writeText(text).catch(() => null);
     toast({ title: `${label} copiado!` });
+  }
+
+  function handleCopyPix() {
+    if (activePix) {
+      copy(activePix, 'Código PIX');
+    } else {
+      generatePixMutation.mutate(undefined, {
+        onSuccess: ({ pixCode }) => {
+          navigator.clipboard.writeText(pixCode).catch(() => null);
+          toast({ title: 'Código PIX copiado!' });
+        },
+      });
+    }
+  }
+
+  function handleQrPix() {
+    if (activePix) {
+      setQrOpen(true);
+    } else {
+      generatePixMutation.mutate(undefined, {
+        onSuccess: () => setQrOpen(true),
+      });
+    }
   }
 
   if (isLoading) {
@@ -342,127 +363,122 @@ function InvoiceSection({
 
           <div className="border-t border-white/8" />
 
-          {/* 2x3 action grid */}
+          {/* Action buttons */}
           <TooltipProvider>
-            <div className="grid grid-cols-3 gap-2">
-              {/* Cod PIX */}
+            <div className="space-y-2">
+              {/* Linha 1: Copiar PIX — destaque verde, largura total */}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     disabled={!invoice.canGeneratePix && !activePix}
-                    onClick={() => activePix ? copy(activePix, 'Código PIX') : generatePixMutation.mutate()}
+                    onClick={handleCopyPix}
                     className={cn(
-                      'rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                      'w-full rounded-lg py-2.5 px-3 flex items-center justify-center gap-2 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
                       invoice.canGeneratePix || activePix
-                        ? 'bg-green-900/40 text-green-400 hover:bg-green-800/50'
-                        : 'bg-gray-700/50 text-gray-300 hover:bg-gray-600/50',
+                        ? 'bg-green-800/60 text-green-300 hover:bg-green-700/60'
+                        : 'bg-gray-700/50 text-gray-400',
                     )}
                   >
-                    <QrCode className="h-4 w-4" />
-                    Cod PIX
+                    {generatePixMutation.isPending ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    {activePix ? 'Copiar PIX' : 'Gerar e copiar PIX'}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">
-                  {activePix ? 'Copiar código PIX' : 'Gerar código PIX'}
+                  {activePix ? 'Copiar código PIX' : 'Gerar código PIX e copiar'}
                 </TooltipContent>
               </Tooltip>
 
-              {/* Cod Boleto */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!invoice.barcode}
-                    onClick={() => invoice.barcode && copy(invoice.barcode, 'Código do boleto')}
-                    className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <FileText className="h-4 w-4" />
-                    Cod Boleto
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Copiar linha digitável</TooltipContent>
-              </Tooltip>
+              {/* Linha 2: QR PIX + Copiar Boleto */}
+              <div className="grid grid-cols-2 gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={!activePix && !invoice.canGeneratePix}
+                      onClick={handleQrPix}
+                      className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <QrCode className="h-4 w-4" />
+                      QR PIX
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">Ver QR Code PIX</TooltipContent>
+                </Tooltip>
 
-              {/* Link Fatura */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!invoice.link}
-                    onClick={() => invoice.link && window.open(invoice.link, '_blank')}
-                    className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Link Fatura
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Abrir link da fatura</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={!invoice.barcode}
+                      onClick={() => invoice.barcode && copy(invoice.barcode, 'Código do boleto')}
+                      className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Copiar Boleto
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">Copiar linha digitável</TooltipContent>
+                </Tooltip>
+              </div>
 
-              {/* QR PIX */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!activePix}
-                    onClick={() => setQrOpen(true)}
-                    className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Maximize2 className="h-4 w-4" />
-                    QR PIX
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Ver QR Code PIX</TooltipContent>
-              </Tooltip>
+              {/* Linha 3: Link Fatura + PDF Fatura */}
+              <div className="grid grid-cols-2 gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={!invoice.link}
+                      onClick={() => invoice.link && window.open(invoice.link, '_blank')}
+                      className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      Link Fatura
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">Abrir link da fatura</TooltipContent>
+                </Tooltip>
 
-              {/* PDF Fatura */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!invoice.link}
-                    onClick={() => invoice.link && window.open(`${invoice.link}?format=pdf`, '_blank')}
-                    className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Download className="h-4 w-4" />
-                    PDF Fatura
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Baixar PDF da fatura</TooltipContent>
-              </Tooltip>
-
-              {/* Copiar PIX */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={!activePix}
-                    onClick={() => activePix && copy(activePix, 'Código PIX')}
-                    className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Copy className="h-4 w-4" />
-                    Copiar PIX
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">Copiar código PIX</TooltipContent>
-              </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={!invoice.link && !invoice.pdfLink}
+                      onClick={() => {
+                        const url = invoice.pdfLink ?? (invoice.link ? `${invoice.link}?format=pdf` : null);
+                        if (url) window.open(url, '_blank');
+                      }}
+                      className="bg-gray-700/50 hover:bg-gray-600/50 rounded-lg p-2.5 flex flex-col items-center gap-1 text-[10px] text-gray-300 hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Download className="h-4 w-4" />
+                      PDF Fatura
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="text-xs">Baixar PDF da fatura</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           </TooltipProvider>
         </div>
       )}
 
       {/* QR Dialog */}
-      {activePix && (
-        <Dialog open={qrOpen} onOpenChange={setQrOpen}>
-          <DialogContent className="max-w-xs bg-gray-900 border-white/10">
-            <DialogHeader>
-              <DialogTitle className="text-gray-100">QR Code PIX</DialogTitle>
-            </DialogHeader>
-            <div className="flex flex-col items-center gap-4 py-2">
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="max-w-xs bg-gray-900 border-white/10">
+          <DialogHeader>
+            <DialogTitle className="text-gray-100">QR Code PIX</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-2">
+            {activePix && (
               <div className="bg-white p-4 rounded-xl">
                 <QRCodeSVG value={activePix} size={192} />
               </div>
+            )}
+            {activePix && (
               <button
                 type="button"
                 onClick={() => copy(activePix, 'Código PIX')}
@@ -470,10 +486,10 @@ function InvoiceSection({
               >
                 <Copy className="h-4 w-4" /> Copiar código PIX
               </button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

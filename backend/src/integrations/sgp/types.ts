@@ -114,6 +114,7 @@ export const InvoiceSchema = z.object({
   canGeneratePix: z.boolean().optional(),
   barcode:  z.string().optional(),
   link:     z.string().optional(),
+  pdfLink:  z.string().optional(),
 });
 
 export type Invoice = z.infer<typeof InvoiceSchema>;

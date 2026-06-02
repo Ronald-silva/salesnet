@@ -10,6 +10,12 @@ import {
   type SuspendReactivateResponse,
 } from './types';
 
+// SGP às vezes devolve links apontando para o frontend Vercel em vez do próprio SGP.
+function fixSgpLink(url: string | undefined): string {
+  if (!url) return '';
+  return url.replace(/https?:\/\/salesnet-green\.vercel\.app/g, 'https://salesnet.sgp.tsmx.com.br');
+}
+
 function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number; vencimento: string; statusid: number; codigopix?: string; gerarpix?: boolean; linhadigitavel?: string; link?: string }): Invoice {
   let status: Invoice['status'];
   if (f.statusid === 2) status = 'paid';
@@ -19,6 +25,8 @@ function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number;
     status = f.vencimento < today ? 'overdue' : 'open';
   }
 
+  const fixedLink = fixSgpLink(f.link) || undefined;
+
   return InvoiceSchema.parse({
     id:             String(f.id),
     amount:         f.valorcorrigido ?? f.valor,
@@ -27,7 +35,8 @@ function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number;
     pixCode:        f.codigopix || undefined,
     canGeneratePix: f.gerarpix,
     barcode:        f.linhadigitavel || undefined,
-    link:           f.link || undefined,
+    link:           fixedLink,
+    pdfLink:        fixedLink ? `${fixedLink}?format=pdf` : undefined,
   });
 }
 
