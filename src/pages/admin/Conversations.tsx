@@ -112,6 +112,13 @@ function extractPixFromMessage(content: string): string | null {
   return content.match(/\b(00020126\S+)/)?.[1] ?? null;
 }
 
+function formatMessageText(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br />');
+}
+
 // ─── Avatar ───────────────────────────────────────────────────────────────────
 
 function ConvAvatar({
@@ -232,16 +239,17 @@ function MessageBubble({
         {pixCode ? (
           <PixCard pixCode={pixCode} onCopy={() => onCopyPix(pixCode)} />
         ) : (
-          <div className={cn(
-            'rounded-2xl px-4 py-2.5 text-sm text-gray-100',
-            isUser
-              ? 'bg-gray-800 rounded-tl-sm'
-              : isHuman
-                ? 'bg-orange-900/40 border border-orange-800/40 rounded-tr-sm'
-                : 'bg-blue-900/60 border border-blue-800/40 rounded-tr-sm',
-          )}>
-            {msg.content}
-          </div>
+          <div
+            className={cn(
+              'rounded-2xl px-4 py-2.5 text-sm text-gray-100',
+              isUser
+                ? 'bg-gray-800 rounded-tl-sm'
+                : isHuman
+                  ? 'bg-orange-900/40 border border-orange-800/40 rounded-tr-sm'
+                  : 'bg-blue-900/60 border border-blue-800/40 rounded-tr-sm',
+            )}
+            dangerouslySetInnerHTML={{ __html: formatMessageText(msg.content) }}
+          />
         )}
         {time && (
           <span className="text-[10px] text-gray-500 mt-1 px-1">{time}</span>
@@ -809,7 +817,12 @@ function ChatArea({
 
       {/* ── Input fixo no bottom ── */}
       <div className="flex-shrink-0 bg-gray-900 border-t border-white/8">
-        {isHuman ? (
+        {!isHuman && (
+          <div className="bg-blue-950/30 border-b border-blue-800/20 px-4 py-2 text-center">
+            <span className="text-xs text-blue-400">Sofia está atendendo ativamente</span>
+          </div>
+        )}
+        {isHuman && (
           <div className="p-4 space-y-2">
             <div className="flex gap-2 items-end">
               <Textarea
@@ -830,12 +843,6 @@ function ChatArea({
               </button>
             </div>
             <p className="text-[10px] text-gray-600">Enter para enviar · Shift+Enter nova linha</p>
-          </div>
-        ) : (
-          <div className="px-4 py-2 border-t border-blue-800/30 bg-blue-950/30">
-            <p className="text-xs text-blue-400 text-center">
-              Sofia está atendendo ativamente
-            </p>
           </div>
         )}
       </div>
@@ -1124,7 +1131,7 @@ export default function Conversations() {
         </div>
 
         {/* Coluna 3 */}
-        <div className="w-72 flex-shrink-0 flex flex-col border-l border-white/8 overflow-hidden bg-gray-900">
+        <div className="w-72 flex-shrink-0 flex flex-col h-full border-l border-white/8 overflow-hidden bg-gray-900">
           {renderPanel()}
         </div>
       </div>
