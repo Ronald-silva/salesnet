@@ -1,6 +1,6 @@
 ---
 name: uau-mobile-home-redesign
-description: Redesign da tela Home do app mobile UAU+ — estilo fintech clean, hierarquia por cobrança/assinatura, atalhos com ícones Ionicons
+description: Redesign da tela Home do app mobile UAU+ — alinhado ao design do app UAU Lava Car original (teal + maroon, stats row, cards com gradiente)
 metadata:
   type: project
 ---
@@ -9,118 +9,156 @@ metadata:
 
 ## Contexto
 
-A tela Home atual (`app/(tabs)/home.tsx`) exibe os dados corretos, mas carece de hierarquia visual e aparência profissional: o botão "Avisos" é um bloco escuro sem identidade, os atalhos são caixas de texto simples sem ícones, e a ordem das seções não reflete a prioridade do usuário.
+A tela Home atual (`app/(tabs)/home.tsx`) exibe dados corretos mas tem visual sem identidade: botão "Avisos" como bloco preto, atalhos como caixas de texto simples, sem hierarquia. O cliente já usa o **app UAU Lava Car** (repo `Uaulavacar43/app-uau-clube`, API em `api.uaulavacar.com.br`) e o novo UAU+ precisa ter a **mesma linguagem visual** para não causar estranhamento.
 
-**Abordagem escolhida:** Redesign com Herói (B) — reordenação das seções, hero card de cobrança/assinatura, atalhos com ícones Ionicons, sino de notificações no header. Nenhum componente compartilhado novo além do próprio `home.tsx`. Biblioteca `@expo/vector-icons` (Ionicons) já disponível no projeto.
-
-**Estilo visual:** Fintech clean (referência: Nubank/Inter) — cards brancos com sombra suave, tipografia hierárquica, destaque em `uau-green` (#0BA95B).
+**Abordagem:** Redesign alinhado à marca — replicar o layout e tokens visuais do app UAU Lava Car adaptando o conteúdo para o contexto UAU+ (cashback, assinaturas, cobranças). Arquivo único alterado: `app/(tabs)/home.tsx` + `tailwind.config.js` (novas cores).
 
 ---
 
-## Hierarquia de Conteúdo
+## Tokens de Design (extraídos do app original)
 
-Ordem definitiva das seções na tela:
+Adicionar ao `tailwind.config.js`:
 
-1. **Header** — saudação + sino de notificações
-2. **Hero Card** — cobrança atual ou CTA de assinatura
-3. **Cashback** — dupla de cards lado a lado
-4. **Atalhos** — grid 2×N com ícone + label
-5. **Campanhas** — scroll horizontal (condicional)
+```js
+uau: {
+  teal:   "#009688",   // cor primária — header, ícones, labels de stats
+  maroon: "#7D1C2F",   // cor secundária — cards alternados
+  green:  "#0BA95B",   // mantida para compatibilidade com outros componentes
+  black:  "#101418",
+  gray:   "#667085",
+  light:  "#F5F7FA",
+  white:  "#FFFFFF",
+}
+```
+
+Gradientes dos cards de ação (inline style, não Tailwind):
+- **Teal card:** `['#009B8D', '#00695C']` (LinearGradient, diagonal)
+- **Maroon card:** `['#7D1C2F', '#1A0010']` (LinearGradient, diagonal)
+
+> Requer instalação de `expo-linear-gradient` (ainda não instalado no projeto).
 
 ---
 
-## Seções
+## Estrutura da Tela
 
-### 1. Header
+### 1. Header — Faixa Teal
 
-- Saudação: `Olá, [nome]` — `text-3xl font-bold text-uau-black`
-- Subtítulo: nome do plano + status da assinatura quando disponível; fallback `"Seu UAU+ em um só lugar."`
-- Notificações: ícone `notifications-outline` (Ionicons, 24px, cor `uau-black`) no canto direito
-  - Badge: círculo verde `uau-green` com número de não lidos; ponto sem número se count = 0; ausente se `unreadCount === 0`
-- Fundo `uau-light`, sem card envolvente
+Faixa full-width com fundo teal (`#009688`), compensando o padding do `Screen` com margem negativa (`-mx-5 -mt-6`), `rounded-b-3xl`.
 
-### 2. Hero Card — Cobrança / Assinatura
+```
+┌─────────────────────────────────────────┐
+│  [fundo teal]                    🔔  3  │
+│  Olá, Ronald                            │
+│  Assinatura ativa · Plano Gold          │
+└─────────────────────────────────────────┘
+```
 
-Card branco, `rounded-2xl`, `shadow-sm`, borda esquerda grossa `border-l-4 border-uau-green`.
+- Texto em branco
+- Sino: `Ionicons "notifications-outline"`, 24px, branco
+- Badge: círculo `#FF5252` com número de não lidos; oculto se `unreadCount === 0`
+- Subtítulo: plano + status quando disponível; fallback `"Seu UAU+ em um só lugar."`
+- Padding interno: `px-5 pt-4 pb-6`
 
-**Estado com cobrança (`billingQuery.data` presente):**
-- Título: `"Cobrança atual"` — `text-sm font-semibold text-uau-gray`
-- Badge de status: pill arredondado — cor determinada por mapeamento case-insensitive do campo `status` da API:
-  - Contém `"ativ"` → fundo verde claro, texto verde
-  - Contém `"pend"` ou `"aguard"` → fundo amarelo claro, texto amarelo escuro
-  - Contém `"venc"` ou `"atras"` ou `"cancel"` → fundo vermelho claro, texto vermelho
-  - Fallback (qualquer outro valor) → fundo cinza claro, texto cinza
-- Valor: `text-3xl font-bold text-uau-black`
-- Vencimento e método de pagamento: `text-sm text-uau-gray`
-- CTA interno: botão `uau-green` full-width `"Pagar cobrança atual"` → `router.push("/(tabs)/billing")`
+### 2. Stats Row — 3 Cards
 
-**Estado sem cobrança (usuário não assinante):**
-- Título: `"Assinatura"`
-- Texto: `"Você ainda não tem uma assinatura"` + subtexto motivador
-- CTA interno: botão `uau-green` full-width `"Assinar agora"` → `router.push("/subscribe")`
+Três cards brancos lado a lado, `flex-1`, `gap-3`.
 
-### 3. Cashback — Dupla de Cards
-
-Dois cards `flex-1` lado a lado com `gap-3`.
+```
+┌──────────┐  ┌──────────┐  ┌──────────┐
+│ Cashback │  │ Veículos │  │Assinatura│  ← label teal, text-xs
+│          │  │          │  │          │
+│  R$0,00  │  │    0     │  │  Ativa   │  ← valor bold
+└──────────┘  └──────────┘  └──────────┘
+```
 
 Cada card:
-- Ícone Ionicons no topo (`cash-outline` / `gift-outline`), cor `uau-green`, tamanho 20px
-- Label: `text-sm text-uau-gray`
-- Valor: `text-2xl font-bold text-uau-black` via `<MoneyText />`
+- Label: `text-xs font-semibold text-uau-teal` no topo
+- Valor: `text-xl font-bold text-uau-black` (via `<MoneyText />` ou `<Text />`)
+- `rounded-xl border border-gray-100 bg-white p-3`
 
-| Card | Ícone | Label | Valor |
-|---|---|---|---|
-| Esquerdo | `cash-outline` | Cashback total | `totalBalance` / `availableBalance` / `balance` |
-| Direito | `gift-outline` | Promocional | `promotionalBalance` / `promoBalance` |
-
-### 4. Atalhos — Grid 2×N com Ícone
-
-`flex-row flex-wrap gap-3`. Cada célula: `w-[48%]`, card branco `rounded-xl border border-gray-100`, `p-4`, itens centrados.
-
-Estrutura interna de cada célula:
-```
-ícone (Ionicons, 28px, uau-green)
-label (text-xs font-medium text-uau-black, mt-2, text-center)
-```
-
-Mapa de atalhos (sem "Assinar agora" — movido para o Hero Card):
-
-| Label | Ícone Ionicons | Rota |
+Dados:
+| Card | Fonte | Fallback |
 |---|---|---|
-| Minha Carteira | `wallet-outline` | `/(tabs)/wallet` |
-| Cobranças | `receipt-outline` | `/(tabs)/billing` |
-| Minha Rede | `people-outline` | `/referrals` |
-| Parceiros | `storefront-outline` | `/(tabs)/partners` |
-| Meus Veículos | `car-outline` | `/vehicles` |
-| Histórico | `time-outline` | `/history` |
-| Perfil | `person-outline` | `/(tabs)/profile` |
+| Cashback | `wallet.totalBalance` / `availableBalance` | `R$ 0,00` |
+| Veículos | não disponível no UAU+ — exibir `0` fixo até haver endpoint | `0` |
+| Assinatura | `subscription.status` (normalizado) | `"—"` |
 
-### 5. Campanhas (condicional)
+> Campo "Veículos" é placeholder — mostrar `0` até o endpoint `/vehicles/count` ser implementado. Não bloqueia o redesign.
 
-Idêntico à lógica atual, mas reposicionado para o **final** da tela.
-- Renderiza apenas quando `campaigns.length > 0`
-- Scroll horizontal, cards `w-72`, título + subtítulo + CTA + botão Fechar
-- Sem alteração na lógica de `viewMutation`, `clickMutation`, `dismissMutation`
+### 3. CTA Principal — Botão Pill Preto
+
+```
+┌─────────────────────────────────────────────┐
+│         Pagar cobrança atual                │  ← pill preto, full width
+└─────────────────────────────────────────────┘
+```
+
+- `h-14 rounded-full bg-uau-black items-center justify-center`
+- Texto: `font-semibold text-white text-base`
+- Label dinâmico: `"Pagar cobrança atual"` se tem billing, `"Assinar agora"` se não tem
+- Rota: `/(tabs)/billing` ou `/subscribe`
+- **Substitui** o `<Button />` atual (que usa `uau-green`; este usa black pill próprio)
+
+### 4. Cards de Ação — Grid 2×N com Gradiente
+
+Grid `flex-row flex-wrap gap-3`. Cada card: `w-[48%]`, aspect ratio quadrado (`aspect-square`), `rounded-2xl overflow-hidden`.
+
+Conteúdo interno centralizado (ícone em cima, label abaixo):
+```
+┌──────────────────┐  ┌──────────────────┐
+│   [gradient]     │  │   [gradient]     │
+│       💳          │  │       🚗          │
+│  Minha Carteira  │  │  Cobranças       │
+└──────────────────┘  └──────────────────┘
+```
+
+Ícones: `Ionicons`, 40px, branco. Label: `text-sm font-semibold text-white text-center`, `mt-3`.
+
+Alternância de gradiente (índice par = teal, índice ímpar = maroon):
+
+| Label | Ícone | Rota | Gradiente |
+|---|---|---|---|
+| Minha Carteira | `wallet-outline` | `/(tabs)/wallet` | teal |
+| Cobranças | `receipt-outline` | `/(tabs)/billing` | maroon |
+| Parceiros | `storefront-outline` | `/(tabs)/partners` | maroon |
+| Minha Rede | `people-outline` | `/referrals` | teal |
+| Meus Veículos | `car-outline` | `/vehicles` | teal |
+| Histórico | `time-outline` | `/history` | maroon |
+| Perfil | `person-outline` | `/(tabs)/profile` | maroon |
+
+> "Assinar agora" **removido** dos atalhos — está no CTA principal.
+
+### 5. Campanhas (condicional, ao final)
+
+Renderiza apenas quando `campaigns.length > 0`. Scroll horizontal. Cards `w-72`, `rounded-xl`, fundo branco. Sem alteração na lógica (`viewMutation`, `clickMutation`, `dismissMutation`).
+
+---
+
+## Dependência Nova: `expo-linear-gradient`
+
+Os cards de ação usam `LinearGradient`. Instalação:
+```bash
+npx expo install expo-linear-gradient
+```
 
 ---
 
 ## Estados de Loading e Erro
 
-- `isLoading`: exibe `<Loading />` centralizado abaixo do header, antes do Hero Card
-- `hasError`: exibe `<ErrorState />` com mensagem genérica; as seções que dependem dos dados mostram fallback vazio (R$ 0,00, "Nenhuma cobrança")
-- Sem alteração nos hooks existentes
+- `isLoading`: `<Loading />` exibido abaixo do header teal, antes dos stats
+- `hasError`: `<ErrorState />` com mensagem genérica; stats mostram fallback vazio
 
 ---
 
 ## Escopo
 
 **Dentro do escopo:**
-- Arquivo `app/(tabs)/home.tsx` — única alteração de código
-- Uso de `@expo/vector-icons/Ionicons` (já disponível)
-- Nenhum componente compartilhado novo
+- `app/(tabs)/home.tsx` — arquivo principal
+- `tailwind.config.js` — adicionar `uau-teal` e `uau-maroon`
+- Instalar `expo-linear-gradient`
 
 **Fora do escopo:**
-- Outras telas (billing, wallet, profile, etc.)
-- Alterações nos hooks ou API
-- Refatoração do componente `Screen`, `Card` ou `Button`
-- SafeAreaView ou mudanças de layout global
+- Outras telas
+- Componentes compartilhados (`Screen`, `Card`, `Button`)
+- Endpoint de contagem de veículos
+- Logo UAU Lava Car no header (não temos o asset — usar texto/gradiente)
