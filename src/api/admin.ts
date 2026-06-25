@@ -63,10 +63,25 @@ export interface ConversationSummary {
   phone: string;
   name: string;
   lastText: string;
+  lastMessageSource: 'user' | 'assistant' | 'human' | null;
   mode: 'bot' | 'human';
+  status: 'active' | 'waiting' | 'closed';
+  starred: boolean;
   churnRisk: boolean;
   updatedAt: string;
   sessionMode: string | null;
+  urgency_score: number;
+  urgency_reasons: string[];
+  invoice_days_overdue: number;
+}
+
+export interface ConversationStats {
+  human: number;
+  waiting: number;
+  bot: number;
+  total: number;
+  closedToday: number;
+  starred: number;
 }
 
 export interface ConversationContext {
@@ -82,6 +97,8 @@ export interface ConversationDetail {
   churn_risk: boolean;
   notes?: string | null;
   session_mode?: string | null;
+  status?: 'active' | 'waiting' | 'closed';
+  starred?: boolean;
   updated_at: string;
   messages: Array<{ role: string; content: string; timestamp?: string; source?: string }>;
   customer?: {
@@ -170,6 +187,12 @@ export interface OutageReport {
   neighborhoods: Array<{ neighborhood: string; count: number; lastReportedAt: string }>;
 }
 
+export interface SuggestionResponse {
+  suggestion: string;
+  reasoning: string;
+  confidence: 'high' | 'medium' | 'low';
+}
+
 export interface FinanceReport {
   period_days: number;
   total_notifications: number;
@@ -247,9 +270,11 @@ export const adminApi = {
       body: JSON.stringify({ email, password }),
     }),
 
-  getConversations: (filter: string, search: string) =>
+  getConversationStats: () => request<ConversationStats>('/conversations/stats'),
+
+  getConversations: (filter: string, search: string, starred?: boolean) =>
     request<ConversationSummary[]>(
-      `/conversations?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}`
+      `/conversations?filter=${encodeURIComponent(filter)}&search=${encodeURIComponent(search)}${starred ? '&starred=true' : ''}`
     ),
 
   getConversation: (id: string) => request<ConversationDetail>(`/conversations/${id}`),
@@ -258,10 +283,27 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify({ active }),
     }),
-  reply: (id: string, message: string) =>
+  reply: (id: string, message: string, meta?: { copilot_used?: boolean; copilot_edited?: boolean }) =>
     request<{ ok: true }>(`/conversations/${id}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, ...meta }),
+    }),
+  getSuggestion: (id: string) =>
+    request<SuggestionResponse>(`/conversations/${id}/suggest`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  closeConversation: (id: string) =>
+    request<{ ok: true }>(`/conversations/${id}/close`, { method: 'POST' }),
+  pauseConversation: (id: string, resume = false) =>
+    request<{ ok: true; status: string }>(`/conversations/${id}/pause`, {
+      method: 'POST',
+      body: JSON.stringify({ resume }),
+    }),
+  starConversation: (id: string, starred: boolean) =>
+    request<{ ok: true; starred: boolean }>(`/conversations/${id}/star`, {
+      method: 'PATCH',
+      body: JSON.stringify({ starred }),
     }),
 
   getMetrics: () => request<DashboardMetrics>('/metrics'),
