@@ -66,10 +66,13 @@ export async function getCurrentInvoice(contratoId: string): Promise<Invoice> {
   return faturaToInvoice(parsed.faturas[0]!);
 }
 
-/** Generate or return existing PIX code for an invoice. */
-export async function generatePixKey(invoiceId: string, contratoId?: string): Promise<PixKey> {
-  // First check if the invoice already has a PIX code via titulos listing
-  if (contratoId) {
+/** Generate or return existing PIX code for an invoice.
+ *  forceNew=true bypasses cached codigopix and calls the SGP endpoint directly
+ *  (use when the client reports the previous code was expired or invalid).
+ */
+export async function generatePixKey(invoiceId: string, contratoId?: string, forceNew = false): Promise<PixKey> {
+  // Only use cached code if not forcing a new one
+  if (!forceNew && contratoId) {
     try {
       const body = systemParams({ contrato: contratoId, limit: '50' });
       const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
@@ -83,7 +86,7 @@ export async function generatePixKey(invoiceId: string, contratoId?: string): Pr
     }
   }
 
-  // Call the PIX generation endpoint
+  // Call the SGP PIX generation endpoint (always generates fresh code)
   const body = systemParams({ contrato: contratoId ?? '' });
   const { data } = await sgpClient.post(`/api/central/pagamento/pix/${invoiceId}`, body.toString());
 

@@ -71,7 +71,9 @@ function detect(message: string): { intent: Intent; neighborhood?: string } {
     return { intent: 'faq_installation' };
   }
 
-  if (/(?:forma|meio).{0,15}pagamento|como pag|pix|boleto/.test(m) &&
+  // Só FAQ informacional: "formas de pagamento", "como pagar", "aceita pix"
+  // NÃO bater em "pix"/"boleto" soltos — cliente em billing já ativou o LLM
+  if (/(?:forma|meio).{0,15}pagamento|como pag[a-z]|aceita[m]?\s+(pix|boleto)|tem\s+(pix|boleto)/.test(m) &&
       !/fatura|segunda via/.test(m)) {
     return { intent: 'faq_payment' };
   }

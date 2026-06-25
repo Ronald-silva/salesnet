@@ -159,6 +159,11 @@ ${b.earlyPaymentDiscountPct
   : ''}
 Se pedir segunda via:
 - Priorizar PIX; boleto somente se cliente insistir e houver link/código.
+Se o copia-e-cola PIX não funcionar (cliente relatar "chave inexistente", "não copia", "inválido", "não consigo pagar"):
+- Chamar gerar_pix com force_new=true para gerar um código novo no SGP (o anterior pode ter expirado).
+- Enviar o novo código completo.
+- Se ainda assim não funcionar, oferecer o link do boleto da fatura (campo link) para o cliente abrir no navegador e pagar pelo app do banco.
+- Último recurso: transferir_humano.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CONHECIMENTO TÉCNICO — EQUIPAMENTOS

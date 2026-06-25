@@ -15,6 +15,9 @@ export interface ThreadRow {
   messages: MessageEntry[];
   human_mode: boolean;
   churn_risk: boolean;
+  status?: 'active' | 'waiting' | 'closed';
+  starred?: boolean;
+  closed_at?: string | null;
   created_at: string;
   updated_at: string;
 }

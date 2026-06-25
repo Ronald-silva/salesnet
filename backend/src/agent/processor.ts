@@ -579,6 +579,15 @@ export async function processMessage(
     }
   }
 
+  // ── Fila de espera: salva mensagem mas não responde ─────────────────────────
+  {
+    const earlyThread = await getThread(phone, tenantId);
+    if ((earlyThread as { status?: string }).status === 'waiting') {
+      await saveMessage(phone, 'user', clean, tenantId);
+      return;
+    }
+  }
+
   // ── Quick reply: FAQ direto, sem LLM ────────────────────────────────────────
   const faqResponse = await quickReply(clean, phone);
   if (faqResponse) {

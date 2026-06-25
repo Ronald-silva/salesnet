@@ -55,12 +55,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'gerar_pix',
-    description: 'Gera chave PIX copia-e-cola para pagamento da fatura em aberto.',
+    description: 'Gera código PIX copia-e-cola para pagamento da fatura em aberto. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP.',
     input_schema: {
       type: 'object' as const,
       properties: {
         invoice_id:  { type: 'string', description: 'ID da fatura no SGP' },
-        customer_id: { type: 'string', description: 'ID do contrato no SGP (melhora a geração do PIX)' },
+        customer_id: { type: 'string', description: 'ID do contrato no SGP' },
+        force_new:   { type: 'boolean', description: 'true para forçar geração de código novo no SGP, ignorando código armazenado. Use quando cliente relatar que o código anterior não funcionou.' },
       },
       required: ['invoice_id'],
     },
@@ -384,7 +385,11 @@ export async function executeTool(
       return sgp.getCustomerInvoices(input.customer_id as string);
 
     case 'gerar_pix':
-      return sgp.generatePixKey(input.invoice_id as string, input.customer_id as string | undefined);
+      return sgp.generatePixKey(
+        input.invoice_id as string,
+        input.customer_id as string | undefined,
+        input.force_new === true,
+      );
 
     case 'confirmar_pagamento': {
       try {

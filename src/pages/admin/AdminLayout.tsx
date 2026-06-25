@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LogOut, Menu, MoreHorizontal, type LucideIcon } from 'lucide-react';
+import { LogOut, Menu, MoreHorizontal, Volume2, VolumeX, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Sheet,
@@ -18,12 +18,15 @@ import {
   getAdminPageTitle,
 } from '@/components/admin/admin-config';
 import { cn } from '@/lib/utils';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
 
 interface SidebarContentProps {
   email?: string;
   onNavigate?: () => void;
   onLogout: () => void;
   alertCount: number;
+  soundEnabled: boolean;
+  toggleSound: () => void;
 }
 
 function NavItem({
@@ -63,7 +66,7 @@ function NavItem({
   );
 }
 
-function SidebarContent({ email, onNavigate, onLogout, alertCount }: SidebarContentProps) {
+function SidebarContent({ email, onNavigate, onLogout, alertCount, soundEnabled, toggleSound }: SidebarContentProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="mb-6 shrink-0">
@@ -96,10 +99,25 @@ function SidebarContent({ email, onNavigate, onLogout, alertCount }: SidebarCont
         ))}
       </nav>
 
-      <Button onClick={onLogout} variant="outline" className="w-full mt-4 shrink-0 min-h-[44px]">
-        <LogOut className="h-4 w-4 mr-2" />
-        Sair
-      </Button>
+      <div className="mt-4 shrink-0 space-y-2">
+        <button
+          type="button"
+          onClick={toggleSound}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors border',
+            soundEnabled
+              ? 'border-blue-700/40 text-blue-400 bg-blue-950/30 hover:bg-blue-950/50'
+              : 'border-gray-700 text-gray-500 bg-gray-800/30 hover:bg-gray-800/50',
+          )}
+        >
+          {soundEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+          Notificações sonoras: {soundEnabled ? 'ativadas' : 'desativadas'}
+        </button>
+        <Button onClick={onLogout} variant="outline" className="w-full min-h-[44px]">
+          <LogOut className="h-4 w-4 mr-2" />
+          Sair
+        </Button>
+      </div>
     </div>
   );
 }
@@ -109,6 +127,7 @@ export default function AdminLayout() {
   const location = useLocation();
   const user = getAdminUser();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { soundEnabled, toggleSound } = useNotificationSound();
 
   const pageTitle = getAdminPageTitle(location.pathname);
 
@@ -153,10 +172,25 @@ export default function AdminLayout() {
               </div>
             ))}
           </nav>
-          <Button onClick={logout} variant="outline" className="w-full mt-8">
-            <LogOut className="h-4 w-4 mr-2" />
-            Sair
-          </Button>
+          <div className="mt-8 space-y-2">
+            <button
+              type="button"
+              onClick={toggleSound}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-colors border',
+                soundEnabled
+                  ? 'border-blue-700/40 text-blue-400 bg-blue-950/30 hover:bg-blue-950/50'
+                  : 'border-gray-700 text-gray-500 bg-gray-800/30 hover:bg-gray-800/50',
+              )}
+            >
+              {soundEnabled ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              Som: {soundEnabled ? 'ativado' : 'desativado'}
+            </button>
+            <Button onClick={logout} variant="outline" className="w-full">
+              <LogOut className="h-4 w-4 mr-2" />
+              Sair
+            </Button>
+          </div>
         </aside>
 
         <div className="flex flex-1 flex-col min-w-0">
@@ -239,6 +273,8 @@ export default function AdminLayout() {
                     logout();
                   }}
                   alertCount={alertCount}
+                  soundEnabled={soundEnabled}
+                  toggleSound={toggleSound}
                 />
               </div>
             </SheetContent>
