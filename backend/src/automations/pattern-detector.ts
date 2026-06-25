@@ -354,36 +354,49 @@ function average(scores: number[]): number | null {
 }
 
 async function detectNpsDrop(tenantId: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('nps_responses')
-    .select('score, created_at')
-    .eq('tenant_id', tenantId)
-    .gte('created_at', hoursAgoIso(24 * 7));
+  const now = new Date();
+  const h24ago = new Date(now.getTime() - 24 * MS_HOUR);
+  const h168ago = new Date(now.getTime() - 7 * 24 * MS_HOUR);
 
-  if (error) {
-    console.error('[pattern-detector] nps query failed:', error.message);
+  const h24agoIso = h24ago.toISOString();
+  const h168agoIso = h168ago.toISOString();
+
+  // Query non-overlapping windows in parallel
+  const [recentResult, baselineResult] = await Promise.all([
+    // últimas 24h
+    supabase
+      .from('nps_responses')
+      .select('score')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', h24agoIso),
+    // baseline: 6 dias anteriores (de -168h até -24h, excluindo as últimas 24h)
+    supabase
+      .from('nps_responses')
+      .select('score')
+      .eq('tenant_id', tenantId)
+      .gte('created_at', h168agoIso)
+      .lt('created_at', h24agoIso),
+  ]);
+
+  if (recentResult.error || baselineResult.error) {
+    console.error('[pattern-detector] nps query failed:', recentResult.error?.message ?? baselineResult.error?.message);
     return;
   }
 
-  const rows = (data ?? []) as Array<{ score: number | null; created_at: string }>;
-  const cutoff24h = Date.now() - 24 * MS_HOUR;
+  const recent = (recentResult.data ?? []) as Array<{ score: number | null }>;
+  const baseline = (baselineResult.data ?? []) as Array<{ score: number | null }>;
 
-  const last24h: number[] = [];
-  const last7d: number[] = [];
-  for (const row of rows) {
-    if (row.score == null) continue;
-    last7d.push(row.score);
-    if (Date.parse(row.created_at) >= cutoff24h) last24h.push(row.score);
-  }
+  const last24h = recent.map((r) => r.score).filter((s) => s != null) as number[];
+  const last6d = baseline.map((r) => r.score).filter((s) => s != null) as number[];
 
   // Exige amostra mínima nas 24h para evitar ruído estatístico.
   if (last24h.length < 3) return;
 
   const avg24h = average(last24h);
-  const avg7d = average(last7d);
-  if (avg24h == null || avg7d == null) return;
+  const avg6d = average(last6d);
+  if (avg24h == null || avg6d == null) return;
 
-  const drop = avg7d - avg24h;
+  const drop = avg6d - avg24h;
   if (drop <= 1) return;
 
   if (await existsRecentOpenAlert(tenantId, 'nps_drop')) return;
@@ -394,8 +407,9 @@ async function detectNpsDrop(tenantId: string): Promise<void> {
     affectedCount: last24h.length,
     details: {
       avg_24h: Number(avg24h.toFixed(2)),
-      avg_7d: Number(avg7d.toFixed(2)),
+      avg_baseline_6d: Number(avg6d.toFixed(2)),
       responses_24h: last24h.length,
+      responses_baseline: last6d.length,
     },
     message:
       `NPS caiu ${dropLabel} pontos nas últimas 24h. Verificar detratores no painel.`,
