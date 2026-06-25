@@ -589,8 +589,10 @@ export async function processMessage(
       await supabase.from('interaction_logs').insert({
         phone,
         tenant_id: tenantId,
+        session_mode: 'default',
         tool_calls: [],
         response: faqResponse,
+        processing_ms: Date.now() - startMs,
       });
     } catch (err) {
       console.error(`[processor] quick-reply send error for ${phone}:`, err);
