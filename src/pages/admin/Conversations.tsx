@@ -854,6 +854,7 @@ function ChatArea({
     } else {
       setCopilotVisible(false);
     }
+    setCopilotMeta({});
   }, [isHuman, conversationId]);
 
   // Auto-sugerir 2s após nova mensagem do cliente, se não estiver digitando

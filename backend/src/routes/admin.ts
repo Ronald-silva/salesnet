@@ -218,31 +218,58 @@ adminRouter.use(adminAuthMiddleware);
 
 adminRouter.get('/conversations/stats', async (_req, res) => {
   const todayStart = getFortalezaTodayStart();
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('human_mode, status, closed_at, starred')
-    .in('tenant_id', adminTenantIds());
+  const tenantIds = adminTenantIds();
 
-  if (error) {
+  const [humanRes, waitingRes, botRes, totalRes, closedTodayRes, starredRes] = await Promise.all([
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .eq('human_mode', true)
+      .neq('status', 'closed'),
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .eq('status', 'waiting'),
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .eq('human_mode', false)
+      .eq('status', 'active'),
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .neq('status', 'closed'),
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .eq('status', 'closed')
+      .gte('closed_at', todayStart),
+    supabase
+      .from('conversation_threads')
+      .select('*', { count: 'exact', head: true })
+      .in('tenant_id', tenantIds)
+      .eq('starred', true)
+      .neq('status', 'closed'),
+  ]);
+
+  if (humanRes.error ?? waitingRes.error ?? botRes.error ?? totalRes.error) {
     res.status(500).json({ error: 'failed to load stats' });
     return;
   }
 
-  const rows = (data ?? []) as Array<{
-    human_mode: boolean;
-    status: string | null;
-    closed_at: string | null;
-    starred: boolean;
-  }>;
-
-  const human = rows.filter(r => r.human_mode && r.status !== 'closed').length;
-  const waiting = rows.filter(r => r.status === 'waiting').length;
-  const bot = rows.filter(r => !r.human_mode && r.status === 'active').length;
-  const total = rows.filter(r => r.status !== 'closed').length;
-  const closedToday = rows.filter(r => r.status === 'closed' && !!r.closed_at && r.closed_at >= todayStart).length;
-  const starred = rows.filter(r => r.starred && r.status !== 'closed').length;
-
-  res.status(200).json({ human, waiting, bot, total, closedToday, starred });
+  res.status(200).json({
+    human: humanRes.count ?? 0,
+    waiting: waitingRes.count ?? 0,
+    bot: botRes.count ?? 0,
+    total: totalRes.count ?? 0,
+    closedToday: closedTodayRes.count ?? 0,
+    starred: starredRes.count ?? 0,
+  });
 });
 
 adminRouter.get('/conversations', async (req, res) => {
@@ -300,7 +327,7 @@ adminRouter.get('/conversations', async (req, res) => {
         .in('phone', phones)
         .in('tenant_id', adminTenantIds())
         .order('created_at', { ascending: false })
-        .limit(500);
+        .limit(phones.length * 10); // escalado por phones para evitar exclusão em listas grandes
       for (const log of (logs ?? []) as Array<{ phone: string; session_mode: string | null }>) {
         if (!sessionModeMap.has(log.phone) && log.session_mode) {
           sessionModeMap.set(log.phone, log.session_mode);
@@ -335,11 +362,11 @@ adminRouter.get('/conversations', async (req, res) => {
     try {
       const { data: npsRows } = await supabase
         .from('nps_responses')
-        .select('phone, score')
+        .select('phone, score, created_at')
         .in('phone', phones)
         .in('tenant_id', adminTenantIds())
         .order('created_at', { ascending: false })
-        .limit(phones.length * 2);
+        .limit(phones.length * 20); // aumentado para garantir cobertura quando um phone domina
       for (const row of (npsRows ?? []) as Array<{ phone: string; score: number }>) {
         if (!npsMap.has(row.phone)) npsMap.set(row.phone, row.score);
       }
@@ -349,7 +376,27 @@ adminRouter.get('/conversations', async (req, res) => {
   }
 
   // ── Enriquecimento por row (customer + fatura seletiva + score) ────────────
-  const enriched = await Promise.all(rows.map(async (row) => {
+  // Concorrência limitada a 10 SGP simultâneos para evitar thundering herd
+  const SGP_CONCURRENCY = 10;
+
+  type EnrichedRow = {
+    id: string;
+    phone: string;
+    name: string;
+    lastText: string;
+    lastMessageSource: 'user' | 'assistant' | 'human' | null;
+    mode: 'human' | 'bot';
+    status: 'active' | 'waiting' | 'closed';
+    starred: boolean;
+    churnRisk: boolean;
+    updatedAt: string;
+    sessionMode: string | null;
+    urgency_score: number;
+    urgency_reasons: string[];
+    invoice_days_overdue: number;
+  };
+
+  async function enrichRow(row: typeof rows[number]): Promise<EnrichedRow> {
     let name = row.phone;
     let customerId: string | null = null;
 
@@ -417,7 +464,14 @@ adminRouter.get('/conversations', async (req, res) => {
       urgency_reasons: urgencyReasons(factors),
       invoice_days_overdue: invoiceDaysOverdue,
     };
-  }));
+  }
+
+  const enriched: EnrichedRow[] = [];
+  for (let i = 0; i < rows.length; i += SGP_CONCURRENCY) {
+    const chunk = rows.slice(i, i + SGP_CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map(enrichRow));
+    enriched.push(...chunkResults);
+  }
 
   const filtered = search
     ? enriched.filter(item =>
@@ -534,6 +588,7 @@ adminRouter.post('/conversations/:id/suggest', async (req, res) => {
     return;
   }
   suggestRateLimit.set(convId, Date.now());
+  setTimeout(() => suggestRateLimit.delete(convId), 15_000);
 
   const thread = await getThreadForAdmin(convId);
   if (!thread) {
@@ -565,18 +620,19 @@ adminRouter.post('/conversations/:id/suggest', async (req, res) => {
 
   if (customer) {
     // Fatura com timeout de 3s (best-effort)
+    let invoiceTimeoutId: ReturnType<typeof setTimeout> | undefined;
+    const invoiceTimeout = new Promise<never>((_, reject) => {
+      invoiceTimeoutId = setTimeout(() => reject(new Error('timeout')), 3_000);
+    });
     try {
-      const invoice = await Promise.race<Invoice>([
-        getCurrentInvoice(customer.id),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('timeout')), 3_000),
-        ),
-      ]);
+      const invoice = await Promise.race<Invoice>([getCurrentInvoice(customer.id), invoiceTimeout]);
       faturaStatus = invoice.status;
       faturaVencimento = invoice.dueDate;
       confidence = 'high';
     } catch {
       // sem fatura disponível
+    } finally {
+      clearTimeout(invoiceTimeoutId);
     }
 
     // Chamados abertos (best-effort)
