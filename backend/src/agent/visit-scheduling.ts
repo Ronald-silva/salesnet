@@ -73,6 +73,24 @@ function slotLabel(slot: VisitSlot): string {
 }
 
 /**
+ * Verifica se um turno ainda está no futuro (não passou).
+ * Fortaleza = UTC-3.
+ * - Manhã termina às 12h
+ * - Tarde termina às 18h
+ */
+function isFutureSlot(date: string, period: VisitPeriod): boolean {
+  const fortalezaHour = new Date(Date.now() - 3 * 60 * 60 * 1000).getUTCHours();
+  const todayFortaleza = fortalezaToday();
+
+  if (date > todayFortaleza) return true; // amanhã ou além
+  if (date < todayFortaleza) return false; // passado
+
+  // Mesmo dia: manhã termina 12h, tarde termina 18h
+  const cutoff = period === 'morning' ? 12 : 18;
+  return fortalezaHour < cutoff;
+}
+
+/**
  * Conta visitas ativas (status `scheduled`) num intervalo de datas, agrupadas
  * por (data, turno). Uma única query alimenta tanto a checagem de um slot quanto
  * a busca dos próximos livres.
@@ -122,6 +140,7 @@ export async function nextAvailableSlots(
     const date = addDays(fromDate, i);
     if (isNonWorkingDay(date)) continue;
     for (const period of PERIOD_ORDER) {
+      if (!isFutureSlot(date, period)) continue;
       const count = occupancy.get(`${date}::${period}`) ?? 0;
       if (count < VISIT_CAPACITY_PER_PERIOD) {
         suggestions.push({ date, period, label: slotLabel({ date, period }) });
