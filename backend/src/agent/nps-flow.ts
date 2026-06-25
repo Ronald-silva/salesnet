@@ -191,8 +191,22 @@ async function applyNpsScoreActions(
   score: number,
 ): Promise<void> {
   if (score <= 2) {
-    await markChurnRiskByPhone(phone, tenantId);
-    await scheduleMessage(phone, tenantId, RECOVERY_MESSAGE, MS_24H);
+    let churnMarked = false;
+    try {
+      await markChurnRiskByPhone(phone, tenantId);
+      churnMarked = true;
+    } catch (err) {
+      console.error('[nps] failed to mark churn risk:', err);
+    }
+
+    try {
+      await scheduleMessage(phone, tenantId, RECOVERY_MESSAGE, MS_24H);
+    } catch (err) {
+      console.error('[nps] failed to schedule recovery message:', err);
+      if (churnMarked) {
+        console.error('[nps] ATTENTION: churn marked but recovery message not scheduled for', phone);
+      }
+    }
     return;
   }
 
