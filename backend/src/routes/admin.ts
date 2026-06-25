@@ -321,6 +321,7 @@ adminRouter.get('/conversations', async (req, res) => {
         .from('nps_responses')
         .select('phone, score')
         .in('phone', phones)
+        .in('tenant_id', adminTenantIds())
         .order('created_at', { ascending: false })
         .limit(phones.length * 2);
       for (const row of (npsRows ?? []) as Array<{ phone: string; score: number }>) {
@@ -356,17 +357,18 @@ adminRouter.get('/conversations', async (req, res) => {
       if (cachedDays !== null) {
         invoiceDaysOverdue = cachedDays;
       } else {
+        let invoiceTimeoutId: ReturnType<typeof setTimeout> | undefined;
+        const invoiceTimeout = new Promise<never>((_, reject) => {
+          invoiceTimeoutId = setTimeout(() => reject(new Error('timeout')), 2_000);
+        });
         try {
-          const invoice = await Promise.race([
-            getCurrentInvoice(customerId),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('timeout')), 2_000),
-            ),
-          ]);
+          const invoice = await Promise.race([getCurrentInvoice(customerId), invoiceTimeout]);
           invoiceDaysOverdue = calcInvoiceDaysOverdue(invoice);
           cacheSet(cacheKey, invoiceDaysOverdue);
         } catch {
           // 0
+        } finally {
+          clearTimeout(invoiceTimeoutId);
         }
       }
     }
