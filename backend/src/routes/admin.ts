@@ -11,6 +11,7 @@ import { adminTenantIds } from '../lib/admin-tenant';
 import { getSkillConfig, clearSkillConfigCache } from '../agent/skill';
 import type { ISPSkillConfig } from '../agent/skill/types';
 import { respondSupabaseQueryError } from '../lib/supabase-query-error';
+import { calculateUrgencyScore, urgencyReasons, type UrgencyFactors } from '../lib/urgency-score';
 
 export const adminRouter = Router();
 
@@ -23,6 +24,9 @@ interface ConversationThread {
   churn_risk: boolean;
   notes: string | null;
   cpf: string | null;
+  status: 'active' | 'waiting' | 'closed';
+  starred: boolean;
+  closed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -82,6 +86,47 @@ function getThreadLastText(messages: unknown): string {
   return last?.content ?? '';
 }
 
+function getThreadLastSource(messages: unknown): 'user' | 'assistant' | 'human' | null {
+  if (!Array.isArray(messages) || messages.length === 0) return null;
+  const last = messages[messages.length - 1] as { role?: string; source?: string };
+  if (last?.role === 'user') return 'user';
+  if (last?.source === 'human') return 'human';
+  if (last?.role === 'assistant') return 'assistant';
+  return null;
+}
+
+function calcInvoiceDaysOverdue(invoice: { status: string; dueDate: string } | null): number {
+  if (!invoice) return 0;
+  if (invoice.status === 'paid' || invoice.status === 'cancelled') return 0;
+  const due = new Date(invoice.dueDate);
+  const now = new Date();
+  if (due >= now) return 0;
+  return Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+function getMinutesSinceLastUserMessage(messages: unknown): number {
+  if (!Array.isArray(messages)) return 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i] as { role?: string; timestamp?: string };
+    if (msg.role === 'user' && msg.timestamp) {
+      return Math.floor((Date.now() - new Date(msg.timestamp).getTime()) / 60_000);
+    }
+  }
+  return 0;
+}
+
+function getFortalezaTodayStart(): string {
+  // Fortaleza = UTC-3, sem DST
+  const now = new Date();
+  const fortalezaNow = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+  const todayStart = new Date(
+    fortalezaNow.getUTCFullYear(),
+    fortalezaNow.getUTCMonth(),
+    fortalezaNow.getUTCDate(),
+  );
+  return new Date(todayStart.getTime() + 3 * 60 * 60 * 1000).toISOString();
+}
+
 function resolveRole(raw: unknown): string | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const data = raw as { app_metadata?: { role?: string }; user_metadata?: { role?: string } };
@@ -95,8 +140,18 @@ adminRouter.post('/login', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  let data: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['data'];
+  let error: Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>['error'];
+  try {
+    ({ data, error } = await supabase.auth.signInWithPassword({ email, password }));
+  } catch (err) {
+    console.error('[admin/login] supabase.auth error:', err);
+    res.status(500).json({ error: 'auth service unavailable' });
+    return;
+  }
+
   if (error || !data.session || !data.user) {
+    console.warn('[admin/login] auth failed:', error?.message);
     res.status(401).json({ error: 'invalid credentials' });
     return;
   }
@@ -145,20 +200,60 @@ adminRouter.post('/refresh', async (req, res) => {
 
 adminRouter.use(adminAuthMiddleware);
 
+adminRouter.get('/conversations/stats', async (_req, res) => {
+  const todayStart = getFortalezaTodayStart();
+  const { data, error } = await supabase
+    .from('conversation_threads')
+    .select('human_mode, status, closed_at, starred')
+    .in('tenant_id', adminTenantIds());
+
+  if (error) {
+    res.status(500).json({ error: 'failed to load stats' });
+    return;
+  }
+
+  const rows = (data ?? []) as Array<{
+    human_mode: boolean;
+    status: string | null;
+    closed_at: string | null;
+    starred: boolean;
+  }>;
+
+  const human = rows.filter(r => r.human_mode && r.status !== 'closed').length;
+  const waiting = rows.filter(r => r.status === 'waiting').length;
+  const bot = rows.filter(r => !r.human_mode && r.status === 'active').length;
+  const total = rows.filter(r => r.status !== 'closed').length;
+  const closedToday = rows.filter(r => r.status === 'closed' && !!r.closed_at && r.closed_at >= todayStart).length;
+  const starred = rows.filter(r => r.starred && r.status !== 'closed').length;
+
+  res.status(200).json({ human, waiting, bot, total, closedToday, starred });
+});
+
 adminRouter.get('/conversations', async (req, res) => {
   const filter = String(req.query.filter ?? 'all');
   const search = String(req.query.search ?? '').trim().toLowerCase();
+  const onlyStarred = req.query.starred === 'true';
 
   let query = supabase
     .from('conversation_threads')
-    .select('id, phone, messages, human_mode, churn_risk, updated_at')
+    .select('id, phone, messages, human_mode, churn_risk, status, starred, updated_at')
     .in('tenant_id', adminTenantIds())
     .order('updated_at', { ascending: false })
-    .limit(100);
+    .limit(150);
 
-  if (filter === 'bot') query = query.eq('human_mode', false);
-  if (filter === 'human') query = query.eq('human_mode', true);
-  if (filter === 'churn') query = query.eq('churn_risk', true);
+  if (filter === 'bot') {
+    query = query.eq('human_mode', false).eq('status', 'active');
+  } else if (filter === 'human') {
+    query = query.eq('human_mode', true).neq('status', 'closed');
+  } else if (filter === 'waiting') {
+    query = query.eq('status', 'waiting');
+  } else if (filter === 'churn') {
+    query = query.eq('churn_risk', true).neq('status', 'closed');
+  } else {
+    query = query.neq('status', 'closed');
+  }
+
+  if (onlyStarred) query = query.eq('starred', true);
 
   const { data, error } = await query;
   if (error) {
@@ -172,11 +267,14 @@ adminRouter.get('/conversations', async (req, res) => {
     messages: unknown;
     human_mode: boolean;
     churn_risk: boolean;
+    status: string | null;
+    starred: boolean;
     updated_at: string;
   }>;
 
-  // Bulk fetch latest session_mode per phone in one query
   const phones = rows.map(r => r.phone);
+
+  // ── Batch: session_mode por phone ──────────────────────────────────────────
   const sessionModeMap = new Map<string, string>();
   if (phones.length > 0) {
     try {
@@ -193,35 +291,126 @@ adminRouter.get('/conversations', async (req, res) => {
         }
       }
     } catch {
-      // best-effort — missing session_mode just means no avatar color
+      // best-effort
     }
   }
 
+  // ── Batch: chamados abertos por phone ──────────────────────────────────────
+  const openTicketsMap = new Map<string, boolean>();
+  if (phones.length > 0) {
+    try {
+      const { data: tickets } = await supabase
+        .from('sofia_tickets')
+        .select('phone')
+        .in('phone', phones)
+        .eq('tenant_id', adminTenantId())
+        .eq('status', 'aberto');
+      for (const t of (tickets ?? []) as Array<{ phone: string }>) {
+        openTicketsMap.set(t.phone, true);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  // ── Batch: NPS mais recente por phone ──────────────────────────────────────
+  const npsMap = new Map<string, number>();
+  if (phones.length > 0) {
+    try {
+      const { data: npsRows } = await supabase
+        .from('nps_responses')
+        .select('phone, score')
+        .in('phone', phones)
+        .order('created_at', { ascending: false })
+        .limit(phones.length * 2);
+      for (const row of (npsRows ?? []) as Array<{ phone: string; score: number }>) {
+        if (!npsMap.has(row.phone)) npsMap.set(row.phone, row.score);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  // ── Enriquecimento por row (customer + fatura seletiva + score) ────────────
   const enriched = await Promise.all(rows.map(async (row) => {
     let name = row.phone;
+    let customerId: string | null = null;
+
     try {
       const customer = await cachedCustomerByPhone(row.phone);
-      name = customer.name;
+      if (!('error' in customer)) {
+        name = customer.name ?? row.phone;
+        customerId = customer.id;
+      }
     } catch {
-      // keep phone as fallback
+      // keep phone
     }
+
+    const sessionMode = sessionModeMap.get(row.phone) ?? 'default';
+    const needsInvoice = row.churn_risk || sessionMode === 'billing';
+
+    let invoiceDaysOverdue = 0;
+    if (needsInvoice && customerId) {
+      const cacheKey = `invoice_days:${row.phone}`;
+      const cachedDays = cacheGet<number>(cacheKey);
+      if (cachedDays !== null) {
+        invoiceDaysOverdue = cachedDays;
+      } else {
+        try {
+          const invoice = await Promise.race([
+            getCurrentInvoice(customerId),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error('timeout')), 2_000),
+            ),
+          ]);
+          invoiceDaysOverdue = calcInvoiceDaysOverdue(invoice);
+          cacheSet(cacheKey, invoiceDaysOverdue);
+        } catch {
+          // 0
+        }
+      }
+    }
+
+    const minutesSinceLastMessage = getMinutesSinceLastUserMessage(row.messages);
+
+    const factors: UrgencyFactors = {
+      isHumanMode: row.human_mode,
+      invoiceDaysOverdue,
+      isChurnRisk: row.churn_risk,
+      hasOpenTicket: openTicketsMap.has(row.phone),
+      minutesSinceLastMessage,
+      sessionMode,
+      npsScore: npsMap.get(row.phone) ?? null,
+    };
 
     return {
       id: row.id,
       phone: row.phone,
       name,
       lastText: getThreadLastText(row.messages),
-      mode: row.human_mode ? 'human' : 'bot',
+      lastMessageSource: getThreadLastSource(row.messages),
+      mode: (row.human_mode ? 'human' : 'bot') as 'human' | 'bot',
+      status: (row.status ?? 'active') as 'active' | 'waiting' | 'closed',
+      starred: row.starred ?? false,
       churnRisk: row.churn_risk,
       updatedAt: row.updated_at,
-      sessionMode: sessionModeMap.get(row.phone) ?? null,
+      sessionMode: sessionMode !== 'default' ? sessionMode : null,
+      urgency_score: calculateUrgencyScore(factors),
+      urgency_reasons: urgencyReasons(factors),
+      invoice_days_overdue: invoiceDaysOverdue,
     };
   }));
 
   const filtered = search
     ? enriched.filter(item =>
-      item.name.toLowerCase().includes(search) || item.phone.toLowerCase().includes(search))
+        item.name.toLowerCase().includes(search) || item.phone.toLowerCase().includes(search))
     : enriched;
+
+  // Ordenar por urgência DESC, desempate updated_at DESC
+  filtered.sort((a, b) => {
+    if (b.urgency_score !== a.urgency_score) return b.urgency_score - a.urgency_score;
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
 
   res.status(200).json(filtered);
 });
@@ -316,6 +505,95 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
 
   await whatsappService.sendText(env.DEFAULT_TENANT_ID, replyThread.phone, message);
   res.status(200).json({ ok: true });
+});
+
+adminRouter.post('/conversations/:id/close', async (req, res) => {
+  const closeThread = await getThreadForAdmin(req.params.id);
+  if (!closeThread) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const closedMessages = [
+    ...(Array.isArray(closeThread.messages) ? closeThread.messages : []),
+    { role: 'assistant', content: 'Atendimento encerrado pelo operador.', timestamp: now, source: 'system' },
+  ];
+
+  const { error } = await supabase
+    .from('conversation_threads')
+    .update({
+      status: 'closed',
+      closed_at: now,
+      human_mode: false,
+      messages: closedMessages,
+      updated_at: now,
+    })
+    .eq('id', req.params.id)
+    .eq('tenant_id', adminTenantId());
+
+  if (error) {
+    res.status(500).json({ error: 'failed to close conversation' });
+    return;
+  }
+
+  res.status(200).json({ ok: true });
+});
+
+adminRouter.post('/conversations/:id/pause', async (req, res) => {
+  const { resume } = (req.body ?? {}) as { resume?: boolean };
+  const pauseThread = await getThreadForAdmin(req.params.id);
+  if (!pauseThread) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const nextStatus = resume ? 'active' : 'waiting';
+  const nextHumanMode = resume ? true : false;
+
+  const { error } = await supabase
+    .from('conversation_threads')
+    .update({
+      status: nextStatus,
+      human_mode: nextHumanMode,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', req.params.id)
+    .eq('tenant_id', adminTenantId());
+
+  if (error) {
+    res.status(500).json({ error: 'failed to update conversation status' });
+    return;
+  }
+
+  res.status(200).json({ ok: true, status: nextStatus });
+});
+
+adminRouter.patch('/conversations/:id/star', async (req, res) => {
+  const { starred } = req.body as { starred?: boolean };
+  if (typeof starred !== 'boolean') {
+    res.status(400).json({ error: 'starred boolean is required' });
+    return;
+  }
+
+  const starThread = await getThreadForAdmin(req.params.id);
+  if (!starThread) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const { error } = await supabase
+    .from('conversation_threads')
+    .update({ starred, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id)
+    .eq('tenant_id', adminTenantId());
+
+  if (error) {
+    res.status(500).json({ error: 'failed to star conversation' });
+    return;
+  }
+
+  res.status(200).json({ ok: true, starred });
 });
 
 adminRouter.get('/metrics', async (_req, res) => {
