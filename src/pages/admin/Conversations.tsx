@@ -755,7 +755,7 @@ function ChatArea({
   const { toast } = useToast();
   const [reply, setReply] = useState('');
   const [copilotVisible, setCopilotVisible] = useState(() =>
-    isHuman && !isCopilotDismissed(conversationId),
+    detail.human_mode && !isCopilotDismissed(conversationId),
   );
   const [inputFocused, setInputFocused] = useState(false);
   const [copilotMeta, setCopilotMeta] = useState<{ copilot_used?: boolean; copilot_edited?: boolean }>({});
@@ -820,7 +820,8 @@ function ChatArea({
   });
 
   const replyMutation = useMutation({
-    mutationFn: (message: string) => adminApi.reply(conversationId, message, copilotMeta),
+    mutationFn: ({ message, meta }: { message: string; meta: { copilot_used?: boolean; copilot_edited?: boolean } }) =>
+      adminApi.reply(conversationId, message, meta),
     onSuccess: () => {
       setReply('');
       setCopilotMeta({});
@@ -833,7 +834,7 @@ function ChatArea({
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (reply.trim()) replyMutation.mutate(reply);
+      if (reply.trim()) replyMutation.mutate({ message: reply.trim(), meta: copilotMeta });
     }
   }
 
@@ -1019,9 +1020,8 @@ function ChatArea({
               <CopilotSuggestion
                 conversationId={conversationId}
                 onUse={(text) => {
-                  setCopilotMeta({ copilot_used: true });
-                  replyMutation.mutate(text);
                   setCopilotVisible(false);
+                  replyMutation.mutate({ message: text, meta: { copilot_used: true } });
                 }}
                 onEdit={(text) => {
                   setCopilotMeta({ copilot_edited: true });
@@ -1056,7 +1056,7 @@ function ChatArea({
               <button
                 type="button"
                 disabled={!reply.trim() || replyMutation.isPending}
-                onClick={() => reply.trim() && replyMutation.mutate(reply)}
+                onClick={() => reply.trim() && replyMutation.mutate({ message: reply.trim(), meta: copilotMeta })}
                 className="shrink-0 w-10 h-10 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg flex items-center justify-center transition-colors"
               >
                 <Send className="h-4 w-4 text-white" />
