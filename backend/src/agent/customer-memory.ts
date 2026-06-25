@@ -28,7 +28,8 @@ export async function getCustomerInsights(phone: string, tenantId: string): Prom
       .select('session_mode, created_at')
       .eq('phone', phone)
       .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .limit(100),
     supabase
       .from('billing_notifications')
       .select('id')
