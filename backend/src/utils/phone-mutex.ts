@@ -9,7 +9,7 @@ export async function withPhoneLock<T>(
   const next = new Promise<void>((r) => {
     resolve = r;
   });
-  locks.set(phone, prev.then(() => next));
+  locks.set(phone, next);
   await prev;
   const timeout = setTimeout(() => {
     resolve();
