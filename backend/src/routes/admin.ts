@@ -1,8 +1,9 @@
 import { Router } from 'express';
+import axios from 'axios';
 import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone, getCustomerById, getCurrentInvoice, getCustomerByCpf, generatePixKey } from '../integrations/sgp';
-import type { Customer } from '../integrations/sgp';
+import type { Customer, Invoice } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
@@ -14,6 +15,21 @@ import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 import { calculateUrgencyScore, urgencyReasons, type UrgencyFactors } from '../lib/urgency-score';
 
 export const adminRouter = Router();
+
+// Rate limit para o endpoint de sugestão do copiloto (1 por conversa a cada 10s)
+const suggestRateLimit = new Map<string, number>();
+
+const COPILOT_SYSTEM = `Você é um assistente de atendimento da SalesNet Telecom.
+Sugira UMA resposta curta e direta para o atendente humano enviar ao cliente.
+
+Regras da sugestão:
+- Máximo 3 frases
+- Tom humano e cordial (não robótico)
+- Se fatura vencida: priorizar regularização, oferecer PIX
+- Se problema técnico: confirmar abertura de chamado, dar protocolo
+- Se dúvida de plano: informar com clareza, não pressionar upgrade
+- NUNCA prometer prazo de resolução que não pode cumprir
+- Responda APENAS o texto da mensagem sugerida, sem explicação`;
 
 interface ConversationThread {
   id: string;
@@ -507,6 +523,133 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
 
   await whatsappService.sendText(env.DEFAULT_TENANT_ID, replyThread.phone, message);
   res.status(200).json({ ok: true });
+});
+
+adminRouter.post('/conversations/:id/suggest', async (req, res) => {
+  const convId = req.params.id;
+
+  const lastMs = suggestRateLimit.get(convId) ?? 0;
+  if (Date.now() - lastMs < 10_000) {
+    res.status(429).json({ error: 'Aguarde 10s entre sugestões' });
+    return;
+  }
+  suggestRateLimit.set(convId, Date.now());
+
+  const thread = await getThreadForAdmin(convId);
+  if (!thread) {
+    res.status(404).json({ error: 'conversation not found' });
+    return;
+  }
+
+  const recentMessages = Array.isArray(thread.messages) ? thread.messages.slice(-10) : [];
+
+  let clienteNome = 'não identificado';
+  let clientePlano = 'N/A';
+  let faturaStatus = 'N/A';
+  let faturaVencimento = 'N/A';
+  let nChamados = '0';
+  let confidence: 'high' | 'medium' | 'low' = 'low';
+
+  let customer: Customer | null = null;
+  try {
+    const result = await cachedCustomerByPhone(thread.phone);
+    if (!('error' in result)) {
+      customer = result;
+      clienteNome = customer.name ?? 'não identificado';
+      clientePlano = customer.plan?.name ?? 'N/A';
+      confidence = 'medium';
+    }
+  } catch {
+    // cliente não identificado — continua com defaults
+  }
+
+  if (customer) {
+    // Fatura com timeout de 3s (best-effort)
+    try {
+      const invoice = await Promise.race<Invoice>([
+        getCurrentInvoice(customer.id),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('timeout')), 3_000),
+        ),
+      ]);
+      faturaStatus = invoice.status;
+      faturaVencimento = invoice.dueDate;
+      confidence = 'high';
+    } catch {
+      // sem fatura disponível
+    }
+
+    // Chamados abertos (best-effort)
+    try {
+      const { count } = await supabase
+        .from('sofia_tickets')
+        .select('*', { count: 'exact', head: true })
+        .eq('phone', thread.phone)
+        .eq('tenant_id', env.DEFAULT_TENANT_ID)
+        .eq('status', 'aberto');
+      nChamados = String(count ?? 0);
+    } catch {
+      // mantém '0'
+    }
+  }
+
+  const systemPrompt = COPILOT_SYSTEM
+    .replace('{nome}', clienteNome)
+    .replace('{plano}', clientePlano)
+    .replace('{status_fatura}', faturaStatus)
+    .replace('{vencimento}', faturaVencimento)
+    .replace('{n_chamados}', nChamados)
+    + `\n\nContexto do cliente:\n- Nome: ${clienteNome}\n- Plano: ${clientePlano}\n- Fatura: ${faturaStatus} (vencimento: ${faturaVencimento})\n- Chamados abertos: ${nChamados}`;
+
+  interface ChatMessage { role: string; content: string }
+  const chatMessages: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    ...recentMessages.map((m) => {
+      const msg = m as { role?: string; content?: string; source?: string };
+      const role = msg.role === 'user' ? 'user' : 'assistant';
+      const prefix = msg.source === 'human'
+        ? '[Atendente]: '
+        : msg.role === 'user'
+          ? '[Cliente]: '
+          : '[Sofia]: ';
+      return { role, content: `${prefix}${msg.content ?? ''}` };
+    }),
+    { role: 'user', content: 'Sugira a próxima resposta do atendente para este cliente.' },
+  ];
+
+  try {
+    const baseUrl = env.DEEPSEEK_BASE_URL.replace(/\/$/, '');
+    const { data } = await axios.post<{ choices: Array<{ message: { content: string } }> }>(
+      `${baseUrl}/chat/completions`,
+      {
+        model: env.DEEPSEEK_MODEL,
+        max_tokens: 200,
+        temperature: 0.3,
+        messages: chatMessages,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${env.DEEPSEEK_API_KEY ?? ''}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 8_000,
+      },
+    );
+
+    const suggestion = (data?.choices?.[0]?.message?.content ?? '').trim();
+    if (!suggestion) {
+      res.status(503).json({ error: 'Copiloto temporariamente indisponível' });
+      return;
+    }
+
+    res.status(200).json({
+      suggestion,
+      reasoning: `Baseado no contexto de ${clienteNome} e histórico recente`,
+      confidence,
+    });
+  } catch {
+    res.status(503).json({ error: 'Copiloto temporariamente indisponível' });
+  }
 });
 
 adminRouter.post('/conversations/:id/close', async (req, res) => {
