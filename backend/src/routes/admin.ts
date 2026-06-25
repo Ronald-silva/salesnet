@@ -42,6 +42,33 @@ async function getThreadForAdmin(id: string | string[]): Promise<ConversationThr
   return data as ConversationThread;
 }
 
+// ── SGP customer in-memory cache (5-minute TTL) ───────────────────────────────
+interface CacheEntry<T> { value: T; expiresAt: number }
+const sgpCache = new Map<string, CacheEntry<unknown>>();
+
+function cacheGet<T>(key: string): T | null {
+  const entry = sgpCache.get(key);
+  if (!entry || Date.now() > entry.expiresAt) {
+    sgpCache.delete(key);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function cacheSet<T>(key: string, value: T, ttlMs = 5 * 60 * 1000): void {
+  sgpCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function cachedCustomerByPhone(phone: string): Promise<Customer> {
+  const key = `customer:${phone}`;
+  const cached = cacheGet<Customer>(key);
+  if (cached) return cached;
+  const customer = await getCustomerByPhone(phone);
+  if (!('error' in customer)) cacheSet(key, customer);
+  return customer;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 /** Strip SGP portal credentials before sending customer data to the admin UI. */
 function safeCustomer(c: Customer | null | undefined): Omit<Customer, 'contratoCentralLogin' | 'contratoCentralSenha'> | null {
   if (!c) return null;
@@ -173,7 +200,7 @@ adminRouter.get('/conversations', async (req, res) => {
   const enriched = await Promise.all(rows.map(async (row) => {
     let name = row.phone;
     try {
-      const customer = await getCustomerByPhone(row.phone);
+      const customer = await cachedCustomerByPhone(row.phone);
       name = customer.name;
     } catch {
       // keep phone as fallback
@@ -224,7 +251,7 @@ adminRouter.get('/conversations/:id', async (req, res) => {
 
   let customer: unknown = null;
   try {
-    customer = await getCustomerByPhone(thread.phone);
+    customer = await cachedCustomerByPhone(thread.phone);
   } catch {
     customer = null;
   }
@@ -480,7 +507,7 @@ adminRouter.get('/conversations/:id/invoice', async (req, res) => {
     return;
   }
 
-  const customer = await getCustomerByPhone(invoiceThread.phone).catch(() => null);
+  const customer = await cachedCustomerByPhone(invoiceThread.phone).catch(() => null);
   if (!customer) {
     res.status(404).json({ error: 'customer not found' });
     return;
@@ -497,7 +524,7 @@ adminRouter.post('/conversations/:id/generate-pix', adminAuthMiddleware, async (
     return;
   }
 
-  const customer = await getCustomerByPhone(pixThread.phone).catch(() => null);
+  const customer = await cachedCustomerByPhone(pixThread.phone).catch(() => null);
   if (!customer) {
     res.status(404).json({ error: 'customer not found' });
     return;
@@ -664,7 +691,7 @@ adminRouter.get('/tickets', async (req, res) => {
     rows.map(async (row) => {
       let customerName: string | null = null;
       try {
-        const customer = await getCustomerByPhone(row.phone);
+        const customer = await cachedCustomerByPhone(row.phone);
         customerName = customer.name;
       } catch {
         customerName = null;
