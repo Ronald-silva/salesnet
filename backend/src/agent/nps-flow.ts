@@ -13,12 +13,17 @@ const pendingNps = new Map<string, NpsPending>();
 
 const MS_24H = 24 * 60 * 60 * 1000;
 const MS_48H = 48 * 60 * 60 * 1000;
+const MS_72H = 72 * 60 * 60 * 1000;
 
 const RECOVERY_MESSAGE =
   'Olá! Vimos que sua última experiência não foi boa. Quero entender o que aconteceu e resolver pra você. Pode me contar o que houve?';
 
 const REFERRAL_NPS_MESSAGE =
   'Que ótimo que conseguimos te ajudar! 😊 Se conhecer alguém que precise de internet fibra, pode nos indicar — adoraríamos atender!';
+
+const SCORE3_FOLLOWUP =
+  'Olá! Vimos que sua experiência conosco foi regular 🤔 ' +
+  'Tem algo que possamos melhorar? Sua opinião faz diferença pra gente!';
 
 export function getPendingNps(phone: string): NpsPending | undefined {
   return pendingNps.get(phone);
@@ -210,7 +215,14 @@ async function applyNpsScoreActions(
     return;
   }
 
-  if (score === 3) return;
+  if (score === 3) {
+    try {
+      await scheduleMessage(phone, tenantId, SCORE3_FOLLOWUP, MS_72H);
+    } catch (err) {
+      console.error('[nps] failed to schedule score-3 followup:', err);
+    }
+    return;
+  }
 
   try {
     const customer = await getCustomerByPhone(phone);
