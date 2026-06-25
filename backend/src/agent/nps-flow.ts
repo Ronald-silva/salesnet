@@ -256,6 +256,11 @@ export function scheduleNps(
         );
         await sendFn(tenantId, phone, npsMessage);
         current.sent = true;
+        // Auto-cleanup: if customer ignores NPS, allow future NPS after 2h
+        setTimeout(() => {
+          const latest = pendingNps.get(phone);
+          if (latest?.sessionId === sessionId) pendingNps.delete(phone);
+        }, 2 * 60 * 60 * 1000);
       } catch (err) {
         console.error('[nps] failed to send NPS question:', err);
         pendingNps.delete(phone);
