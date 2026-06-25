@@ -594,11 +594,6 @@ adminRouter.post('/conversations/:id/suggest', async (req, res) => {
   }
 
   const systemPrompt = COPILOT_SYSTEM
-    .replace('{nome}', clienteNome)
-    .replace('{plano}', clientePlano)
-    .replace('{status_fatura}', faturaStatus)
-    .replace('{vencimento}', faturaVencimento)
-    .replace('{n_chamados}', nChamados)
     + `\n\nContexto do cliente:\n- Nome: ${clienteNome}\n- Plano: ${clientePlano}\n- Fatura: ${faturaStatus} (vencimento: ${faturaVencimento})\n- Chamados abertos: ${nChamados}`;
 
   interface ChatMessage { role: string; content: string }
