@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { Router, Request } from 'express';
 import { env } from '../config/env';
-import { reactivateCustomer } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 
 type RawRequest = Request & { rawBody?: Buffer };
@@ -53,17 +52,27 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
   }
 
   try {
-    await reactivateCustomer(customerId);
+    // Stub: SGP does not expose a reactivation endpoint.
+    // Notify the operator to reactivate manually.
+    const adminPhone = env.ADMIN_ALERT_PHONE;
+    if (adminPhone) {
+      await whatsappService.sendText(
+        env.DEFAULT_TENANT_ID,
+        adminPhone,
+        `⚠️ Pagamento confirmado — reativar manualmente:\nContrato: ${customerId}\nValor: R$ ${amount ?? '?'}`,
+      ).catch((err: unknown) => console.error('[payment-webhook] admin alert failed:', err));
+    }
+
     const amountStr = amount !== undefined ? `R$ ${Number(amount).toFixed(2)}` : 'seu pagamento';
     await whatsappService.sendText(
       env.DEFAULT_TENANT_ID,
       phone,
       `Olá! Recebemos seu pagamento de ${amountStr} com sucesso. ` +
-      `Sua conexão foi reativada. Obrigado por estar conosco!`,
+      `Sua conexão será reativada em alguns minutos. Obrigado por estar conosco!`,
     );
     res.status(200).json({ ok: true });
   } catch (err) {
-    console.error(`[payment-webhook] reactivation failed for ${customerId}:`, err);
-    res.status(500).json({ error: 'reactivation failed' });
+    console.error(`[payment-webhook] payment confirmation failed for ${customerId}:`, err);
+    res.status(500).json({ error: 'payment confirmation failed' });
   }
 });
