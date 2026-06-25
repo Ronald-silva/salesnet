@@ -14,6 +14,34 @@ import { respondSupabaseQueryError } from '../lib/supabase-query-error';
 
 export const adminRouter = Router();
 
+interface ConversationThread {
+  id: string;
+  phone: string;
+  tenant_id: string;
+  messages: unknown[];
+  human_mode: boolean;
+  churn_risk: boolean;
+  notes: string | null;
+  cpf: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function adminTenantId(): string {
+  return env.DEFAULT_TENANT_ID;
+}
+
+async function getThreadForAdmin(id: string | string[]): Promise<ConversationThread | null> {
+  const { data, error } = await supabase
+    .from('conversation_threads')
+    .select('*')
+    .eq('id', String(id))
+    .in('tenant_id', adminTenantIds())
+    .single();
+  if (error || !data) return null;
+  return data as ConversationThread;
+}
+
 /** Strip SGP portal credentials before sending customer data to the admin UI. */
 function safeCustomer(c: Customer | null | undefined): Omit<Customer, 'contratoCentralLogin' | 'contratoCentralSenha'> | null {
   if (!c) return null;
@@ -172,26 +200,11 @@ adminRouter.get('/conversations', async (req, res) => {
 });
 
 adminRouter.get('/conversations/:id', async (req, res) => {
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('id, phone, messages, human_mode, churn_risk, notes, updated_at')
-    .eq('id', req.params.id)
-    .single();
-
-  if (error || !data) {
+  const thread = await getThreadForAdmin(req.params.id);
+  if (!thread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
-
-  const thread = data as {
-    id: string;
-    phone: string;
-    messages: unknown;
-    human_mode: boolean;
-    churn_risk: boolean;
-    notes: string | null;
-    updated_at: string;
-  };
 
   // session_mode da última interação registrada para este telefone
   let sessionMode: string | null = null;
@@ -230,13 +243,8 @@ adminRouter.patch('/conversations/:id/human-mode', async (req, res) => {
     return;
   }
 
-  const { data: thread, error: threadError } = await supabase
-    .from('conversation_threads')
-    .select('id')
-    .eq('id', req.params.id)
-    .single();
-
-  if (threadError || !thread) {
+  const existingThread = await getThreadForAdmin(req.params.id);
+  if (!existingThread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
@@ -244,7 +252,8 @@ adminRouter.patch('/conversations/:id/human-mode', async (req, res) => {
   const { error } = await supabase
     .from('conversation_threads')
     .update({ human_mode: active, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id);
+    .eq('id', req.params.id)
+    .eq('tenant_id', adminTenantId());
 
   if (error) {
     res.status(500).json({ error: 'failed to update conversation mode' });
@@ -261,29 +270,24 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
     return;
   }
 
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('phone, messages')
-    .eq('id', req.params.id)
-    .single();
-
-  if (error || !data) {
+  const replyThread = await getThreadForAdmin(req.params.id);
+  if (!replyThread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
 
-  const row = data as { phone: string; messages: unknown[] };
   const updatedMessages = [
-    ...(Array.isArray(row.messages) ? row.messages : []),
+    ...(Array.isArray(replyThread.messages) ? replyThread.messages : []),
     { role: 'assistant', content: message, timestamp: new Date().toISOString(), source: 'human' },
   ];
 
   await supabase
     .from('conversation_threads')
     .update({ messages: updatedMessages, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id);
+    .eq('id', req.params.id)
+    .eq('tenant_id', adminTenantId());
 
-  await whatsappService.sendText(env.DEFAULT_TENANT_ID, row.phone, message);
+  await whatsappService.sendText(env.DEFAULT_TENANT_ID, replyThread.phone, message);
   res.status(200).json({ ok: true });
 });
 
@@ -470,19 +474,13 @@ adminRouter.post('/campaigns/churn-outreach/:id', async (req, res) => {
 });
 
 adminRouter.get('/conversations/:id/invoice', async (req, res) => {
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('phone')
-    .eq('id', req.params.id)
-    .single();
-
-  if (error || !data) {
+  const invoiceThread = await getThreadForAdmin(req.params.id);
+  if (!invoiceThread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
 
-  const thread = data as { phone: string };
-  const customer = await getCustomerByPhone(thread.phone).catch(() => null);
+  const customer = await getCustomerByPhone(invoiceThread.phone).catch(() => null);
   if (!customer) {
     res.status(404).json({ error: 'customer not found' });
     return;
@@ -493,19 +491,13 @@ adminRouter.get('/conversations/:id/invoice', async (req, res) => {
 });
 
 adminRouter.post('/conversations/:id/generate-pix', adminAuthMiddleware, async (req, res) => {
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('phone')
-    .eq('id', req.params.id)
-    .single();
-
-  if (error || !data) {
+  const pixThread = await getThreadForAdmin(req.params.id);
+  if (!pixThread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
 
-  const thread = data as { phone: string };
-  const customer = await getCustomerByPhone(thread.phone).catch(() => null);
+  const customer = await getCustomerByPhone(pixThread.phone).catch(() => null);
   if (!customer) {
     res.status(404).json({ error: 'customer not found' });
     return;
@@ -526,18 +518,13 @@ adminRouter.post('/conversations/:id/generate-pix', adminAuthMiddleware, async (
 });
 
 adminRouter.get('/conversations/:id/context', adminAuthMiddleware, async (req, res) => {
-  const { data, error } = await supabase
-    .from('conversation_threads')
-    .select('phone')
-    .eq('id', req.params.id)
-    .single();
-
-  if (error || !data) {
+  const contextThread = await getThreadForAdmin(req.params.id);
+  if (!contextThread) {
     res.status(404).json({ error: 'conversation not found' });
     return;
   }
 
-  const { phone } = data as { phone: string };
+  const { phone } = contextThread;
 
   const [npsRes, ticketsRes, scheduleRes] = await Promise.allSettled([
     supabase
