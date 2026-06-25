@@ -15,6 +15,7 @@ import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 import {
   fortalezaToday,
   fortalezaCurrentPeriod,
+  isSlotAvailable,
   periodLabelPt,
   type VisitPeriod,
 } from './visit-scheduling';
@@ -142,6 +143,20 @@ export async function handleBringForwardReply(
   if (isAffirmative(message)) {
     const today = fortalezaToday();
     const period = fortalezaCurrentPeriod();
+
+    const slotFree = await isSlotAvailable(today, period);
+    if (!slotFree) {
+      await whatsappService.sendText(
+        tenantId,
+        phone,
+        sanitizeOutgoingMessage(
+          `Infelizmente o período de hoje já foi preenchido por outro agendamento. ` +
+            `Vamos manter seu horário original. Qualquer mudança, é só me avisar! 😊`,
+        ),
+      );
+      return true; // mensagem consumida; visita original não é alterada
+    }
+
     const now = new Date().toISOString();
     await supabase
       .from('scheduled_visits')
