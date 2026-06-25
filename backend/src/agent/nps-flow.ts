@@ -224,14 +224,16 @@ async function applyNpsScoreActions(
     return;
   }
 
+  let alreadySentReferral = true; // fail-safe: don't duplicate referral if DB fails
   try {
     const customer = await getCustomerByPhone(phone);
-    if (await hasReferralCampaign(customer.id)) return;
-  } catch {
-    // Not a registered customer — still eligible for referral prompt
+    alreadySentReferral = await hasReferralCampaign(customer.id);
+  } catch (err) {
+    console.error('[nps] hasReferralCampaign check failed, skipping referral:', err);
   }
-
-  await scheduleMessage(phone, tenantId, REFERRAL_NPS_MESSAGE, MS_48H);
+  if (!alreadySentReferral) {
+    await scheduleMessage(phone, tenantId, REFERRAL_NPS_MESSAGE, MS_48H);
+  }
 }
 
 export async function saveNpsResponse(
