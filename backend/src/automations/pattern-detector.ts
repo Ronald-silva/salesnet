@@ -27,6 +27,9 @@ type AlertType =
   | 'slow_speed_cluster'
   | 'nps_drop';
 
+/** Guard to prevent overlapping detection cycles. */
+let isDetecting = false;
+
 interface CreateAlertInput {
   type: AlertType;
   affectedArea?: string | null;
@@ -399,23 +402,38 @@ async function detectNpsDrop(tenantId: string): Promise<void> {
   });
 }
 
+/**
+ * Executa todos os detectores com guarda contra ciclos sobrepostos.
+ */
+async function runDetectionCycle(tenantId: string): Promise<void> {
+  if (isDetecting) {
+    console.warn('[pattern-detector] skipping cycle — previous run still active');
+    return;
+  }
+  isDetecting = true;
+  try {
+    const detectors: Array<[string, Promise<void>]> = [
+      ['outage_cluster', detectOutageCluster(tenantId)],
+      ['billing_spike', detectBillingSpike(tenantId)],
+      ['churn_wave', detectChurnWave(tenantId)],
+      ['slow_speed_cluster', detectSlowSpeedCluster(tenantId)],
+      ['nps_drop', detectNpsDrop(tenantId)],
+    ];
+
+    const results = await Promise.allSettled(detectors.map(([, p]) => p));
+    results.forEach((result, i) => {
+      if (result.status === 'rejected') {
+        console.error(`[pattern-detector] ${detectors[i][0]} failed:`, result.reason);
+      }
+    });
+  } finally {
+    isDetecting = false;
+  }
+}
+
 /** Executa todos os detectores para o tenant padrão. */
 export async function runPatternDetection(): Promise<void> {
   const tenantId = env.DEFAULT_TENANT_ID;
   console.log('[pattern-detector] running detection cycle');
-
-  const detectors: Array<[string, Promise<void>]> = [
-    ['outage_cluster', detectOutageCluster(tenantId)],
-    ['billing_spike', detectBillingSpike(tenantId)],
-    ['churn_wave', detectChurnWave(tenantId)],
-    ['slow_speed_cluster', detectSlowSpeedCluster(tenantId)],
-    ['nps_drop', detectNpsDrop(tenantId)],
-  ];
-
-  const results = await Promise.allSettled(detectors.map(([, p]) => p));
-  results.forEach((result, i) => {
-    if (result.status === 'rejected') {
-      console.error(`[pattern-detector] ${detectors[i][0]} failed:`, result.reason);
-    }
-  });
+  await runDetectionCycle(tenantId);
 }
