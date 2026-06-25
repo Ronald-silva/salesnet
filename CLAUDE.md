@@ -736,6 +736,40 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 - `/health` oculta `supabaseUrl`, `urlProjectRef`, `jwtProjectRef`, `keyFp`, `keyLen` em `NODE_ENV=production`.
 - `safeCustomer()` em `routes/admin.ts` remove `contratoCentralLogin` e `contratoCentralSenha` de todas as respostas de customer na API admin.
 
+### 16) Correções de auditoria técnica (2026-06-25)
+
+**Segurança:**
+- **IDOR admin routes** (`1b4a278`): todas as rotas `/conversations/:id` filtram por `tenant_id` via `getThreadForAdmin()` — admin de tenant A não acessa dados de tenant B.
+- **reactivateCustomer stub** (`2d12422`): stub substituído por alerta manual ao `ADMIN_ALERT_PHONE` + mensagem honesta ao cliente ("será reativada em breve", não "foi reativada").
+- **sanitize DAN/tokens** (`806b0dd`): 19 novos padrões em `sanitizeUserInput` — DAN personas, tokens de modelo (`<|im_start|>`, `[INST]`), variantes PT, obfuscação com separadores.
+- **PII logs LGPD** (`a5d46a6`): telefone mascarado (`****XXXX`) nos logs de quick-reply; `maskPhone()` exportado de `lib/phone.ts`.
+
+**Performance:**
+- **getCustomerInsights OOM** (`8e52fb1`): `.limit(100)` adicionado — evita timeout em clientes com histórico longo.
+- **N+1 SGP admin** (`8ec937e`): cache de 5 min em memória (`sgpCache`) para lookups de cliente nas rotas admin.
+- **detectSlowSpeedCluster N+1** (`8bdf41b`): `SLOW_SPEED_BATCH_LIMIT = 20`, concorrência limitada a 5 via `withConcurrencyLimit`.
+
+**Correções de race condition/concorrência:**
+- **TOCTOU double-booking** (`ace3f32` + `4e47a1f`): `agendar_visita` usa RPC atômica `book_visit_slot` (migration `031`) com `pg_advisory_xact_lock` — previne double-booking mesmo em slot vazio.
+- **bring-forward slot check** (`d4e4bd8`): `isSlotAvailable` verificado antes de confirmar antecipação; slot cheio retorna mensagem educada e mantém horário original.
+- **cron overlap** (`f0b3ccd`): flag `isDetecting` previne sobreposição de ciclos do pattern-detector — ciclo anterior ainda em execução → próximo é pulado com warn.
+- **phone-mutex cleanup** (`df864a5`): `locks.set(phone, next)` em vez de `locks.set(phone, prev.then(() => next))` — identity check `=== next` agora funciona, Map limpa corretamente.
+
+**Correções de lógica:**
+- **pendingNps Map leak** (`9473d3a`): auto-limpeza após 2h — clientes que ignoram NPS voltam a recebê-lo em sessões futuras.
+- **applyNpsScoreActions parcial** (`59f7749`): `markChurnRisk` e `scheduleMessage` isolados em try/catch independentes; log `ATTENTION` quando churn marcado mas mensagem não agendada.
+- **quick-reply log** (`4bd6b13`): `session_mode: 'default'` incluído no insert de `interaction_logs` no path de quick-reply.
+- **nextAvailableSlots passados** (`c0e369c`): `isFutureSlot()` filtra slots do dia atual já expirados (manhã cutoff 12h, tarde 18h Fortaleza).
+- **detectNpsDrop baseline** (`084b5df`): janelas separadas — recent = últimas 24h, baseline = 6 dias anteriores (`.lt('created_at', h24ago)`) — evita contaminação estatística.
+- **CPF persist prematura** (`144fe60`): `persistThreadCpf` removida do caminho pré-lookup; persiste apenas após SGP confirmar via CPF.
+
+**Melhorias de qualidade:**
+- **NPS score 3 follow-up** (`b20080a`): mensagem qualitativa agendada 72h após score neutro.
+- **hasReferralCampaign fail-safe** (`e09f393`): erro no check assume `true` (já enviado) — evita referral duplicado em falha de DB.
+
+**Migration a executar manualmente no Supabase SQL Editor:**
+- `backend/src/db/migrations/031_atomic_visit_slot.sql` — função `book_visit_slot` com advisory lock.
+
 ---
 
 ## Gaps prioritários — briefing para melhoria da Sofia
