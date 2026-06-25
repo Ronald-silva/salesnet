@@ -11,6 +11,7 @@
 
 import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
 import { getCustomerByPhone } from '../integrations/sgp/customers';
+import { maskPhone } from '../lib/phone';
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function formatFaqSupport(): string {
 export async function quickReply(message: string, phone: string): Promise<string | null> {
   const { intent, neighborhood } = detect(message);
   console.log(
-    `[quick-reply] phone=${phone} intent=${intent ?? 'null'} neighborhood=${neighborhood ?? '-'}`,
+    `[quick-reply] phone=${maskPhone(phone)} intent=${intent ?? 'null'} neighborhood=${neighborhood ?? '-'}`,
   );
 
   if (!isQuickReplyEnabled(intent)) {

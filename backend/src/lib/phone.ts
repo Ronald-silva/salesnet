@@ -12,6 +12,11 @@ export function isValidBrazilWhatsAppDigits(digits: string): boolean {
   return /^55\d{10,11}$/.test(digits);
 }
 
+/** Mask phone number for LGPD-compliant logging: show only last 4 digits. */
+export function maskPhone(phone: string): string {
+  return phone.length > 4 ? `****${phone.slice(-4)}` : '****';
+}
+
 export function isLidJid(jid: string): boolean {
   return jid.includes('@lid');
 }
