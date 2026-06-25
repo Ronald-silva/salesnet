@@ -1,5 +1,7 @@
 -- Migration 031: atomic visit slot booking via RPC
--- Prevents TOCTOU double-booking: check + insert in one transaction with row lock
+-- Prevents TOCTOU double-booking: advisory lock serializes concurrent calls
+-- for the same (date, period) before the count check, so even an empty slot
+-- is safe (SELECT FOR UPDATE on zero rows acquires no lock).
 
 CREATE OR REPLACE FUNCTION book_visit_slot(
   p_date DATE,
@@ -17,13 +19,17 @@ DECLARE
   v_count INTEGER;
   v_id UUID;
 BEGIN
-  -- Conta visitas no slot dentro da mesma transação com lock
+  -- Advisory lock serializes concurrent requests for the same (date, period).
+  -- Required because SELECT FOR UPDATE on zero rows acquires no lock.
+  PERFORM pg_advisory_xact_lock(
+    ('x' || md5(p_date::text || '|' || p_period))::bit(64)::bigint
+  );
+
   SELECT COUNT(*) INTO v_count
   FROM scheduled_visits
   WHERE visit_date = p_date
     AND period = p_period
-    AND status = 'scheduled'
-  FOR UPDATE;
+    AND status = 'scheduled';
 
   IF v_count >= 1 THEN
     RETURN jsonb_build_object('success', false, 'reason', 'periodo_indisponivel');
