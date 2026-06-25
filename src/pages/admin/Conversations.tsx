@@ -4,7 +4,7 @@ import {
   MessageSquare, RefreshCw, Search, Bot, User, Send, ChevronLeft,
   ChevronDown, Copy, ExternalLink, QrCode, FileText, Download,
   Maximize2, X, AlertTriangle, Star, Calendar, Ticket,
-  UserCheck,
+  UserCheck, CheckCheck, PauseCircle, Volume2, VolumeX,
 } from 'lucide-react';
 import QRCodeSVG from 'react-qr-code';
 import { adminApi } from '@/api/admin';
@@ -21,10 +21,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { cn } from '@/lib/utils';
+import { ConversationStatusBar } from '@/components/admin/ConversationStatusBar';
+import { SessionModeFilter } from '@/components/admin/SessionModeFilter';
+import { useNotificationSound } from '@/hooks/useNotificationSound';
+import { UrgencyBadges } from '@/components/admin/UrgencyBadges';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type TabFilter = 'human' | 'bot' | 'all';
+type TabFilter = 'human' | 'bot' | 'waiting' | 'all' | 'starred';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -48,6 +52,14 @@ const PERIOD_LABELS: Record<string, string> = {
   morning: 'Manhã (8h–12h)',
   afternoon: 'Tarde (14h–18h)',
 };
+
+function urgencyBorderClass(score: number, selected: boolean): string {
+  if (selected) return 'border-blue-500';
+  if (score >= 100) return 'border-red-500';
+  if (score >= 50) return 'border-amber-500';
+  if (score >= 1) return 'border-blue-500/50';
+  return 'border-transparent';
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -139,6 +151,12 @@ function ConvAvatar({
 
 // ─── Conversation Item ────────────────────────────────────────────────────────
 
+const SOURCE_PREFIX: Record<string, string> = {
+  user: 'Cliente: ',
+  human: 'Você: ',
+  assistant: 'Sofia: ',
+};
+
 function ConvItem({ item, selected, onClick }: {
   item: ConversationSummary;
   selected: boolean;
@@ -147,32 +165,50 @@ function ConvItem({ item, selected, onClick }: {
   const { display, isExternal } = formatDisplayPhone(item.phone);
   const displayName = item.name && item.name !== item.phone ? item.name : display;
   const isHuman = item.mode === 'human';
+  const isWaiting = item.status === 'waiting';
+  const prefix = item.lastMessageSource ? (SOURCE_PREFIX[item.lastMessageSource] ?? '') : '';
+  const score = item.urgency_score ?? 0;
 
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'w-full text-left flex gap-3 items-start px-4 py-3 min-h-[72px] transition-colors',
+        'w-full text-left flex gap-3 items-start px-4 py-3 min-h-[72px] transition-colors border-l-2',
         selected
-          ? 'bg-blue-950/50 border-l-2 border-blue-500'
-          : 'border-l-2 border-transparent hover:bg-gray-800/50',
+          ? 'bg-blue-950/50'
+          : 'hover:bg-gray-800/50',
+        urgencyBorderClass(score, selected),
+        isWaiting && !selected && score === 0 && 'border-blue-600/40',
       )}
     >
-      <ConvAvatar
-        name={displayName}
-        sessionMode={item.sessionMode}
-        churnRisk={item.churnRisk}
-        isExternal={isExternal}
-      />
+      <div className="relative shrink-0">
+        <ConvAvatar
+          name={displayName}
+          sessionMode={item.sessionMode}
+          churnRisk={item.churnRisk}
+          isExternal={isExternal}
+        />
+        <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-[#25D366] rounded-full flex items-center justify-center text-white text-[7px] font-bold ring-1 ring-gray-900">
+          W
+        </span>
+      </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2 mb-0.5">
-          <span className="font-medium text-sm text-gray-100 truncate max-w-[160px]">{displayName}</span>
-          <span className="text-[10px] text-gray-500 whitespace-nowrap shrink-0">{relativeTime(item.updatedAt)}</span>
+          <span className="font-medium text-sm text-gray-100 truncate max-w-[140px]">{displayName}</span>
+          <div className="flex items-center gap-1 shrink-0">
+            {item.starred && <Star className="h-2.5 w-2.5 text-amber-400 fill-amber-400" />}
+            <span className="text-[10px] text-gray-500 whitespace-nowrap">{relativeTime(item.updatedAt)}</span>
+          </div>
         </div>
-        <p className="text-xs text-gray-400 truncate max-w-[180px]">{item.lastText || 'Sem mensagens'}</p>
+        <p className="text-xs text-gray-400 truncate max-w-[180px]">
+          {prefix && <span className="text-gray-500">{prefix}</span>}
+          {item.lastText || 'Sem mensagens'}
+        </p>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-          {isHuman ? (
+          {isWaiting ? (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300">Espera</span>
+          ) : isHuman ? (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-900/50 text-orange-300">Humano</span>
           ) : (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">Bot</span>
@@ -183,6 +219,9 @@ function ConvItem({ item, selected, onClick }: {
             </span>
           )}
         </div>
+        {score > 0 && (
+          <UrgencyBadges reasons={item.urgency_reasons ?? []} score={score} />
+        )}
       </div>
     </button>
   );
@@ -703,17 +742,21 @@ function ChatArea({
   detail,
   onBack,
   panelButton,
+  onClosed,
 }: {
   conversationId: string;
   detail: ConversationDetail;
   onBack: () => void;
   panelButton?: React.ReactNode;
+  onClosed?: () => void;
 }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [reply, setReply] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isHuman = detail.human_mode;
+  const isWaiting = detail.status === 'waiting';
+  const isStarred = detail.starred ?? false;
   const { display, isExternal } = formatDisplayPhone(detail.phone);
   const customerName = detail.customer?.name ?? (isExternal ? 'Contato externo' : display);
   const modeLabel = detail.session_mode ? SESSION_LABELS[detail.session_mode] : null;
@@ -727,6 +770,46 @@ function ChatArea({
         title: data.active ? 'Conversa assumida' : 'Devolvida ao bot',
         description: data.active ? 'Você está respondendo como atendente.' : 'Sofia voltou a atender.',
       });
+    },
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: () => adminApi.closeConversation(conversationId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conv-stats'] });
+      toast({ title: 'Conversa encerrada' });
+      onClosed?.();
+    },
+    onError: (err) => toast({ title: 'Erro ao encerrar', description: (err as Error).message, variant: 'destructive' }),
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: (resume: boolean) => adminApi.pauseConversation(conversationId, resume),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conversation', conversationId] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conv-stats'] });
+      toast({ title: data.status === 'waiting' ? 'Conversa em espera' : 'Conversa retomada' });
+    },
+  });
+
+  const starMutation = useMutation({
+    mutationFn: (starred: boolean) => adminApi.starConversation(conversationId, starred),
+    onMutate: async (starred) => {
+      await queryClient.cancelQueries({ queryKey: ['admin-conversations'] });
+      const prev = queryClient.getQueryData<ConversationDetail>(['admin-conversation', conversationId]);
+      queryClient.setQueryData(['admin-conversation', conversationId], (old: ConversationDetail | undefined) =>
+        old ? { ...old, starred } : old,
+      );
+      return { prev };
+    },
+    onError: (_err, _starred, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['admin-conversation', conversationId], ctx.prev);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-conv-stats'] });
     },
   });
 
@@ -791,24 +874,81 @@ function ChatArea({
         </div>
 
         {/* Ações */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            disabled={humanModeMutation.isPending}
-            onClick={() => humanModeMutation.mutate(!isHuman)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-              isHuman
-                ? 'bg-orange-950/50 text-orange-300 border-orange-700/50 hover:bg-orange-900/50'
-                : 'bg-gray-800 text-gray-300 border-white/10 hover:bg-gray-700 hover:text-white',
-            )}
-          >
-            {isHuman ? (
-              <><Bot className="h-3.5 w-3.5" /> Devolver ao bot</>
-            ) : (
-              <><UserCheck className="h-3.5 w-3.5" /> Assumir</>
-            )}
-          </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Favoritar */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => starMutation.mutate(!isStarred)}
+                  className={cn(
+                    'w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                    isStarred ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500 hover:text-gray-300',
+                  )}
+                >
+                  <Star className={cn('h-4 w-4', isStarred && 'fill-amber-400')} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {isStarred ? 'Remover favorito' : 'Favoritar'}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Pausar / Retomar */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled={pauseMutation.isPending}
+                  onClick={() => pauseMutation.mutate(isWaiting)}
+                  className={cn(
+                    'w-8 h-8 flex items-center justify-center rounded-lg transition-colors',
+                    isWaiting ? 'text-blue-400 hover:text-blue-300' : 'text-gray-500 hover:text-gray-300',
+                  )}
+                >
+                  <PauseCircle className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">
+                {isWaiting ? 'Retomar conversa' : 'Colocar em espera'}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Assumir / Devolver */}
+            <button
+              type="button"
+              disabled={humanModeMutation.isPending}
+              onClick={() => humanModeMutation.mutate(!isHuman)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border',
+                isHuman
+                  ? 'bg-orange-950/50 text-orange-300 border-orange-700/50 hover:bg-orange-900/50'
+                  : 'bg-gray-800 text-gray-300 border-white/10 hover:bg-gray-700 hover:text-white',
+              )}
+            >
+              {isHuman ? (
+                <><Bot className="h-3.5 w-3.5" /> Devolver ao bot</>
+              ) : (
+                <><UserCheck className="h-3.5 w-3.5" /> Assumir</>
+              )}
+            </button>
+
+            {/* Encerrar */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  disabled={closeMutation.isPending}
+                  onClick={() => closeMutation.mutate()}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:text-green-400 hover:bg-green-950/40 transition-colors"
+                >
+                  <CheckCheck className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">Encerrar atendimento</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {panelButton}
         </div>
       </div>
@@ -833,12 +973,17 @@ function ChatArea({
 
       {/* ── Input fixo no bottom ── */}
       <div className="flex-shrink-0 bg-gray-900 border-t border-white/8">
-        {!isHuman && (
+        {isWaiting && (
+          <div className="bg-blue-950/30 border-b border-blue-800/20 px-4 py-2 text-center">
+            <span className="text-xs text-blue-400">Conversa em espera — Sofia não responde. Clique em ▶ para retomar.</span>
+          </div>
+        )}
+        {!isHuman && !isWaiting && (
           <div className="bg-blue-950/30 border-b border-blue-800/20 px-4 py-2 text-center">
             <span className="text-xs text-blue-400">Sofia está atendendo ativamente</span>
           </div>
         )}
-        {isHuman && (
+        {isHuman && !isWaiting && (
           <div className="p-4 space-y-2">
             <div className="flex gap-2 items-end">
               <Textarea
@@ -868,77 +1013,111 @@ function ChatArea({
 
 // ─── Conversation List (Coluna 1) ─────────────────────────────────────────────
 
-const TABS: { value: TabFilter; label: string }[] = [
-  { value: 'human', label: 'Em andamento' },
-  { value: 'bot', label: 'Com bot' },
-  { value: 'all', label: 'Todos' },
-];
-
-function ConversationList({ selectedId, onSelect }: {
+function ConversationList({ selectedId, onSelect, soundEnabled, toggleSound }: {
   selectedId: string | null;
   onSelect: (id: string) => void;
+  soundEnabled: boolean;
+  toggleSound: () => void;
 }) {
-  const [tab, setTab] = useState<TabFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<TabFilter>('all');
+  const [sessionMode, setSessionMode] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [sortMode, setSortMode] = useState<'urgency' | 'time'>(
+    () => (localStorage.getItem('salesnet:sort_mode') as 'urgency' | 'time' | null) ?? 'urgency',
+  );
+
+  const isStarredFilter = statusFilter === 'starred';
+  const apiFilter = isStarredFilter ? 'all' : statusFilter;
 
   const conversations = useQuery({
-    queryKey: ['admin-conversations', tab],
-    queryFn: () => adminApi.getConversations(tab, ''),
+    queryKey: ['admin-conversations', apiFilter, isStarredFilter],
+    queryFn: () => adminApi.getConversations(apiFilter, '', isStarredFilter),
     refetchInterval: 5_000,
   });
 
   const list = conversations.data ?? [];
 
-  const filtered = search.trim()
-    ? list.filter((c) =>
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.phone.replace(/\D/g, '').includes(search.replace(/\D/g, '')),
-      )
-    : list;
+  const filtered = list.filter((c) => {
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      if (!c.name.toLowerCase().includes(q) && !c.phone.replace(/\D/g, '').includes(search.replace(/\D/g, ''))) {
+        return false;
+      }
+    }
+    if (sessionMode && c.sessionMode !== sessionMode) return false;
+    return true;
+  });
 
-  const counts: Record<TabFilter, number> = {
-    human: list.filter((c) => c.mode === 'human').length,
-    bot: list.filter((c) => c.mode === 'bot').length,
-    all: list.length,
-  };
+  const sorted = sortMode === 'time'
+    ? [...filtered].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    : filtered; // já vem ordenado por urgência do backend
+
+  const urgentItems = sortMode === 'urgency' ? sorted.filter(c => (c.urgency_score ?? 0) >= 50) : [];
+  const normalItems = sortMode === 'urgency' ? sorted.filter(c => (c.urgency_score ?? 0) < 50) : sorted;
+
+  function handleSortMode(mode: 'urgency' | 'time') {
+    setSortMode(mode);
+    localStorage.setItem('salesnet:sort_mode', mode);
+  }
 
   return (
     <div className="w-80 flex-shrink-0 flex flex-col border-r border-white/8 overflow-hidden bg-gray-900">
       {/* Header fixo */}
-      <div className="flex-shrink-0 px-4 pt-4 pb-3 space-y-3 border-b border-white/8">
-        <div className="flex items-center justify-between">
+      <div className="flex-shrink-0 border-b border-white/8">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <h2 className="font-semibold text-base text-gray-100">Atendimentos</h2>
-          <button
-            type="button"
-            onClick={() => conversations.refetch()}
-            disabled={conversations.isFetching}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5 text-gray-500', conversations.isFetching && 'animate-spin')} />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Toggle urgência/horário */}
+            <div className="flex items-center rounded-lg bg-gray-800 p-0.5 gap-0.5 mr-1">
+              <button
+                type="button"
+                onClick={() => handleSortMode('urgency')}
+                className={cn(
+                  'px-2 py-1 text-[10px] rounded-md transition-colors',
+                  sortMode === 'urgency' ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300',
+                )}
+              >
+                ⚡ Urgência
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSortMode('time')}
+                className={cn(
+                  'px-2 py-1 text-[10px] rounded-md transition-colors',
+                  sortMode === 'time' ? 'bg-gray-600 text-white' : 'text-gray-500 hover:text-gray-300',
+                )}
+              >
+                🕐 Horário
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={toggleSound}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors"
+              title={soundEnabled ? 'Desativar som' : 'Ativar som'}
+            >
+              {soundEnabled ? (
+                <Volume2 className="h-3.5 w-3.5 text-blue-400" />
+              ) : (
+                <VolumeX className="h-3.5 w-3.5 text-gray-500" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => conversations.refetch()}
+              disabled={conversations.isFetching}
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5 text-gray-500', conversations.isFetching && 'animate-spin')} />
+            </button>
+          </div>
         </div>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as TabFilter)}>
-          <TabsList className="w-full h-8 bg-gray-800 text-xs">
-            {TABS.map((t) => (
-              <TabsTrigger key={t.value} value={t.value} className="flex-1 text-[11px] gap-1 data-[state=active]:bg-gray-700">
-                {t.label}
-                {t.value === 'human' && counts.human > 0 && (
-                  <span className="bg-orange-900/80 text-orange-300 text-[9px] px-1 rounded-full">{counts.human}</span>
-                )}
-                {t.value === 'bot' && counts.bot > 0 && (
-                  <span className="bg-gray-600 text-gray-300 text-[9px] px-1 rounded-full">{counts.bot}</span>
-                )}
-                {t.value === 'all' && (
-                  <span className="text-gray-500 text-[9px]">({counts.all})</span>
-                )}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <ConversationStatusBar activeFilter={statusFilter} onFilter={setStatusFilter} />
+        <SessionModeFilter activeMode={sessionMode} onChange={setSessionMode} />
 
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
+        <div className="relative px-4 pb-3">
+          <Search className="absolute left-6.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -949,7 +1128,7 @@ function ConversationList({ selectedId, onSelect }: {
             <button
               type="button"
               onClick={() => setSearch('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+              className="absolute right-6.5 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -972,7 +1151,28 @@ function ConversationList({ selectedId, onSelect }: {
             <p className="text-sm text-gray-500">Nenhuma conversa encontrada</p>
           </div>
         )}
-        {filtered.map((item) => (
+
+        {/* Bloco: ⚡ Atenção agora */}
+        {urgentItems.length > 0 && (
+          <div className="border-b border-white/8">
+            <div className="px-4 py-1.5 bg-gray-800/40">
+              <span className="text-[10px] font-semibold tracking-widest text-amber-500 uppercase">
+                ⚡ Atenção agora — {urgentItems.length} conversa{urgentItems.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {urgentItems.map((item) => (
+              <ConvItem
+                key={item.id}
+                item={item}
+                selected={selectedId === item.id}
+                onClick={() => onSelect(item.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Lista normal */}
+        {normalItems.map((item) => (
           <ConvItem
             key={item.id}
             item={item}
@@ -1016,6 +1216,7 @@ export default function Conversations() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list');
   const prevMsgCountRef = useRef(0);
+  const { soundEnabled, toggleSound, playNotification } = useNotificationSound();
 
   const detail = useQuery({
     queryKey: ['admin-conversation', selectedId],
@@ -1024,12 +1225,13 @@ export default function Conversations() {
     refetchInterval: 5_000,
   });
 
-  // New message toast + browser notification
+  // New message toast + browser notification + beep
   const notifyNewMsg = useCallback((data: ConversationDetail) => {
     const count = data.messages.length;
     if (prevMsgCountRef.current > 0 && count > prevMsgCountRef.current && data.human_mode) {
       const name = data.customer?.name ?? formatDisplayPhone(data.phone).display;
       toast({ title: `Nova mensagem de ${name}` });
+      playNotification();
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification(`Nova mensagem de ${name}`, {
           body: data.messages.at(-1)?.content ?? '',
@@ -1037,7 +1239,7 @@ export default function Conversations() {
       }
     }
     prevMsgCountRef.current = count;
-  }, [toast]);
+  }, [toast, playNotification]);
 
   useEffect(() => {
     if (detail.data) notifyNewMsg(detail.data);
@@ -1054,6 +1256,11 @@ export default function Conversations() {
     prevMsgCountRef.current = 0;
     setMobileView('chat');
     queryClient.invalidateQueries({ queryKey: ['admin-conversation', id] });
+  }
+
+  function handleConversationClosed() {
+    setSelectedId(null);
+    setMobileView('list');
   }
 
   // Shared customer panel for tablet sheet + desktop column
@@ -1122,6 +1329,7 @@ export default function Conversations() {
         detail={detail.data}
         onBack={() => setMobileView('list')}
         panelButton={showPanelBtn ? tabletPanelBtn : undefined}
+        onClosed={handleConversationClosed}
       />
     );
   }
@@ -1139,7 +1347,7 @@ export default function Conversations() {
       {/* ── Desktop: 3 colunas ── */}
       <div className="hidden lg:flex flex-1 overflow-hidden">
         {/* Coluna 1 */}
-        <ConversationList selectedId={selectedId} onSelect={selectConversation} />
+        <ConversationList selectedId={selectedId} onSelect={selectConversation} soundEnabled={soundEnabled} toggleSound={toggleSound} />
 
         {/* Coluna 2 */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -1154,7 +1362,7 @@ export default function Conversations() {
 
       {/* ── Tablet (md–lg): 2 colunas + drawer ── */}
       <div className="hidden md:flex lg:hidden flex-1 overflow-hidden">
-        <ConversationList selectedId={selectedId} onSelect={selectConversation} />
+        <ConversationList selectedId={selectedId} onSelect={selectConversation} soundEnabled={soundEnabled} toggleSound={toggleSound} />
         <div className="flex-1 flex flex-col overflow-hidden">
           {renderChatArea(true)}
         </div>
@@ -1163,7 +1371,7 @@ export default function Conversations() {
       {/* ── Mobile: uma coluna por vez ── */}
       <div className="flex md:hidden flex-1 overflow-hidden">
         {mobileView === 'list' || !selectedId ? (
-          <ConversationList selectedId={selectedId} onSelect={selectConversation} />
+          <ConversationList selectedId={selectedId} onSelect={selectConversation} soundEnabled={soundEnabled} toggleSound={toggleSound} />
         ) : (
           <div className="flex-1 flex flex-col overflow-hidden">
             {renderChatArea(false)}
