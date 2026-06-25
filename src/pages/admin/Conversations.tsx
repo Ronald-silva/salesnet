@@ -25,6 +25,7 @@ import { ConversationStatusBar } from '@/components/admin/ConversationStatusBar'
 import { SessionModeFilter } from '@/components/admin/SessionModeFilter';
 import { useNotificationSound } from '@/hooks/useNotificationSound';
 import { UrgencyBadges } from '@/components/admin/UrgencyBadges';
+import { CopilotSuggestion, isCopilotDismissed } from '@/components/admin/CopilotSuggestion';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -753,6 +754,11 @@ function ChatArea({
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [reply, setReply] = useState('');
+  const [copilotVisible, setCopilotVisible] = useState(() =>
+    isHuman && !isCopilotDismissed(conversationId),
+  );
+  const [inputFocused, setInputFocused] = useState(false);
+  const [copilotMeta, setCopilotMeta] = useState<{ copilot_used?: boolean; copilot_edited?: boolean }>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isHuman = detail.human_mode;
   const isWaiting = detail.status === 'waiting';
@@ -814,9 +820,10 @@ function ChatArea({
   });
 
   const replyMutation = useMutation({
-    mutationFn: (message: string) => adminApi.reply(conversationId, message),
+    mutationFn: (message: string) => adminApi.reply(conversationId, message, copilotMeta),
     onSuccess: () => {
       setReply('');
+      setCopilotMeta({});
       queryClient.invalidateQueries({ queryKey: ['admin-conversation', conversationId] });
       queryClient.invalidateQueries({ queryKey: ['admin-conversations'] });
     },
@@ -838,6 +845,28 @@ function ChatArea({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [detail.messages.length]);
+
+  // Sincronizar visibilidade do copiloto quando human_mode ou conversa muda
+  useEffect(() => {
+    if (isHuman) {
+      setCopilotVisible(!isCopilotDismissed(conversationId));
+    } else {
+      setCopilotVisible(false);
+    }
+  }, [isHuman, conversationId]);
+
+  // Auto-sugerir 2s após nova mensagem do cliente, se não estiver digitando
+  useEffect(() => {
+    if (!isHuman || inputFocused) return;
+    const lastMsg = detail.messages.at(-1);
+    if (lastMsg?.role === 'user') {
+      const timer = setTimeout(() => {
+        if (!isCopilotDismissed(conversationId)) setCopilotVisible(true);
+      }, 2_000);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [detail.messages.length, isHuman, inputFocused, conversationId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -985,11 +1014,41 @@ function ChatArea({
         )}
         {isHuman && !isWaiting && (
           <div className="p-4 space-y-2">
+            {/* Copiloto */}
+            {copilotVisible ? (
+              <CopilotSuggestion
+                conversationId={conversationId}
+                onUse={(text) => {
+                  setCopilotMeta({ copilot_used: true });
+                  replyMutation.mutate(text);
+                  setCopilotVisible(false);
+                }}
+                onEdit={(text) => {
+                  setCopilotMeta({ copilot_edited: true });
+                  setReply(text);
+                  setCopilotVisible(false);
+                }}
+                onDismiss={() => setCopilotVisible(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setCopilotVisible(true); setCopilotMeta({}); }}
+                className="flex items-center gap-1 text-[11px] text-gray-600 hover:text-teal-500 transition-colors"
+                title="Ver sugestão da Sofia"
+              >
+                <span>✦</span>
+                <span>Sugestão da Sofia</span>
+              </button>
+            )}
+
             <div className="flex gap-2 items-end">
               <Textarea
                 value={reply}
                 onChange={(e) => setReply(e.target.value)}
                 onKeyDown={handleKeyDown}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
                 placeholder="Responder como atendente humano..."
                 rows={2}
                 className="resize-none text-sm bg-gray-800 border-white/10 rounded-xl placeholder:text-gray-500 focus:border-blue-600 min-h-[44px] max-h-[120px]"
