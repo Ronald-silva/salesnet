@@ -51,9 +51,6 @@ export async function lookupCustomer(params: {
   const attempts: string[] = [];
 
   const messageCpf = params.cpfFromMessage ? normalizeCpf(params.cpfFromMessage) : null;
-  if (messageCpf && messageCpf.length === 11) {
-    await persistThreadCpf(whatsappPhone, tenantId, messageCpf);
-  }
 
   try {
     attempts.push('phone');
