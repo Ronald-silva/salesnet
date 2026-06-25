@@ -241,6 +241,22 @@ async function detectChurnWave(tenantId: string): Promise<void> {
 }
 
 // ── Detector 4 — cluster de lentidão por bairro ──────────────────────────────
+
+const SLOW_SPEED_BATCH_LIMIT = 20;
+
+async function withConcurrencyLimit<T>(
+  items: string[],
+  limit: number,
+  fn: (item: string) => Promise<T>,
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const batch = items.slice(i, i + limit);
+    results.push(...(await Promise.all(batch.map(fn))));
+  }
+  return results;
+}
+
 async function detectSlowSpeedCluster(tenantId: string): Promise<void> {
   const since = hoursAgoIso(4);
 
@@ -260,11 +276,14 @@ async function detectSlowSpeedCluster(tenantId: string): Promise<void> {
   const supportPhones = [...new Set((logs ?? []).map((r) => (r as { phone: string }).phone))];
   if (supportPhones.length === 0) return;
 
+  // Cap the number of phones processed per cycle to avoid excessive SGP calls.
+  const phonesSlice = supportPhones.slice(0, SLOW_SPEED_BATCH_LIMIT);
+
   // Confirma keyword de lentidão em mensagem recente do cliente.
   const sinceMs = Date.parse(since);
   const phonesWithSlowComplaint: string[] = [];
 
-  for (const phone of supportPhones) {
+  for (const phone of phonesSlice) {
     const { data: thread } = await supabase
       .from('conversation_threads')
       .select('messages')
@@ -290,17 +309,25 @@ async function detectSlowSpeedCluster(tenantId: string): Promise<void> {
 
   if (phonesWithSlowComplaint.length < 3) return;
 
-  // Agrupa por bairro (resolução best-effort via SGP).
+  // Agrupa por bairro (resolução best-effort via SGP, batches de 5 simultâneos).
+  const neighborhoods = await withConcurrencyLimit(
+    phonesWithSlowComplaint,
+    5,
+    async (phone) => {
+      try {
+        const customer = await getCustomerByPhone(phone);
+        return customer.address?.neighborhood?.trim() ?? null;
+      } catch {
+        // sem cliente/bairro — ignora no agrupamento
+        return null;
+      }
+    },
+  );
+
   const byNeighborhood = new Map<string, number>();
-  for (const phone of phonesWithSlowComplaint) {
-    try {
-      const customer = await getCustomerByPhone(phone);
-      const bairro = customer.address?.neighborhood?.trim();
-      if (!bairro) continue;
-      byNeighborhood.set(bairro, (byNeighborhood.get(bairro) ?? 0) + 1);
-    } catch {
-      // sem cliente/bairro — ignora no agrupamento
-    }
+  for (const bairro of neighborhoods) {
+    if (!bairro) continue;
+    byNeighborhood.set(bairro, (byNeighborhood.get(bairro) ?? 0) + 1);
   }
 
   for (const [bairro, total] of byNeighborhood) {
