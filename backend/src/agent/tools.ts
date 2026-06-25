@@ -533,23 +533,6 @@ export async function executeTool(
       const date = input.date as string;
       const period = input.period as VisitPeriod;
 
-      // Capacidade: 1 vaga por turno. Se o turno pedido estiver cheio, recusa e
-      // devolve alternativas pra Sofia oferecer — nunca empilha no mesmo período.
-      const available = await isSlotAvailable(date, period);
-      if (!available) {
-        const alternativas = await nextAvailableSlots(date, 3);
-        return {
-          success: false,
-          reason: 'periodo_indisponivel',
-          requested: { visit_date: date, period: periodLabelPt(period) },
-          alternativas: alternativas.map((s) => ({ date: s.date, period: s.period, label: s.label })),
-          message:
-            alternativas.length > 0
-              ? `O período da ${periodLabelPt(period)} em ${date} já está ocupado (1 visita por turno). Próximos livres: ${alternativas.map((s) => s.label).join('; ')}. Ofereça uma dessas opções ao cliente.`
-              : `O período da ${periodLabelPt(period)} em ${date} já está ocupado e não há turnos livres nas próximas semanas. Avise o cliente que a equipe retornará com uma data.`,
-        };
-      }
-
       await sgp.scheduleVisit(customerId, date, period);
 
       // executeTool não recebe o session mode; inferimos o tipo pela existência
@@ -579,19 +562,37 @@ export async function executeTool(
       const contactPhone =
         customerData?.phone && customerData.phone.length > 0 ? customerData.phone : phone;
 
-      try {
-        await supabase.from('scheduled_visits').insert({
-          customer_id: customerId,
-          phone: contactPhone,
-          visit_date: date,
-          period,
-          status: 'scheduled',
-          type: visitType,
-          address,
-          notes: (input.notes as string | undefined) ?? null,
+      // Capacidade: 1 vaga por turno. check + insert atômico via RPC para evitar
+      // TOCTOU double-booking entre requisições concorrentes.
+      interface BookingResult { success: boolean; reason?: string; visit_id?: string }
+      const { data: result, error: rpcError } = await supabase
+        .rpc('book_visit_slot', {
+          p_date: date,
+          p_period: period,
+          p_tenant_id: tenantId,
+          p_contrato: customerId,
+          p_phone: contactPhone,
+          p_type: visitType,
+          p_address: address ?? null,
+          p_notes: (input.notes as string | undefined) ?? null,
         });
-      } catch {
-        // best-effort
+
+      if (rpcError) throw rpcError;
+
+      const booking = result as BookingResult;
+
+      if (!booking.success) {
+        const alternativas = await nextAvailableSlots(date, 3);
+        return {
+          success: false,
+          reason: booking.reason,
+          requested: { visit_date: date, period: periodLabelPt(period) },
+          alternativas: alternativas.map((s) => ({ date: s.date, period: s.period, label: s.label })),
+          message:
+            alternativas.length > 0
+              ? `O período da ${periodLabelPt(period)} em ${date} já está ocupado (1 visita por turno). Próximos livres: ${alternativas.map((s) => s.label).join('; ')}. Ofereça uma dessas opções ao cliente.`
+              : `O período da ${periodLabelPt(period)} em ${date} já está ocupado e não há turnos livres nas próximas semanas. Avise o cliente que a equipe retornará com uma data.`,
+        };
       }
 
       const periodLabel = periodLabelPt(period);
