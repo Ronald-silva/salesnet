@@ -122,7 +122,18 @@ export function buildInsightsContext(insights: CustomerInsights): string {
     lines.push(`Último atendimento foi sobre: ${label}.`);
   }
   if (insights.notes) {
-    lines.push('Nota do atendimento anterior: ' + insights.notes);
+    const NOTE_DATE_RE = /^\[(\d{4}-\d{2}-\d{2})\]\s*/;
+    const match = insights.notes.match(NOTE_DATE_RE);
+    if (match) {
+      const ageDays = (Date.now() - new Date(match[1]).getTime()) / (1000 * 60 * 60 * 24);
+      if (ageDays <= 90) {
+        lines.push(`Nota do atendimento anterior (${match[1]}): ${insights.notes.slice(match[0].length)}`);
+      }
+      // note older than 90 days — silently drop to avoid stale context
+    } else {
+      // legacy note without date prefix — inject as-is
+      lines.push('Nota do atendimento anterior: ' + insights.notes);
+    }
   }
 
   if (lines.length === 0) return '';

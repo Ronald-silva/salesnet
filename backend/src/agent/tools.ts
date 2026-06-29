@@ -924,7 +924,8 @@ export async function executeTool(
     }
 
     case 'atualizar_notas_cliente': {
-      const notes = (input.notes as string).slice(0, 500);
+      const today = new Date().toLocaleDateString('sv', { timeZone: 'America/Fortaleza' }); // YYYY-MM-DD
+      const notes = `[${today}] ${(input.notes as string).trim()}`.slice(0, 500);
       const { error } = await supabase
         .from('conversation_threads')
         .update({ notes })
