@@ -40,9 +40,14 @@ authRouter.post('/request-otp', async (req, res) => {
       `Seu código de acesso SalesNet é: ${code}\nVálido por 10 minutos.`
     );
   } catch (err) {
-    console.error('[auth] failed to send OTP:', err);
-    res.status(500).json({ error: 'failed to send OTP' });
-    return;
+    if (process.env.NODE_ENV !== 'production') {
+      // Em dev o Evolution Go não está rodando — loga o código no console
+      console.warn(`[auth] WhatsApp indisponível em dev. OTP para ${normalized}: ${code}`);
+    } else {
+      console.error('[auth] failed to send OTP:', err);
+      res.status(500).json({ error: 'failed to send OTP' });
+      return;
+    }
   }
 
   res.status(200).json({ ok: true });
