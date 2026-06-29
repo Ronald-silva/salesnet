@@ -18,6 +18,7 @@ import { normalizePhone, resolveWebhookContact, collectWebhookJidCandidates, toW
 import { transcribeAudio } from '../../../agent/transcribe';
 import { formatVoiceMessage } from '../../../agent/media-context';
 import { analyzeImage, formatImageBody } from '../../../agent/vision';
+import { analyzePdf, formatPdfBody } from '../../../agent/pdf-boleto';
 import {
   detectMediaType,
   fetchAndDecryptWAMedia,
@@ -646,6 +647,23 @@ export class EvolutionGoProvider implements WhatsAppProvider {
 
     // document
     const fileName = pickField(media, ['fileName', 'title', 'Title']) as string | undefined;
+    const fileMime = (pickField(media, ['mimetype', 'Mimetype', 'fileMimetype']) as string | undefined) ?? '';
+    const isPdf = fileMime.includes('pdf') || (typeof fileName === 'string' && fileName.toLowerCase().endsWith('.pdf'));
+
+    if (isPdf && env.GEMINI_API_KEY) {
+      const decrypted = await this.downloadMedia(type, media, msg, instanceName);
+      if (decrypted) {
+        try {
+          const info = await analyzePdf(decrypted);
+          const body = formatPdfBody(info, fileName);
+          console.log(`[media] pdf resolved (${decrypted.buffer.length} bytes): ${body.slice(0, 120)}`);
+          return body;
+        } catch (err) {
+          console.warn('[media] pdf analysis failed:', err instanceof Error ? err.message : err);
+        }
+      }
+    }
+
     return `[documento recebido${fileName ? `: ${fileName}` : ''} — peça as informações por texto se precisar]`;
   }
 
