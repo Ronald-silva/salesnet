@@ -41,12 +41,31 @@ export interface Ticket {
   type: string;
   description: string;
   status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  protocol: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReferralInfo {
   link: string | null;
   conversions: number;
+}
+
+export interface ClientProfile {
+  name: string;
+  status: 'active' | 'suspended' | 'cancelled' | string;
+  plan: {
+    name: string;
+    downloadMbps?: number;
+  } | null;
+}
+
+export interface ScheduledVisit {
+  id: string;
+  date: string;
+  period: 'morning' | 'afternoon';
+  type: string | null;
+  notes: string | null;
 }
 
 export const clientApi = {
@@ -72,4 +91,6 @@ export const clientApi = {
     }),
   getReferral: () => apiFetch<ReferralInfo>('/client/referral'),
   getInvoices: () => apiFetch<Invoice[]>('/client/invoices'),
+  getProfile: () => apiFetch<ClientProfile>('/client/profile'),
+  getSchedule: () => apiFetch<ScheduledVisit | null>('/client/schedule'),
 };

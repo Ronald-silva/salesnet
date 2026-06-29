@@ -4,11 +4,12 @@ import {
   getCurrentInvoice,
   generatePixKey,
   getConnectionStatus,
-  getCustomerTickets,
   openTicket,
   getCustomerInvoices,
+  getCustomerById,
 } from '../integrations/sgp';
 import { supabase } from '../config/supabase';
+import { env } from '../config/env';
 
 export const clientRouter = Router();
 clientRouter.use(clientAuthMiddleware);
@@ -34,9 +35,37 @@ clientRouter.get('/connection', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// Chamados via sofia_tickets (Supabase) — SGP getCustomerTickets é stub
 clientRouter.get('/tickets', async (req: AuthenticatedRequest, res) => {
   try {
-    const tickets = await getCustomerTickets(req.customerId!, 20);
+    const { data, error } = await supabase
+      .from('sofia_tickets')
+      .select('id, type, description, status, protocol, created_at, updated_at')
+      .eq('contrato', req.customerId!)
+      .eq('tenant_id', env.DEFAULT_TENANT_ID)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) throw error;
+
+    const tickets = ((data ?? []) as {
+      id: string;
+      type: string;
+      description: string;
+      status: string;
+      protocol: string | null;
+      created_at: string;
+      updated_at: string;
+    }[]).map((t) => ({
+      id: t.id,
+      type: t.type,
+      description: t.description,
+      status: t.status,
+      protocol: t.protocol,
+      createdAt: t.created_at,
+      updatedAt: t.updated_at,
+    }));
+
     res.json(tickets);
   } catch (err) {
     console.error('[client] tickets error:', err);
@@ -56,6 +85,62 @@ clientRouter.post('/tickets', async (req: AuthenticatedRequest, res) => {
   } catch (err) {
     console.error('[client] open ticket error:', err);
     res.status(500).json({ error: 'failed to open ticket' });
+  }
+});
+
+// Perfil: nome, plano, velocidade, status do contrato
+clientRouter.get('/profile', async (req: AuthenticatedRequest, res) => {
+  try {
+    const customer = await getCustomerById(req.customerId!);
+    res.json({
+      name: customer.name,
+      plan: customer.plan ?? null,
+      status: customer.status,
+    });
+  } catch (err) {
+    console.error('[client] profile error:', err);
+    res.status(500).json({ error: 'failed to fetch profile' });
+  }
+});
+
+// Próxima visita agendada (status scheduled)
+clientRouter.get('/schedule', async (req: AuthenticatedRequest, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('scheduled_visits')
+      .select('id, date, period, type, status, notes')
+      .eq('contrato', req.customerId!)
+      .eq('status', 'scheduled')
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (!data) {
+      res.json(null);
+      return;
+    }
+
+    const row = data as {
+      id: string;
+      date: string;
+      period: string;
+      type: string | null;
+      status: string;
+      notes: string | null;
+    };
+
+    res.json({
+      id: row.id,
+      date: row.date,
+      period: row.period,
+      type: row.type,
+      notes: row.notes,
+    });
+  } catch (err) {
+    console.error('[client] schedule error:', err);
+    res.status(500).json({ error: 'failed to fetch schedule' });
   }
 });
 
