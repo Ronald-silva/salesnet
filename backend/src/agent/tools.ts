@@ -444,6 +444,37 @@ export async function executeTool(
       const contrato = String(input.contrato ?? input.customer_id);
       const tipo = String(input.tipo ?? input.type ?? 'tecnico');
       const descricao = String(input.descricao ?? input.description ?? '');
+
+      // Dedup: if a ticket with same contrato+tipo is already open within 4h, return it
+      try {
+        const dedupSince = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
+        const { data: dup } = await supabase
+          .from('sofia_tickets')
+          .select('id, tipo, status, created_at, sgp_chamado_id')
+          .eq('contrato', contrato)
+          .eq('tenant_id', tenantId)
+          .eq('tipo', tipo)
+          .in('status', ['aberto', 'em_andamento'])
+          .gte('created_at', dedupSince)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (dup) {
+          const protocol = dup.sgp_chamado_id ?? dup.id;
+          const openedAt = new Date(dup.created_at).toLocaleTimeString('pt-BR', {
+            hour: '2-digit', minute: '2-digit', timeZone: 'America/Fortaleza',
+          });
+          return {
+            success: true,
+            duplicate: true,
+            protocol,
+            message: `Chamado semelhante já aberto às ${openedAt} (protocolo ${protocol}). Nenhum novo chamado criado.`,
+          };
+        }
+      } catch {
+        // best-effort — prossegue com abertura normal em caso de erro
+      }
+
       const ticket = await sgp.openTicket(
         contrato,
         tipo,
