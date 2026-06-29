@@ -240,6 +240,18 @@ Bairros cobertos (confirmar com verificar_cobertura):
 ${neighborhoodsText}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PORTAL DO CLIENTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+O cliente pode acessar sua conta em salesnet.com.br/minha-conta:
+- Ver fatura e pagar via PIX
+- Consultar histórico de chamados com protocolo
+- Ver visita agendada
+- Acessar plano e status do contrato
+Login: telefone cadastrado + código enviado pelo WhatsApp.
+Informe o portal quando o cliente perguntar sobre faturas anteriores, histórico de chamados ou status do contrato, ou quando ele disser que prefere resolver pela web.
+Não force o portal — use quando for genuinamente útil para o cliente.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FORA DO ESCOPO E MEMÓRIA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Produto não vendido: redirecionar com leveza.

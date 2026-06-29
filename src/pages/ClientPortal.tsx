@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Wifi, WifiOff, Copy, Share2, TicketCheck, LogOut, Loader2,
-  Calendar, Zap, AlertCircle, CheckCircle2, Clock, ChevronRight,
+  Calendar, Zap, AlertCircle, CheckCircle2, Clock, ChevronRight, ArrowLeft,
 } from 'lucide-react';
 import { clientApi } from '@/api/client';
 import type { ClientProfile, ScheduledVisit, Ticket } from '@/api/client';
@@ -21,11 +21,16 @@ import { cn } from '@/lib/utils';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const TICKET_TYPE_LABELS: Record<string, string> = {
+  // valores do portal
   technical: 'Problema técnico',
   billing: 'Financeiro',
   upgrade: 'Upgrade de plano',
   cancellation: 'Cancelamento',
   other: 'Outro',
+  // valores da Sofia (PT)
+  tecnico: 'Problema técnico',
+  financeiro: 'Financeiro',
+  comercial: 'Comercial',
 };
 
 const PERIOD_LABELS: Record<string, string> = {
@@ -228,9 +233,14 @@ export default function ClientPortal() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-10 border-b border-border/50 bg-background/90 backdrop-blur-sm px-4 py-3 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">Olá,</p>
-          <p className="font-semibold text-foreground leading-tight">{session.name}</p>
+        <div className="flex items-center gap-3">
+          <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors" aria-label="Voltar ao site">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div>
+            <p className="text-xs text-muted-foreground">Olá,</p>
+            <p className="font-semibold text-foreground leading-tight">{session.name}</p>
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={handleLogout} className="text-muted-foreground">
           <LogOut className="h-4 w-4 mr-1" /> Sair

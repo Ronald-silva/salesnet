@@ -35,12 +35,18 @@ clientRouter.get('/connection', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+const STATUS_PT_TO_EN: Record<string, string> = {
+  aberto: 'open',
+  em_andamento: 'in_progress',
+  resolvido: 'resolved',
+};
+
 // Chamados via sofia_tickets (Supabase) — SGP getCustomerTickets é stub
 clientRouter.get('/tickets', async (req: AuthenticatedRequest, res) => {
   try {
     const { data, error } = await supabase
       .from('sofia_tickets')
-      .select('id, type, description, status, protocol, created_at, updated_at')
+      .select('id, tipo, descricao, status, sgp_chamado_id, created_at, updated_at')
       .eq('contrato', req.customerId!)
       .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .order('created_at', { ascending: false })
@@ -50,18 +56,18 @@ clientRouter.get('/tickets', async (req: AuthenticatedRequest, res) => {
 
     const tickets = ((data ?? []) as {
       id: string;
-      type: string;
-      description: string;
+      tipo: string;
+      descricao: string;
       status: string;
-      protocol: string | null;
+      sgp_chamado_id: string | null;
       created_at: string;
       updated_at: string;
     }[]).map((t) => ({
       id: t.id,
-      type: t.type,
-      description: t.description,
-      status: t.status,
-      protocol: t.protocol,
+      type: t.tipo,
+      description: t.descricao,
+      status: STATUS_PT_TO_EN[t.status] ?? t.status,
+      protocol: t.sgp_chamado_id,
       createdAt: t.created_at,
       updatedAt: t.updated_at,
     }));
@@ -80,8 +86,46 @@ clientRouter.post('/tickets', async (req: AuthenticatedRequest, res) => {
     return;
   }
   try {
-    const ticket = await openTicket(req.customerId!, type, description);
-    res.status(201).json(ticket);
+    // Abre no SGP (best-effort — endpoint pode retornar stub dependendo do plano)
+    let sgpProtocolo: string | null = null;
+    try {
+      const sgpRes = await openTicket(req.customerId!, type, description);
+      sgpProtocolo = sgpRes.protocolo ?? (sgpRes.os_id ? String(sgpRes.os_id) : null);
+    } catch (sgpErr) {
+      console.warn('[client] SGP openTicket failed (best-effort):', sgpErr);
+    }
+
+    // Persiste em sofia_tickets para aparecer na listagem
+    const { data: inserted, error: insertErr } = await supabase
+      .from('sofia_tickets')
+      .insert({
+        tenant_id:      env.DEFAULT_TENANT_ID,
+        phone:          req.customerPhone!,
+        contrato:       req.customerId!,
+        tipo:           type,
+        descricao:      description,
+        status:         'aberto',
+        sgp_chamado_id: sgpProtocolo,
+      })
+      .select('id, tipo, descricao, status, sgp_chamado_id, created_at, updated_at')
+      .single();
+
+    if (insertErr) throw insertErr;
+
+    const row = inserted as {
+      id: string; tipo: string; descricao: string; status: string;
+      sgp_chamado_id: string | null; created_at: string; updated_at: string;
+    };
+
+    res.status(201).json({
+      id:          row.id,
+      type:        row.tipo,
+      description: row.descricao,
+      status:      STATUS_PT_TO_EN[row.status] ?? row.status,
+      protocol:    row.sgp_chamado_id,
+      createdAt:   row.created_at,
+      updatedAt:   row.updated_at,
+    });
   } catch (err) {
     console.error('[client] open ticket error:', err);
     res.status(500).json({ error: 'failed to open ticket' });

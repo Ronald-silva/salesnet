@@ -18,6 +18,7 @@ const Header = () => {
     { name: "Hotspots", path: "/hotspots" },
     { name: "Trabalhe Conosco", path: "/trabalhe-conosco" },
     { name: "Contato", path: "/contato" },
+    { name: "Minha Conta", path: "/minha-conta" },
   ];
 
   const isActive = (path: string) => location.pathname === path;
