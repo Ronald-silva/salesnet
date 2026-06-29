@@ -1,7 +1,7 @@
 import * as sgp from '../integrations/sgp';
 import { supabase } from '../config/supabase';
 import { persistThreadCpf } from './memory';
-import { normalizeCpf, extractCpfFromText } from '../lib/cpf';
+import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../lib/cpf';
 import type { Customer } from '../integrations/sgp/types';
 
 export type CustomerLookupMethod = 'phone' | 'cpf' | 'cpf_stored_phone';
@@ -111,4 +111,4 @@ export function buildIdentificationContext(
   );
 }
 
-export { extractCpfFromText };
+export { extractCpfFromText, extractBareCpfWhenAsked };

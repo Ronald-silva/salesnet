@@ -26,3 +26,14 @@ export function extractCpfFromText(text: string): string | null {
 
   return null;
 }
+
+/**
+ * Extracts a bare 11-digit CPF when context indicates Sofia asked for it.
+ * Only activates on short messages (≤ 30 chars) to avoid capturing phone numbers
+ * embedded in longer sentences. Caller must verify Sofia's prior request.
+ */
+export function extractBareCpfWhenAsked(text: string): string | null {
+  if (text.trim().length > 30) return null;
+  const digits = text.replace(/\D/g, '');
+  return digits.length === 11 ? digits : null;
+}

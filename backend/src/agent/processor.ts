@@ -8,7 +8,7 @@ import { parseProcessMessageOptions } from './process-message-options';
 import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
-import { lookupCustomer, extractCpfFromText, buildIdentificationContext } from './customer-lookup';
+import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked, buildIdentificationContext } from './customer-lookup';
 import { buildMediaMessageContext } from './media-context';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
@@ -391,6 +391,7 @@ async function disambiguateSessionMode(
   customerData: unknown,
   invoiceStatus: string | undefined,
   baseMode: SessionMode,
+  recentModes: SessionMode[] = [],
 ): Promise<{ decision: SessionModeDecision; usage: LlmUsageTotals }> {
   if (!isSessionDisambiguationCandidate(baseMode, message)) {
     return {
@@ -417,8 +418,10 @@ async function disambiguateSessionMode(
     '- commercial: cliente com baixa velocidade insatisfeito, possível upgrade após suporte',
     '- prospect: intenção explícita de contratar/instalar como novo cliente',
     '- default: dúvidas gerais, inclusive cliente perguntando sobre o próprio plano',
+    'Dica: se recent_session_modes indicar suporte/billing recente e a mensagem for follow-up curto ("ok", "resolveu?", "ainda tá caindo"), mantenha o modo anterior.',
     '',
     `base_mode=${baseMode}`,
+    ...(recentModes.length > 0 ? [`recent_session_modes=[${recentModes.join(',')}]`] : []),
     `invoice_status=${invoiceStatus ?? 'unknown'}`,
     `customer_data=${compactCustomer}`,
     `message=${message}`,
@@ -618,10 +621,13 @@ export async function processMessage(
       content: m.content,
     }));
 
-    const cpfFromMessage = extractCpfFromText(clean);
+    // Gap 4: if Sofia's last message asked for CPF, also try bare 11-digit extraction
+    const lastAssistantMsg = [...thread.messages].reverse().find(m => m.role === 'assistant');
+    const sofiaAskedForCpf = lastAssistantMsg != null && /\bcpf\b|\bdocumento\b/i.test(lastAssistantMsg.content);
+    const cpfFromMessage = extractCpfFromText(clean) ?? (sofiaAskedForCpf ? extractBareCpfWhenAsked(clean) : null);
 
     // Identify customer: WhatsApp phone first, then CPF (message or thread)
-    const [lookupResult, insights, skillConfig] = await Promise.all([
+    const [lookupResult, insights, skillConfig, recentModesResult] = await Promise.all([
       lookupCustomer({
         whatsappPhone: phone,
         tenantId,
@@ -630,7 +636,17 @@ export async function processMessage(
       }),
       getCustomerInsights(phone, tenantId),
       getSkillConfig(tenantId),
+      supabase
+        .from('interaction_logs')
+        .select('session_mode')
+        .eq('phone', phone)
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(3),
     ]);
+    const recentModes = ((recentModesResult.data ?? []) as { session_mode: string }[]).map(
+      r => r.session_mode as SessionMode,
+    );
     const customerData = lookupResult.customer;
 
     let invoiceStatus: string | undefined;
@@ -655,7 +671,7 @@ export async function processMessage(
       invoiceStatus,
     );
     const { decision: sessionModeDecision, usage: disambiguationUsage } =
-      await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode);
+      await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode, recentModes);
     const sessionMode = sessionModeDecision.finalMode;
 
     // Few-shot baseado no NPS real do tenant para este modo de sessão.
