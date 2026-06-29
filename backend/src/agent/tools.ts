@@ -614,14 +614,33 @@ export async function executeTool(
       return sgp.getConnectionStatus(input.customer_id as string);
 
     case 'solicitar_teste_velocidade': {
-      const planMbps = (input.plan_mbps as number | undefined) ?? 0;
-      const minExpected = Math.round(planMbps * 0.8);
+      let planMbps = (input.plan_mbps as number | undefined) ?? 0;
+
+      // Resolve plan speed from SGP when the LLM omits plan_mbps
+      if (planMbps <= 0 && input.customer_id) {
+        try {
+          const customer = await sgp.getCustomerById(String(input.customer_id));
+          planMbps = customer.plan?.downloadMbps ?? 0;
+        } catch {
+          // best-effort — continue with unknown speed
+        }
+      }
+
+      const minExpected = planMbps > 0 ? Math.round(planMbps * 0.8) : 0;
+      const planLabel = planMbps > 0 ? `${planMbps} Mbps` : 'fibra óptica';
+      const expectedLabel = minExpected > 0 ? `${minExpected} Mbps` : '80% do contratado';
+
       const instruction =
-        `Para verificar sua velocidade, acesse fast.com pelo celular ou computador conectado à sua rede.\n\n` +
-        `Seu plano é de ${planMbps > 0 ? planMbps + ' Mbps' : 'fibra óptica'}. ` +
-        `O resultado esperado é acima de ${minExpected > 0 ? minExpected + ' Mbps' : '80% do contratado'}.\n\n` +
-        `Quando tiver o resultado, me informe o número que aparecer na tela.`;
-      return { status: 'sent', instruction };
+        `Vou te ajudar a verificar a velocidade. Acesse fast.com pelo celular ou computador conectado à sua rede e aguarde o resultado.\n\n` +
+        `Seu plano é de ${planLabel}. O resultado esperado é acima de ${expectedLabel}.\n\n` +
+        `Quando o número aparecer na tela, me informe: o valor de download e se você estava conectado via Wi-Fi ou pelo cabo direto no roteador.`;
+
+      return {
+        status: 'sent',
+        instruction,
+        plan_mbps: planMbps,
+        min_expected_mbps: minExpected,
+      };
     }
 
     case 'interpretar_resultado_velocidade': {
@@ -633,6 +652,13 @@ export async function executeTool(
         return { diagnosis: 'invalid_input', message: 'Não foi possível interpretar o resultado: velocidade do plano não informada.' };
       }
 
+      if (download <= 0) {
+        return {
+          diagnosis: 'test_failed',
+          message: 'Parece que o teste não completou (resultado zero). Tente acessar fast.com novamente — aguarde a barra verde chegar ao fim e me informe o número que aparecer.',
+        };
+      }
+
       const ratio = download / plan;
 
       if (ratio >= 0.8) {
@@ -642,19 +668,26 @@ export async function executeTool(
         };
       }
 
-      if (viaWifi && ratio >= 0.4) {
+      // Below threshold via Wi-Fi: guide to cable test before opening ticket
+      if (viaWifi) {
+        // Severe Wi-Fi drop (< 40%): likely more than just interference, but try cable first
+        const severity = ratio < 0.4 ? 'severo' : 'moderado';
         return {
           diagnosis: 'wifi_interference',
-          action: 'local_fix',
-          message: `A velocidade via Wi-Fi (${download} Mbps) está abaixo do esperado para o plano de ${plan} Mbps. Tente conectar o cabo direto no roteador — se melhorar, é posicionamento ou interferência de Wi-Fi. Se não melhorar, abrimos chamado.`,
+          severity,
+          action: 'request_cable_test',
+          message: `A velocidade via Wi-Fi (${download} Mbps) está abaixo do esperado para o plano de ${plan} Mbps (${Math.round(ratio * 100)}%). Antes de abrir chamado, vamos descartar interferência de Wi-Fi: conecte um cabo de rede direto no roteador${severity === 'severo' ? ' — a queda é grande, pode ser problema de rede ou do roteador' : ''} e repita o teste no fast.com. Me informe o resultado no cabo.`,
+          next_step: 'Aguarde o cliente informar o resultado no cabo. Se melhorar: problema local (posicionamento/canal Wi-Fi). Se continuar baixo: chame interpretar_resultado_velocidade com via_wifi=false.',
         };
       }
 
+      // Below threshold via cable: definitively a network issue
       return {
         diagnosis: 'network_issue',
         action: 'open_ticket',
         severity: ratio < 0.3 ? 'prioritario' : 'normal',
-        message: `Velocidade muito abaixo do contratado (${download} de ${plan} Mbps — ${Math.round(ratio * 100)}%). Vou abrir um chamado prioritário para a equipe técnica verificar.`,
+        message: `Velocidade muito abaixo do contratado mesmo no cabo (${download} de ${plan} Mbps — ${Math.round(ratio * 100)}%). Isso indica problema na rede. Vou abrir um chamado ${ratio < 0.3 ? 'prioritário' : ''} para a equipe técnica verificar.`,
+        next_step: 'Chame abrir_chamado com tipo=tecnico e inclua a velocidade medida no cabo na descrição.',
       };
     }
 

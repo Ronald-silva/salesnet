@@ -152,10 +152,10 @@ clientRouter.get('/schedule', async (req: AuthenticatedRequest, res) => {
   try {
     const { data, error } = await supabase
       .from('scheduled_visits')
-      .select('id, date, period, type, status, notes')
+      .select('id, visit_date, period, type, status, notes')
       .eq('contrato', req.customerId!)
       .eq('status', 'scheduled')
-      .order('date', { ascending: true })
+      .order('visit_date', { ascending: true })
       .limit(1)
       .maybeSingle();
 
@@ -168,7 +168,7 @@ clientRouter.get('/schedule', async (req: AuthenticatedRequest, res) => {
 
     const row = data as {
       id: string;
-      date: string;
+      visit_date: string;
       period: string;
       type: string | null;
       status: string;
@@ -177,7 +177,7 @@ clientRouter.get('/schedule', async (req: AuthenticatedRequest, res) => {
 
     res.json({
       id: row.id,
-      date: row.date,
+      date: row.visit_date,
       period: row.period,
       type: row.type,
       notes: row.notes,

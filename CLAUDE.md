@@ -473,6 +473,9 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `027_rls_service_role_policies.sql` — políticas `service_role_only` + GRANT em tabelas das migrations 016/024/025/026
 - `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez). **Foi este o executado em produção** (via SQL Editor).
 - `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (alternativa só via psql, uma statement por vez; **não** usar no SQL Editor — erro 25001)
+- `032_conversation_status.sql` — `conversation_threads`: colunas `status` (active/waiting/closed), `closed_at`, `starred` + índices. Executar antes de usar filtros de status no painel admin.
+- `033_copilot_metrics.sql` — `interaction_logs`: colunas `copilot_used` e `copilot_edited` para rastreio de uso do copiloto. Executar antes de usar o endpoint `/conversations/:id/suggest`.
+- `034_visit_reminder_followup_columns.sql` — `scheduled_visits`: colunas `reminder_sent` e `followup_sent` (usadas pelo cron `visit-followup.ts`). **Obrigatória** — sem ela o cron falha silenciosamente em produção.
 
 ---
 
@@ -770,6 +773,60 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 **Migration a executar manualmente no Supabase SQL Editor:**
 - `backend/src/db/migrations/031_atomic_visit_slot.sql` — função `book_visit_slot` com advisory lock.
 
+### 17) Urgency Score para fila de atendimento (implementado)
+
+- `backend/src/lib/urgency-score.ts` — calcula score numérico por: `isHumanMode` (+100), fatura vencida (+20-80), `churn_risk` (+60), NPS ≤ 2 (+40), chamado aberto (+30), modo da sessão (+0-25), espera em human_mode (+30/+30).
+- `urgencyReasons()` retorna array de strings para exibição no badge (ex.: "Fatura 5d em atraso", "Risco de cancelamento").
+- `GET /api/admin/conversations` enriquece cada conversa com `urgency_score` e `urgency_reasons`; suporta ordenação por urgência (default) ou por tempo (`?sort=time`).
+- Frontend: `UrgencyBadges` component, bloco "Urgente" (score ≥ 50) separado na lista, toggle de ordenação persistido em `localStorage`.
+
+### 18) Status lifecycle de conversa + favoritos (migration 032)
+
+- `conversation_threads` ganhou colunas `status TEXT DEFAULT 'active'` (active/waiting/closed), `closed_at TIMESTAMPTZ`, `starred BOOLEAN DEFAULT false`.
+- Admin pode encerrar conversa (`status=closed`), marcar como aguardando (`waiting`) e favoritar (`starred`).
+- `GET /api/admin/conversations` filtra por status via tabs: Humano / Bot / Churn / Todos / Favoritos.
+- Fechamento (`status=closed`) também desativa `human_mode`.
+- **Migration 032 obrigatória** — sem ela as queries de status falham.
+
+### 19) Copiloto de atendimento (migration 033)
+
+- `POST /api/admin/conversations/:id/suggest` — gera sugestão de resposta para o agente humano usando LLM (DeepSeek), com rate limit de 1 sugestão por conversa a cada 10s; sugestão apagada automaticamente do Map após 15s.
+- `CopilotSuggestion` component no frontend: aparece no chat quando em `human_mode`; operador pode usar a sugestão diretamente ou editá-la; registra `copilot_used`/`copilot_edited` em `interaction_logs`.
+- **Migration 033 obrigatória** — colunas `copilot_used` e `copilot_edited` em `interaction_logs`.
+
+### 20) Lembretes e follow-ups automáticos de visita (migration 034)
+
+- `backend/src/automations/visit-followup.ts` — dois jobs:
+  - `sendVisitReminders()`: cron horário (`0 * * * *`) — envia lembrete no dia da visita para clientes com `reminder_sent=false`.
+  - `sendVisitFollowups()`: cron diário 18h (`0 18 * * *`) — envia follow-up no dia seguinte à visita para clientes com `followup_sent=false`, pedindo confirmação de resolução.
+- Colunas `reminder_sent` e `followup_sent` em `scheduled_visits`.
+- **Migration 034 obrigatória** — sem ela ambos os crons falham silenciosamente (coluna não existe).
+- `routes/schedules.ts` e `bring-forward-flow.ts` já inicializam as colunas como `false` nos inserts.
+
+### 21) Diagnóstico de velocidade (melhorado em 2026-06-29)
+
+- Tools `solicitar_teste_velocidade` e `interpretar_resultado_velocidade` existiam como stubs básicos; melhorados:
+  - Lookup automático de `plan_mbps` no SGP via `getCustomerById` quando o LLM omite o parâmetro.
+  - Instrução ao cliente pergunta explicitamente Wi-Fi ou cabo.
+  - `wifi_interference`: orienta reteste no cabo antes de abrir chamado; inclui campo `next_step` para guiar o LLM.
+  - `network_issue` via cabo: inclui `next_step: 'Chame abrir_chamado...'`.
+  - Novo caso `test_failed` quando `download_mbps <= 0`.
+- Prompt da Sofia (`prompt-builder.ts`) atualizado: fluxo Wi-Fi → cabo → chamado, com passos explícitos no modo suporte.
+
+### 22) Portal do Cliente (`/minha-conta`)
+
+- Login por OTP: cliente informa telefone → recebe código via WhatsApp → acessa portal.
+- Rotas em `backend/src/routes/client.ts` (todas protegidas por `clientAuthMiddleware`):
+  - `GET /api/client/invoice` — fatura atual + PIX gerado
+  - `GET /api/client/invoices` — histórico de faturas do SGP
+  - `GET /api/client/tickets` — chamados abertos (`sofia_tickets`)
+  - `POST /api/client/tickets` — abre chamado (persiste no SGP best-effort + sempre em `sofia_tickets`)
+  - `GET /api/client/profile` — nome, plano, status do contrato (via SGP)
+  - `GET /api/client/schedule` — próxima visita agendada (status `scheduled`)
+  - `GET /api/client/connection` — status da conexão (via SGP)
+  - `GET /api/client/referral` — link de indicação
+- Coluna `visit_date` (não `date`) em `scheduled_visits` — armadilha já corrigida em `client.ts`.
+
 ---
 
 ## Gaps prioritários — briefing para melhoria da Sofia
@@ -805,13 +862,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 
 **Próximo passo:** teste com WhatsApp não cadastrado + CPF válido no SGP; melhorar extração quando Sofia pediu CPF e cliente responde só 11 dígitos.
 
-### 4. Script de diagnóstico de velocidade
+### 4. Diagnóstico de velocidade ✅ implementado (2026-06-29)
 
-**Hoje:** Sofia orienta reiniciar roteador e abre chamado se não resolver.
+**Status atual:** tools `solicitar_teste_velocidade` e `interpretar_resultado_velocidade` implementadas e integradas ao prompt da Sofia.
 
-**Impacto:** visita técnica custa ~R$80. Muitos casos resolvidos remotamente com diagnóstico melhor.
+**Fluxo:** cliente relata lentidão → `solicitar_teste_velocidade` (busca `plan_mbps` no SGP se omitido, pede resultado Wi-Fi ou cabo) → `interpretar_resultado_velocidade` → `ok`/`wifi_interference` (reteste no cabo) / `network_issue` (abrir chamado) / `test_failed` (refazer teste).
 
-**Direção:** tool `solicitar_teste_velocidade` que envia link fast.com + instrução. Tool `interpretar_resultado_velocidade` que compara com plano contratado e decide: problema do cliente (interferência, posição do roteador) vs problema da rede (abrir chamado).
+**Próximo passo:** coleta retroativa de dados de eficácia (visitas evitadas vs. abertas após fluxo) para calibrar thresholds de 80%.
 
 ### 5. NPS com ação em score baixo ✅ implementado
 
@@ -869,3 +926,5 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não retorne objeto `Customer` direto em rotas admin** — use `safeCustomer()` para remover `contratoCentralLogin`/`contratoCentralSenha` antes de `res.json()`
 - **Não registre rotas de escrita em `/api/` sem `adminAuthMiddleware`** — `/api/campaigns` sem auth foi uma brecha real que permitia disparo de WhatsApp em massa
 - **`permission denied for table X TO authenticated` não é problema de chave** — são grants revogados; ver seção "Grants Supabase" para o fix SQL
+- **Não use `date` para a coluna de data em `scheduled_visits`** — a coluna se chama `visit_date` (confirmado em migrations, tools.ts, bring-forward-flow.ts). `client.ts` usava `date` erroneamente e visita nunca aparecia no portal — já corrigido.
+- **Não adicione colunas em `scheduled_visits` sem migration** — `reminder_sent`/`followup_sent` foram usadas antes da migration 034 existir, fazendo o cron de lembrete/follow-up falhar silenciosamente. Sempre crie a migration antes de usar a coluna no código.
