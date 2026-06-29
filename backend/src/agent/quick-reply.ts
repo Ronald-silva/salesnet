@@ -9,7 +9,8 @@
  * que o processador deve prosseguir para o fluxo LLM completo.
  */
 
-import { PLANS, COVERED_NEIGHBORHOODS, BUSINESS_INFO } from './company-data';
+import { PLANS, BUSINESS_INFO } from './company-data';
+import { getCoveredNeighborhoods } from './coverage-cache';
 import { getCustomerByPhone } from '../integrations/sgp/customers';
 import { maskPhone } from '../lib/phone';
 
@@ -124,8 +125,8 @@ function formatPlans(): string {
   );
 }
 
-function formatCoverageList(): string {
-  const list = COVERED_NEIGHBORHOODS.map((n) => `- ${n}`).join('\n');
+function formatCoverageList(neighborhoods: string[]): string {
+  const list = neighborhoods.map((n) => `- ${n}`).join('\n');
   return (
     `Bairros com cobertura de fibra óptica da SalesNet em ${BUSINESS_INFO.city}:\n\n` +
     list +
@@ -133,11 +134,11 @@ function formatCoverageList(): string {
   );
 }
 
-function formatCoverageCheck(neighborhood: string): string {
+function formatCoverageCheck(neighborhood: string, neighborhoods: string[]): string {
   const norm = (s: string) =>
     s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-  const covered = COVERED_NEIGHBORHOODS.find((n) => norm(n).includes(norm(neighborhood)));
+  const covered = neighborhoods.find((n) => norm(n).includes(norm(neighborhood)));
 
   if (covered) {
     return (
@@ -175,7 +176,7 @@ function formatFaqSupport(): string {
  * Tenta responder a mensagem como FAQ direto.
  * Retorna a resposta formatada, ou null se o LLM precisar ser acionado.
  */
-export async function quickReply(message: string, phone: string): Promise<string | null> {
+export async function quickReply(message: string, phone: string, tenantId: string): Promise<string | null> {
   const { intent, neighborhood } = detect(message);
   console.log(
     `[quick-reply] phone=${maskPhone(phone)} intent=${intent ?? 'null'} neighborhood=${neighborhood ?? '-'}`,
@@ -204,9 +205,11 @@ export async function quickReply(message: string, phone: string): Promise<string
       return formatPlans();
     }
 
-    case 'coverage_list':
+    case 'coverage_list': {
       console.log('[quick-reply] coverage_list → formatCoverageList()');
-      return formatCoverageList();
+      const neighborhoods = await getCoveredNeighborhoods(tenantId);
+      return formatCoverageList(neighborhoods);
+    }
 
     case 'faq_installation':
       console.log('[quick-reply] faq_installation → installation FAQ');
@@ -217,8 +220,19 @@ export async function quickReply(message: string, phone: string): Promise<string
 
     case 'coverage_check': {
       if (!neighborhood) return null;
+      // Existing customer: may be asking about relocation or a second address — let LLM handle
+      try {
+        const customer = await getCustomerByPhone(phone);
+        if (customer && !('error' in customer)) {
+          console.log('[quick-reply] coverage_check → cliente existente, passa para LLM');
+          return null;
+        }
+      } catch {
+        // best-effort — prospect path on lookup failure
+      }
       console.log(`[quick-reply] coverage_check → ${neighborhood}`);
-      return formatCoverageCheck(neighborhood);
+      const hoods = await getCoveredNeighborhoods(tenantId);
+      return formatCoverageCheck(neighborhood, hoods);
     }
 
     case 'faq_payment':

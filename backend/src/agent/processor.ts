@@ -592,7 +592,7 @@ export async function processMessage(
   }
 
   // ── Quick reply: FAQ direto, sem LLM ────────────────────────────────────────
-  const faqResponse = await quickReply(clean, phone);
+  const faqResponse = await quickReply(clean, phone, tenantId);
   if (faqResponse) {
     try {
       await saveMessage(phone, 'user', clean, tenantId);

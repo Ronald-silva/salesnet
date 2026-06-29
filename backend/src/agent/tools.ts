@@ -5,7 +5,8 @@ import { lookupCustomer } from './customer-lookup';
 import { normalizeCpf, isValidCpfLength } from '../lib/cpf';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
-import { BUSINESS_INFO, COVERED_NEIGHBORHOODS as COVERED_LIST, PLANS } from './company-data';
+import { BUSINESS_INFO, PLANS } from './company-data';
+import { getCoveredNeighborhoods } from './coverage-cache';
 import {
   isSlotAvailable,
   nextAvailableSlots,
@@ -14,10 +15,6 @@ import {
   type VisitPeriod,
 } from './visit-scheduling';
 
-// Derived lookup map for the verificar_cobertura tool (name → coverage %)
-const COVERED_NEIGHBORHOODS: Record<string, number> = Object.fromEntries(
-  COVERED_LIST.map((name) => [name.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''), 90]),
-);
 
 export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   {
@@ -810,11 +807,19 @@ export async function executeTool(
 
     case 'verificar_cobertura': {
       const raw = (input.neighborhood as string).trim();
+      const normalize = (s: string) =>
+        s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+      const list = await getCoveredNeighborhoods(tenantId);
+      // name → coverage % map built from the dynamic list
+      const coverageMap: Record<string, number> = Object.fromEntries(
+        list.map((n) => [normalize(n), 90]),
+      );
 
       // List all covered neighborhoods
       if (raw === '*' || /todos|lista|quais/i.test(raw)) {
         return {
-          covered_neighborhoods: Object.entries(COVERED_NEIGHBORHOODS).map(([name, pct]) => ({
+          covered_neighborhoods: Object.entries(coverageMap).map(([name, pct]) => ({
             name: name
               .split(' ')
               .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -824,17 +829,12 @@ export async function executeTool(
         };
       }
 
-      const normalize = (s: string) =>
-        s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-
       const key = normalize(raw);
-      const exact = Object.entries(COVERED_NEIGHBORHOODS).find(
-        ([k]) => normalize(k) === key,
-      );
+      const exact = Object.entries(coverageMap).find(([k]) => normalize(k) === key);
       if (exact) {
         return { covered: true, neighborhood: input.neighborhood, coverage_percent: exact[1] };
       }
-      const partial = Object.entries(COVERED_NEIGHBORHOODS).find(([k]) => {
+      const partial = Object.entries(coverageMap).find(([k]) => {
         const nk = normalize(k);
         return nk.includes(key) || key.includes(nk);
       });
