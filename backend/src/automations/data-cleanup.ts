@@ -53,6 +53,12 @@ export async function runDataCleanup(): Promise<void> {
       cutoffHoursIso(24),
       'message_id',
     ),
+    processed_webhook_ids: await deleteOlderThan(
+      'processed_webhook_ids',
+      'processed_at',
+      cutoffHoursIso(24),
+      'fingerprint',
+    ),
     interaction_logs: await deleteOlderThan(
       'interaction_logs',
       'created_at',

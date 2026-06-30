@@ -1,6 +1,7 @@
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { Router, Request } from 'express';
 import { env } from '../config/env';
+import { supabase } from '../config/supabase';
 import { whatsappService } from '../services/whatsapp-service';
 
 type RawRequest = Request & { rawBody?: Buffer };
@@ -38,6 +39,23 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
     console.warn(`[payment-webhook] Invalid HMAC signature from ${ip}`);
     res.status(401).json({ error: 'unauthorized' });
     return;
+  }
+
+  // Replay protection: fingerprint = SHA-256 of the raw request body.
+  // Duplicate insert (23505) means this payload was already processed.
+  const fingerprint = createHash('sha256').update(rawBody).digest('hex');
+  const { error: dedupError } = await supabase
+    .from('processed_webhook_ids')
+    .insert({ fingerprint, source: 'sgp' });
+
+  if (dedupError) {
+    if (dedupError.code === '23505') {
+      console.warn(`[payment-webhook] duplicate payload ignored fp=${fingerprint.slice(0, 8)}`);
+      res.status(200).json({ ok: true });
+      return;
+    }
+    // Non-duplicate DB error: log and continue (best-effort dedup)
+    console.error('[payment-webhook] dedup insert failed:', dedupError.message);
   }
 
   const { customerId, phone, amount } = req.body as {

@@ -31,7 +31,7 @@ authRouter.post('/request-otp', async (req, res) => {
   const code = generateOtp();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
-  await supabase.from('otp_codes').upsert({ phone: normalized, code, expires_at: expiresAt });
+  await supabase.from('otp_codes').upsert({ phone: normalized, code, expires_at: expiresAt, attempts: 0 });
 
   try {
     await whatsappService.sendText(
@@ -64,15 +64,44 @@ authRouter.post('/verify-otp', async (req, res) => {
 
   const { data: otpRow } = await supabase
     .from('otp_codes')
-    .select('code, expires_at')
+    .select('code, expires_at, attempts')
     .eq('phone', normalized)
     .gte('expires_at', new Date().toISOString())
     .single();
 
-  if (!otpRow || (otpRow as { code: string }).code !== code) {
+  if (!otpRow) {
     res.status(401).json({ error: 'invalid or expired code' });
     return;
   }
+
+  const row = otpRow as { code: string; expires_at: string; attempts: number };
+
+  const MAX_ATTEMPTS = 5;
+  if (row.attempts >= MAX_ATTEMPTS) {
+    res.status(429).json({ error: 'too many attempts, request a new code' });
+    return;
+  }
+
+  if (row.code !== code) {
+    const newAttempts = row.attempts + 1;
+    if (newAttempts >= MAX_ATTEMPTS) {
+      // Invalidate OTP so even a correct guess is rejected until a new code is requested
+      await supabase
+        .from('otp_codes')
+        .update({ attempts: newAttempts, expires_at: new Date(0).toISOString() })
+        .eq('phone', normalized);
+    } else {
+      await supabase
+        .from('otp_codes')
+        .update({ attempts: newAttempts })
+        .eq('phone', normalized);
+    }
+    res.status(401).json({ error: 'invalid code' });
+    return;
+  }
+
+  // Valid code — delete OTP to prevent reuse
+  await supabase.from('otp_codes').delete().eq('phone', normalized);
 
   let customer;
   try {

@@ -17,8 +17,8 @@ export async function sendVisitReminders(): Promise<void> {
     .from('scheduled_visits')
     .select('id, phone, visit_date, period')
     .eq('reminder_sent', false)
-    .eq('visit_date', todayStr)
-    .lte('visit_date', todayStr);
+    .eq('status', 'scheduled')
+    .eq('visit_date', todayStr);
 
   for (const visit of ((data ?? []) as VisitRow[])) {
     const period = visit.period === 'morning' ? 'manhã' : 'tarde';
@@ -49,6 +49,7 @@ export async function sendVisitFollowups(): Promise<void> {
     .from('scheduled_visits')
     .select('id, phone, visit_date, period')
     .eq('followup_sent', false)
+    .eq('status', 'done')
     .lte('visit_date', yesterdayStr);
 
   for (const visit of ((data ?? []) as VisitRow[])) {
