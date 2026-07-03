@@ -1332,8 +1332,8 @@ adminRouter.get('/customers/search', async (req, res) => {
   }
 
   const digits = q.replace(/\D/g, '');
-  // Detect formatted CPF (xxx.xxx.xxx-xx or xxx xxx xxx xx) from the original query
-  const isCpfFormatted = /^\d{3}[.\s]\d{3}[.\s]\d{3}[-\s]?\d{2}$/.test(q.trim());
+  // Detect formatted CPF: accepts . / space / hyphen as group separators
+  const isCpfFormatted = /^\d{3}[.\-\s]\d{3}[.\-\s]\d{3}[-\s]?\d{2}$/.test(q.trim());
   let customer: Customer | null = null;
 
   try {

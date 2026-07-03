@@ -1,5 +1,6 @@
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
+import { isValidCpf } from '../lib/cpf';
 
 export interface MessageEntry {
   role: 'user' | 'assistant';
@@ -121,7 +122,7 @@ export async function persistThreadCpf(
   cpf: string,
 ): Promise<void> {
   const clean = cpf.replace(/\D/g, '');
-  if (clean.length !== 11) return;
+  if (!isValidCpf(clean)) return;
 
   const tid = resolveTenantId(tenantId);
   const { error } = await supabase

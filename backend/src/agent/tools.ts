@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
 import { setHumanMode, getThreadCpf, persistThreadCpf } from './memory';
 import { lookupCustomer } from './customer-lookup';
-import { normalizeCpf, isValidCpfLength } from '../lib/cpf';
+import { normalizeCpf, isValidCpf } from '../lib/cpf';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
 import { BUSINESS_INFO, PLANS } from './company-data';
@@ -907,8 +907,8 @@ export async function executeTool(
 
     case 'salvar_cpf_cliente': {
       const cleanCpf = normalizeCpf(String(input.cpf ?? ''));
-      if (!isValidCpfLength(cleanCpf)) {
-        return { success: false, error: 'CPF inválido. Deve ter 11 dígitos.' };
+      if (!isValidCpf(cleanCpf)) {
+        return { success: false, error: 'CPF inválido. Verifique os dígitos e tente novamente.' };
       }
       await persistThreadCpf(phone, tenantId, cleanCpf);
       try {
