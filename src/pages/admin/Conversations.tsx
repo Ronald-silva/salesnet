@@ -1100,9 +1100,11 @@ function ConversationList({ selectedId, onSelect, soundEnabled, toggleSound }: {
   const filtered = list.filter((c) => {
     if (search.trim()) {
       const q = search.toLowerCase();
-      if (!c.name.toLowerCase().includes(q) && !c.phone.replace(/\D/g, '').includes(search.replace(/\D/g, ''))) {
-        return false;
-      }
+      const digits = search.replace(/\D/g, '');
+      const matchName = c.name.toLowerCase().includes(q);
+      const matchPhone = c.phone.replace(/\D/g, '').includes(digits);
+      const matchCpf = !!c.cpf && digits.length >= 3 && c.cpf.includes(digits);
+      if (!matchName && !matchPhone && !matchCpf) return false;
     }
     if (sessionMode && c.sessionMode !== sessionMode) return false;
     return true;

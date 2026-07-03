@@ -279,7 +279,7 @@ adminRouter.get('/conversations', async (req, res) => {
 
   let query = supabase
     .from('conversation_threads')
-    .select('id, phone, messages, human_mode, churn_risk, status, starred, updated_at')
+    .select('id, phone, cpf, messages, human_mode, churn_risk, status, starred, updated_at')
     .in('tenant_id', adminTenantIds())
     .order('updated_at', { ascending: false })
     .limit(150);
@@ -307,6 +307,7 @@ adminRouter.get('/conversations', async (req, res) => {
   const rows = (data ?? []) as Array<{
     id: string;
     phone: string;
+    cpf: string | null;
     messages: unknown;
     human_mode: boolean;
     churn_risk: boolean;
@@ -382,6 +383,7 @@ adminRouter.get('/conversations', async (req, res) => {
   type EnrichedRow = {
     id: string;
     phone: string;
+    cpf: string | null;
     name: string;
     lastText: string;
     lastMessageSource: 'user' | 'assistant' | 'human' | null;
@@ -451,6 +453,7 @@ adminRouter.get('/conversations', async (req, res) => {
     return {
       id: row.id,
       phone: row.phone,
+      cpf: row.cpf ?? null,
       name,
       lastText: getThreadLastText(row.messages),
       lastMessageSource: getThreadLastSource(row.messages),
@@ -473,9 +476,14 @@ adminRouter.get('/conversations', async (req, res) => {
     enriched.push(...chunkResults);
   }
 
+  const searchDigits = search.replace(/\D/g, '');
   const filtered = search
-    ? enriched.filter(item =>
-        item.name.toLowerCase().includes(search) || item.phone.toLowerCase().includes(search))
+    ? enriched.filter(item => {
+        if (item.name.toLowerCase().includes(search)) return true;
+        if (item.phone.replace(/\D/g, '').includes(searchDigits)) return true;
+        if (item.cpf && searchDigits.length >= 3 && item.cpf.includes(searchDigits)) return true;
+        return false;
+      })
     : enriched;
 
   // Ordenar por urgência DESC, desempate updated_at DESC

@@ -61,6 +61,7 @@ async function request<T>(path: string, init?: RequestInit, _retry = true): Prom
 export interface ConversationSummary {
   id: string;
   phone: string;
+  cpf: string | null;
   name: string;
   lastText: string;
   lastMessageSource: 'user' | 'assistant' | 'human' | null;

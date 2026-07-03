@@ -65,7 +65,9 @@
       "Bash(git -C /mnt/hd/SALESNET add backend/src/agent/pdf-boleto.ts backend/src/integrations/whatsapp/providers/evolution-go.ts)",
       "Bash(git -C /mnt/hd/SALESNET log --oneline origin/main..HEAD)",
       "Bash(git -C /mnt/hd/SALESNET add backend/src/automations/data-cleanup.ts backend/src/automations/payment-webhook.ts backend/src/automations/visit-followup.ts backend/src/routes/auth.ts backend/src/db/migrations/035_otp_attempts.sql backend/src/db/migrations/036_webhook_replay_protection.sql)",
-      "Bash(npx --no jest --testPathPatterns=\"lib/cpf\" --no-coverage --rootDir backend)"
+      "Bash(npx --no jest --testPathPatterns=\"lib/cpf\" --no-coverage --rootDir backend)",
+      "Bash(git config *)",
+      "Bash(gh auth *)"
     ]
   }
 }
