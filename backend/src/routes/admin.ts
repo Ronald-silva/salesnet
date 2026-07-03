@@ -1346,18 +1346,25 @@ adminRouter.get('/customers/search', async (req, res) => {
 
   try {
     if (isCpfFormatted) {
-      customer = await getCustomerByCpf(digits).catch(() => null);
+      customer = await getCustomerByCpf(digits).catch((err: unknown) => {
+        console.warn(`[admin/search] CPF lookup failed for ${digits.slice(0, 3)}***:`, err instanceof Error ? err.message : err);
+        return null;
+      });
     } else if (digits.length >= 10) {
       // Try phone first; for 11-digit bare numbers also try CPF as fallback
       // (Brazilian mobiles and CPFs are both 11 digits — phone takes priority)
       customer = await getCustomerByPhone(digits).catch(() => null);
       if (!customer && digits.length === 11) {
-        customer = await getCustomerByCpf(digits).catch(() => null);
+        customer = await getCustomerByCpf(digits).catch((err: unknown) => {
+          console.warn(`[admin/search] CPF fallback failed for ${digits.slice(0, 3)}***:`, err instanceof Error ? err.message : err);
+          return null;
+        });
       }
     } else {
       customer = await getCustomerById(q);
     }
-  } catch {
+  } catch (err: unknown) {
+    console.warn('[admin/search] unexpected error:', err instanceof Error ? err.message : err);
     customer = null;
   }
 

@@ -62,7 +62,15 @@ async function consultacliente(params: Record<string, string>): Promise<Contrato
   const body = systemParams(params as Record<string, string>);
   const { data } = await sgpClient.post('/api/ura/consultacliente/', body.toString());
   const contratos = (data?.contratos ?? []) as unknown[];
-  return contratos.map((c) => ContratoSchema.parse(c));
+  const parsed: Contrato[] = [];
+  for (const c of contratos) {
+    try {
+      parsed.push(ContratoSchema.parse(c));
+    } catch (err) {
+      console.error('[sgp] ContratoSchema parse error:', JSON.stringify(err), '| raw:', JSON.stringify(c));
+    }
+  }
+  return parsed;
 }
 
 /**
@@ -122,14 +130,9 @@ export async function getCustomerByCpf(cpf: string, contactPhone = ''): Promise<
 }
 
 export async function getCustomerById(id: string): Promise<Customer> {
-  // id = contratoId — look up via CPF/CNPJ is not possible without it,
-  // so we search by contrato param (supported by consultacliente)
-  const body = systemParams({ contrato: id });
-  const { data } = await sgpClient.post('/api/ura/consultacliente/', body.toString());
-  const contratos = (data?.contratos ?? []) as unknown[];
-  const parsed = contratos.map((c) => ContratoSchema.parse(c));
-  if (!parsed.length) throw new Error(`Contrato ${id} não encontrado`);
-  return contratoToCustomer(parsed[0]!, '');
+  const contratos = await consultacliente({ contrato: id });
+  if (!contratos.length) throw new Error(`Contrato ${id} não encontrado`);
+  return contratoToCustomer(contratos[0]!, '');
 }
 
 /** Not supported by SGP bulk API — returns empty array. */

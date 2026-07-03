@@ -5,17 +5,18 @@ import { z } from 'zod';
 export const ContratoSchema = z.object({
   contratoId:           z.number(),
   clienteId:            z.number(),
-  razaoSocial:          z.string(),
-  cpfCnpj:              z.string(),
+  // SGP may return null for these on cancelled/incomplete contracts
+  razaoSocial:          z.string().catch(''),
+  cpfCnpj:              z.string().catch(''),
   telefones:            z.array(z.string()).default([]),
   emails:               z.array(z.string()).default([]),
 
   // Contract status: 1=Ativo, 2=Suspenso/Bloqueado, 3=Cancelado
-  contratoStatus:        z.number(),
-  contratoStatusDisplay: z.string(),
+  contratoStatus:        z.number().catch(0),
+  contratoStatusDisplay: z.string().catch(''),
 
   // Plan
-  planointernet:         z.string(),
+  planointernet:         z.string().catch(''),
   servico_plano:         z.string().optional(),
   servico_grupo:         z.string().optional(),   // "fibra"
   servico_login:         z.string().optional(),
