@@ -67,7 +67,41 @@
       "Bash(git -C /mnt/hd/SALESNET add backend/src/automations/data-cleanup.ts backend/src/automations/payment-webhook.ts backend/src/automations/visit-followup.ts backend/src/routes/auth.ts backend/src/db/migrations/035_otp_attempts.sql backend/src/db/migrations/036_webhook_replay_protection.sql)",
       "Bash(npx --no jest --testPathPatterns=\"lib/cpf\" --no-coverage --rootDir backend)",
       "Bash(git config *)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(mkdir -p /tmp/claude-1000/-mnt-hd-SALESNET/13a5fbf3-ec7c-48c2-98a5-6757a1c4afcc/scratchpad)",
+      "Bash(npx tsx *)",
+      "Bash(npx tsx -e ' *)",
+      "Bash(node -e \"console.log\\(require\\('axios/package.json'\\).version\\)\")",
+      "Bash(node /tmp/claude-1000/-mnt-hd-SALESNET/e3fa4680-c647-419b-8815-37fbb6bf55ed/scratchpad/verify-sgp-params.js)",
+      "Bash(cp /tmp/claude-1000/-mnt-hd-SALESNET/e3fa4680-c647-419b-8815-37fbb6bf55ed/scratchpad/verify-sgp-params.js /mnt/hd/SALESNET/backend/verify-sgp-params.tmp.js)",
+      "Bash(node verify-sgp-params.tmp.js)",
+      "Bash(rm -f verify-sgp-params.tmp.js)",
+      "Bash(cp /tmp/claude-1000/-mnt-hd-SALESNET/e3fa4680-c647-419b-8815-37fbb6bf55ed/scratchpad/verify-sgp-cpf-filter.js /mnt/hd/SALESNET/backend/verify-sgp-cpf-filter.tmp.js)",
+      "Bash(node verify-sgp-cpf-filter.tmp.js)",
+      "Bash(rm -f verify-sgp-cpf-filter.tmp.js)",
+      "Bash(cp /tmp/claude-1000/-mnt-hd-SALESNET/e3fa4680-c647-419b-8815-37fbb6bf55ed/scratchpad/verify-sgp-params2.js /mnt/hd/SALESNET/backend/verify-sgp-params2.tmp.js)",
+      "Bash(node verify-sgp-params2.tmp.js)",
+      "Bash(rm -f verify-sgp-params2.tmp.js)",
+      "Bash(cp /tmp/claude-1000/-mnt-hd-SALESNET/e3fa4680-c647-419b-8815-37fbb6bf55ed/scratchpad/verify-sgp-params2.js ./verify-sgp-params2.tmp.js)",
+      "Bash(rm -f /mnt/hd/SALESNET/backend/verify-sgp-params.tmp.js /mnt/hd/SALESNET/backend/verify-sgp-params2.tmp.js /mnt/hd/SALESNET/backend/verify-sgp-cpf-filter.tmp.js 2>/dev/null; echo done)",
+      "Bash(node -e \"console.log\\(require\\('zod/package.json'\\).version\\)\")",
+      "Bash(grep -n \"SGP \\\\`consultacliente\\\\` aceita parâmetro \\\\`cpf\\\\`\" CLAUDE.md)",
+      "Bash(npx ts-node *)",
+      "Bash(railway whoami *)",
+      "Bash(env)",
+      "Bash(node investigate-leak.tmp.js)",
+      "Bash(node investigate-leak2.tmp.js)",
+      "Bash(node investigate-leak3.tmp.js)",
+      "Bash(node investigate-leak4.tmp.js)",
+      "Bash(node investigate-leak5.tmp.js)",
+      "Bash(node investigate-leak6.tmp.js)",
+      "Bash(node investigate-leak7.tmp.js)",
+      "Bash(rm -f /mnt/hd/SALESNET/backend/investigate-leak*.tmp.js 2>/dev/null; ls /mnt/hd/SALESNET/backend/*.tmp.js 2>/dev/null; echo \"cleanup done\")",
+      "Bash(npx ts-node -e ' *)"
+    ],
+    "additionalDirectories": [
+      "/mnt/hd/SALESNET/backend"
     ]
   }
 }
