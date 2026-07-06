@@ -9,6 +9,8 @@ import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
 import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked, buildIdentificationContext } from './customer-lookup';
+import { isValidCpf } from '../lib/cpf';
+import { redactSensitiveFields } from '../integrations/sgp/types';
 import { buildMediaMessageContext } from './media-context';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
@@ -169,12 +171,14 @@ async function runAnthropicFlow(
 
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
-      const result = await safeExecuteTool(
+      const rawResult = await safeExecuteTool(
         block.name,
         block.input as Record<string, unknown>,
         phone,
         tenantId,
       );
+      // Never let SGP portal credentials reach the LLM's context or the persisted log.
+      const result = redactSensitiveFields(rawResult);
       toolCallLog.push({ name: block.name, input: block.input, output: result });
       toolResults.push({
         type:        'tool_result',
@@ -272,7 +276,9 @@ async function runDeepSeekFlow(
         parsedInput = {};
       }
 
-      const result = await safeExecuteTool(call.function.name, parsedInput, phone, tenantId);
+      const rawResult = await safeExecuteTool(call.function.name, parsedInput, phone, tenantId);
+      // Never let SGP portal credentials reach the LLM's context or the persisted log.
+      const result = redactSensitiveFields(rawResult);
       toolCallLog.push({ name: call.function.name, input: parsedInput, output: result });
       messages.push({
         role:         'tool',
@@ -407,7 +413,7 @@ async function disambiguateSessionMode(
   }
 
   const provider = pickProviderForCheapTier();
-  const compactCustomer = JSON.stringify(customerData).slice(0, 1200);
+  const compactCustomer = JSON.stringify(redactSensitiveFields(customerData)).slice(0, 1200);
   const prompt = [
     'Classifique a intenção da mensagem em UM modo de sessão.',
     'Responda APENAS JSON válido sem markdown.',
@@ -624,7 +630,11 @@ export async function processMessage(
     // Gap 4: if Sofia's last message asked for CPF, also try bare 11-digit extraction
     const lastAssistantMsg = [...thread.messages].reverse().find(m => m.role === 'assistant');
     const sofiaAskedForCpf = lastAssistantMsg != null && /\bcpf\b|\bdocumento\b/i.test(lastAssistantMsg.content);
-    const cpfFromMessage = extractCpfFromText(clean) ?? (sofiaAskedForCpf ? extractBareCpfWhenAsked(clean) : null);
+    const extractedCpf = extractCpfFromText(clean) ?? (sofiaAskedForCpf ? extractBareCpfWhenAsked(clean) : null);
+    // Checksum (not just length) — an invalid CPF must never reach the SGP, where it
+    // can coincidentally match an unrelated real customer's dirty data.
+    const cpfLooksInvalid = extractedCpf !== null && !isValidCpf(extractedCpf);
+    const cpfFromMessage = extractedCpf && !cpfLooksInvalid ? extractedCpf : null;
 
     // Identify customer: WhatsApp phone first, then CPF (message or thread)
     const [lookupResult, insights, skillConfig, recentModesResult] = await Promise.all([
@@ -689,14 +699,14 @@ export async function processMessage(
           phone,
           ...(cpfFromMessage ? { cpf: cpfFromMessage } : thread.cpf ? { cpf: thread.cpf } : {}),
         },
-        output: {
+        output: redactSensitiveFields({
           ...customerData,
           _lookup: {
             method: lookupResult.method,
             attempts: lookupResult.attempts,
             cpfUsed: lookupResult.cpfUsed ?? null,
           },
-        },
+        }),
       },
       {
         name: 'session_classifier',
@@ -730,13 +740,14 @@ export async function processMessage(
       }
     }
 
-    const { contratoCentralSenha, contratoCentralLogin, ...safeCustomerData } = customerData as Record<string, unknown>;
+    const safeCustomerData = redactSensitiveFields(customerData as Record<string, unknown>);
     const insightsContext = buildInsightsContext(insights);
     const [qualityExamples, knowledgeContext] = await Promise.all([
       qualityExamplesPromise,
       knowledgePromise,
     ]);
-    const identificationContext = buildIdentificationContext(lookupResult, phone);
+    const identificationContext = buildIdentificationContext(lookupResult, phone) +
+      (cpfLooksInvalid ? `\n\nCPF informado pelo cliente parece inválido (dígito verificador não confere) — peça para conferir os números, não trate como "cliente não encontrado".` : '');
     const mediaContext = buildMediaMessageContext(clean);
     const systemWithContext =
       `${getFortalezaContext()}\n\n${systemPrompt}` +

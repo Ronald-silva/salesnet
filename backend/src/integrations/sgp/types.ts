@@ -2,17 +2,47 @@ import { z } from 'zod';
 
 // ── Contrato (real SGP response from /api/ura/consultacliente/) ───────────────
 
+/**
+ * `.catch()` silently swallowing a real shape mismatch into a default value is exactly
+ * the pattern that hid the original telefones/emails bug for weeks (see git history of
+ * this file). Any field using this must log when the fallback actually fires, so a
+ * future mismatch surfaces immediately instead of degrading silently (e.g. a customer
+ * whose contratoStatus arrives malformed defaulting to 0 → wrongly read as 'suspended').
+ */
+function logSchemaFallback<T>(field: string, fallback: T) {
+  return (ctx: { error: z.ZodError; input: unknown }): T => {
+    console.error(
+      `[sgp] ContratoSchema field '${field}' fell back to default —`,
+      JSON.stringify(ctx.error.issues),
+      '| raw:', JSON.stringify(ctx.input),
+    );
+    return fallback;
+  };
+}
+
 export const ContratoSchema = z.object({
   contratoId:           z.number(),
   clienteId:            z.number(),
   // SGP may return null for these on cancelled/incomplete contracts
   razaoSocial:          z.string().catch(''),
   cpfCnpj:              z.string().catch(''),
-  telefones:            z.array(z.string()).default([]),
-  emails:               z.array(z.string()).default([]),
+  // SGP returns objects here, not plain strings — e.g.
+  // { tipoContato: "Celular Pessoal", contato: "(85) 99603-2957", inscricoes: [] }.
+  // Confirmed against production payloads for every contrato sampled (2026-07-05);
+  // no plain-string entries observed, so no union is added — see customers.ts:resolveCustomerPhone.
+  telefones: z.array(z.object({
+    contato:     z.string(),
+    tipoContato: z.string().optional(),
+    inscricoes:  z.array(z.unknown()).optional(),
+  })).catch(logSchemaFallback('telefones', [])),
+  emails: z.array(z.object({
+    contato:     z.string(),
+    tipoContato: z.string().optional(),
+    inscricoes:  z.array(z.unknown()).optional(),
+  })).catch(logSchemaFallback('emails', [])),
 
   // Contract status: 1=Ativo, 2=Suspenso/Bloqueado, 3=Cancelado
-  contratoStatus:        z.number().catch(0),
+  contratoStatus:        z.number().catch(logSchemaFallback('contratoStatus', 0)),
   contratoStatusDisplay: z.string().catch(''),
 
   // Plan
@@ -73,6 +103,34 @@ export const CustomerSchema = z.object({
 });
 
 export type Customer = z.infer<typeof CustomerSchema>;
+
+/**
+ * Single source of truth for SGP portal credential field names. Anything that
+ * crosses a trust boundary with Customer data (LLM prompt/history, persisted
+ * interaction_logs, admin API responses) must be redacted through this list —
+ * never re-list these fields ad hoc at each call site.
+ */
+const SENSITIVE_CUSTOMER_FIELDS = new Set<string>(['contratoCentralLogin', 'contratoCentralSenha']);
+
+/**
+ * Recursively strips SGP portal credentials from any value (object/array, any
+ * depth). Safe to call on tool results, tool-call logs, or partial customer
+ * data — fields that aren't present are simply not there to strip.
+ */
+export function redactSensitiveFields<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((v) => redactSensitiveFields(v)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (SENSITIVE_CUSTOMER_FIELDS.has(k)) continue;
+      out[k] = redactSensitiveFields(v);
+    }
+    return out as T;
+  }
+  return value;
+}
 
 // ── Invoice (from /api/central/titulos/) ─────────────────────────────────────
 

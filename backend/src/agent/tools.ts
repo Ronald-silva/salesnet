@@ -3,6 +3,8 @@ import * as sgp from '../integrations/sgp';
 import { setHumanMode, getThreadCpf, persistThreadCpf } from './memory';
 import { lookupCustomer } from './customer-lookup';
 import { normalizeCpf, isValidCpf } from '../lib/cpf';
+import { normalizePhone, maskPhone } from '../lib/phone';
+import { isPhoneRegisteredToCpf } from './identity-verification';
 import { supabase } from '../config/supabase';
 import { env } from '../config/env';
 import { BUSINESS_INFO, PLANS } from './company-data';
@@ -332,6 +334,24 @@ function normalizeKeywords(raw: unknown[]): string[] {
   return out.slice(0, 5);
 }
 
+/**
+ * Resolves the contrato ID actually identified for this WhatsApp session (phone, then
+ * stored CPF) — never a value an LLM tool call merely claims. Tools that write or read
+ * data scoped to a contrato (chamados, agendamentos) must use this instead of trusting
+ * `input.contrato`/`input.customer_id`, or a prompt-injected/hallucinated ID lets one
+ * session touch another customer's tickets or visits.
+ */
+async function resolveSessionCustomerId(phone: string, tenantId: string): Promise<string | null> {
+  const cpfFromThread = await getThreadCpf(phone, tenantId);
+  const result = await lookupCustomer({
+    whatsappPhone: phone,
+    tenantId,
+    cpfFromMessage: null,
+    cpfFromThread,
+  });
+  return 'error' in result.customer ? null : result.customer.id;
+}
+
 export async function markChurnRiskByPhone(phone: string, tenantId: string): Promise<void> {
   const { error } = await supabase
     .from('conversation_threads')
@@ -352,26 +372,57 @@ export async function executeTool(
   switch (name) {
     case 'buscar_cliente': {
       const alternatePhone = input.phone as string | undefined;
-      if (alternatePhone && alternatePhone !== phone) {
-        try {
-          const customer = await sgp.getCustomerByPhone(alternatePhone);
-          if (customer.document) {
-            await persistThreadCpf(phone, tenantId, customer.document);
-          }
-          return customer;
-        } catch {
-          return { error: 'Cliente não encontrado' };
+      // A phone different from the current WhatsApp session has no verified link to
+      // whoever is chatting — without this gate, buscar_cliente({phone}) was a plain
+      // IDOR (confirmed in production: a non-customer number pulled another customer's
+      // open balance + Central do Assinante credentials by simply naming their phone).
+      // We never persist customer.document to the CURRENT thread here either: doing so
+      // used to associate an unrelated third party's CPF with this session, poisoning
+      // future identification for the real owner of `phone`.
+      if (alternatePhone && normalizePhone(alternatePhone) !== normalizePhone(phone)) {
+        console.warn(
+          `[tools] cross-phone buscar_cliente attempt: session=${maskPhone(phone)} target=${maskPhone(alternatePhone)}`,
+        );
+
+        const crossPhoneCpfRaw = input.cpf ? normalizeCpf(String(input.cpf)) : null;
+        const crossPhoneCpf = crossPhoneCpfRaw && isValidCpf(crossPhoneCpfRaw) ? crossPhoneCpfRaw : null;
+
+        if (!crossPhoneCpf) {
+          return {
+            error: 'Para consultar outro telefone é necessário confirmar o CPF do titular dessa linha. Peça o CPF ao cliente e tente novamente.',
+            cross_phone_attempt: true,
+          };
         }
+
+        try {
+          const candidate = await sgp.getCustomerByPhone(alternatePhone);
+          const candidateCpf = candidate.document ? normalizeCpf(candidate.document) : null;
+          if (candidateCpf && candidateCpf === crossPhoneCpf) {
+            return { ...candidate, cross_phone_attempt: true };
+          }
+        } catch {
+          // Falls through to the same generic denial as a CPF mismatch below —
+          // must never reveal whether `alternatePhone` exists in the SGP.
+        }
+
+        return { error: 'Cliente não encontrado', cross_phone_attempt: true };
       }
 
-      const cpfInput = input.cpf ? normalizeCpf(String(input.cpf)) : null;
+      const rawCpfInput = input.cpf ? normalizeCpf(String(input.cpf)) : null;
+      // Checksum (not just length) — a bare invalid CPF must never reach the SGP,
+      // where it can coincidentally match an unrelated real customer's dirty data.
+      const cpfProvidedButInvalid = rawCpfInput !== null && rawCpfInput.length === 11 && !isValidCpf(rawCpfInput);
+      const cpfInput = rawCpfInput && isValidCpf(rawCpfInput) ? rawCpfInput : null;
       const cpfFromThread = await getThreadCpf(phone, tenantId);
       const result = await lookupCustomer({
         whatsappPhone: phone,
         tenantId,
-        cpfFromMessage: cpfInput && cpfInput.length === 11 ? cpfInput : null,
+        cpfFromMessage: cpfInput,
         cpfFromThread,
       });
+      if ('error' in result.customer && cpfProvidedButInvalid) {
+        return { error: 'CPF inválido. Verifique os dígitos e tente novamente.' };
+      }
       return result.customer;
     }
 
@@ -409,6 +460,21 @@ export async function executeTool(
       return sgp.getCustomerTickets(input.customer_id as string);
 
     case 'listar_chamados_sofia': {
+      const sessionContrato = await resolveSessionCustomerId(phone, tenantId);
+      if (!sessionContrato) {
+        return { total: 0, chamados: [], error: 'Não foi possível confirmar o contrato desta sessão para listar chamados.' };
+      }
+      const requestedContrato = input.contrato as string | undefined;
+      if (requestedContrato && requestedContrato !== sessionContrato) {
+        console.warn(
+          `[tools] listar_chamados_sofia cross-contrato attempt: session_contrato=${sessionContrato} requested=${requestedContrato} phone=${maskPhone(phone)}`,
+        );
+      }
+      // Always the session's own contrato — never trust a contrato passed by the tool
+      // call, which could be hallucinated or prompt-injected to enumerate another
+      // customer's tickets.
+      const contrato = sessionContrato;
+
       const requestedStatus = (input.status as string | undefined) ?? 'aberto';
       const statusFilter = requestedStatus === 'todos'
         ? ['aberto', 'em_andamento', 'resolvido']
@@ -417,7 +483,7 @@ export async function executeTool(
       const { data, error } = await supabase
         .from('sofia_tickets')
         .select('id, tipo, descricao, status, created_at, sgp_chamado_id')
-        .eq('contrato', input.contrato as string)
+        .eq('contrato', contrato)
         .eq('tenant_id', tenantId)
         .in('status', statusFilter)
         .order('created_at', { ascending: false })
@@ -438,7 +504,19 @@ export async function executeTool(
     }
 
     case 'abrir_chamado': {
-      const contrato = String(input.contrato ?? input.customer_id);
+      const sessionContrato = await resolveSessionCustomerId(phone, tenantId);
+      if (!sessionContrato) {
+        return { success: false, error: 'Não foi possível confirmar o contrato desta sessão para abrir o chamado.' };
+      }
+      const requestedContrato = input.contrato ?? input.customer_id;
+      if (requestedContrato && String(requestedContrato) !== sessionContrato) {
+        console.warn(
+          `[tools] abrir_chamado cross-contrato attempt: session_contrato=${sessionContrato} requested=${String(requestedContrato)} phone=${maskPhone(phone)}`,
+        );
+      }
+      // Always the session's own contrato — never write a ticket against a contrato
+      // merely named in the tool call.
+      const contrato = sessionContrato;
       const tipo = String(input.tipo ?? input.type ?? 'tecnico');
       const descricao = String(input.descricao ?? input.description ?? '');
 
@@ -562,15 +640,26 @@ export async function executeTool(
     }
 
     case 'agendar_visita': {
-      const customerId = input.customer_id as string;
+      const sessionContrato = await resolveSessionCustomerId(phone, tenantId);
+      if (!sessionContrato) {
+        return { success: false, error: 'Não foi possível confirmar seu contrato para agendar a visita. Peça o CPF do titular ou use transferir_humano.' };
+      }
+      const requestedCustomerId = input.customer_id as string | undefined;
+      if (requestedCustomerId && requestedCustomerId !== sessionContrato) {
+        console.warn(
+          `[tools] agendar_visita cross-contrato attempt: session_contrato=${sessionContrato} requested=${requestedCustomerId} phone=${maskPhone(phone)}`,
+        );
+      }
+      // Always the session's own contrato — never book against a contrato merely named
+      // in the tool call (that used to let a session agendar_visita using someone else's
+      // customer_id, pulling their address into the booking while contactPhone below
+      // fell back to THIS session's WhatsApp number for the callback).
+      const customerId = sessionContrato;
       const date = input.date as string;
       const period = input.period as VisitPeriod;
 
       await sgp.scheduleVisit(customerId, date, period);
 
-      // executeTool não recebe o session mode; inferimos o tipo pela existência
-      // do cadastro: cliente existente = manutenção, sem cadastro = instalação
-      // (fluxo prospect). `input.type` permite override explícito.
       let customerData: Awaited<ReturnType<typeof sgp.getCustomerById>> | null = null;
       try {
         customerData = await sgp.getCustomerById(customerId);
@@ -590,8 +679,10 @@ export async function executeTool(
         ? `${customerData.address.street ?? ''}, ${customerData.address.number ?? ''}`
         : null;
 
-      // `phone` (WhatsApp do contato) é o canal confiável de retorno — getCustomerById
-      // não traz telefone. Só usa customerData.phone se vier preenchido.
+      // customerId is always THIS session's own contrato (see above), so
+      // getCustomerById(customerId) can only ever resolve to the session's own data —
+      // falling back to the session's WhatsApp `phone` when SGP has no number on file
+      // is safe here, never a cross-contract callback leak.
       const contactPhone =
         customerData?.phone && customerData.phone.length > 0 ? customerData.phone : phone;
 
@@ -910,6 +1001,24 @@ export async function executeTool(
       if (!isValidCpf(cleanCpf)) {
         return { success: false, error: 'CPF inválido. Verifique os dígitos e tente novamente.' };
       }
+
+      // Persisting an unverified CPF to this session's thread was a confirmed production
+      // IDOR: a stranger typing a real customer's CPF got it silently linked to their own
+      // phone, granting standing access to that customer's balance/credentials on every
+      // future message. `isPhoneRegisteredToCpf` is the same check `buscar_cliente` uses
+      // for cross-phone lookups — never re-verify this ad hoc per tool.
+      const verified = await isPhoneRegisteredToCpf(phone, cleanCpf);
+      if (!verified) {
+        console.warn(
+          `[tools] cpf_binding_rejected: phone=${maskPhone(phone)} cpf=${cleanCpf.slice(0, 3)}***`,
+        );
+        return {
+          success: false,
+          cpf_binding_rejected: true,
+          error: 'Não foi possível confirmar que esse CPF pertence a este telefone. Peça para o cliente confirmar por outro meio, ou use transferir_humano se precisar vincular manualmente.',
+        };
+      }
+
       await persistThreadCpf(phone, tenantId, cleanCpf);
       try {
         const customer = await sgp.getCustomerByCpf(cleanCpf, phone);

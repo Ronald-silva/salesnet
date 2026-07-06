@@ -4,6 +4,7 @@ import {
   CustomerSchema,
   normalizeStatus,
   extractDownloadMbps,
+  redactSensitiveFields,
   type Customer,
   type Contrato,
 } from './types';
@@ -12,7 +13,7 @@ import { normalizePhone } from '../../lib/phone';
 /** Map a raw SGP Contrato to our normalized Customer shape. */
 function resolveCustomerPhone(c: Contrato, hint: string): string {
   const fromContract = (c.telefones ?? [])
-    .map((t) => t.replace(/\D/g, ''))
+    .map((t) => t.contato.replace(/\D/g, ''))
     .find((d) => d.length >= 10);
 
   if (fromContract) {
@@ -58,6 +59,18 @@ function contratoToCustomer(c: Contrato, contactHint: string): Customer {
   });
 }
 
+/**
+ * Thrown when the SGP returned contratos but every single one failed ContratoSchema —
+ * distinct from the "no contratos at all" case so callers don't mistake a schema
+ * mismatch (our bug) for "cliente não encontrado" (a real absence of data).
+ */
+export class SgpSchemaMismatchError extends Error {
+  constructor(total: number) {
+    super(`SGP retornou ${total} contrato(s) mas nenhum bateu com ContratoSchema — ver logs [sgp] ContratoSchema parse error`);
+    this.name = 'SgpSchemaMismatchError';
+  }
+}
+
 async function consultacliente(params: Record<string, string>): Promise<Contrato[]> {
   const body = systemParams(params as Record<string, string>);
   const { data } = await sgpClient.post('/api/ura/consultacliente/', body.toString());
@@ -67,8 +80,14 @@ async function consultacliente(params: Record<string, string>): Promise<Contrato
     try {
       parsed.push(ContratoSchema.parse(c));
     } catch (err) {
-      console.error('[sgp] ContratoSchema parse error:', JSON.stringify(err), '| raw:', JSON.stringify(c));
+      // `c` is the raw, unvalidated SGP contrato — it may still carry contratoCentralLogin/
+      // contratoCentralSenha even though it failed ContratoSchema, so it must be redacted
+      // before hitting console (Railway logs) just like any parsed Customer.
+      console.error('[sgp] ContratoSchema parse error:', JSON.stringify(err), '| raw:', JSON.stringify(redactSensitiveFields(c)));
     }
+  }
+  if (contratos.length > 0 && parsed.length === 0) {
+    throw new SgpSchemaMismatchError(contratos.length);
   }
   return parsed;
 }
@@ -124,9 +143,33 @@ export async function getCustomerByPhone(phone: string): Promise<Customer> {
 
 export async function getCustomerByCpf(cpf: string, contactPhone = ''): Promise<Customer> {
   const clean = cpf.replace(/\D/g, '');
-  const contratos = await consultacliente({ cpf: clean });
+  // SGP's /api/ura/consultacliente/ only recognizes this param as `cpfcnpj` — `cpf` is
+  // silently ignored and the endpoint returns { msg: "CPF/CNPJ ou Contrato ID Não informados" }
+  // without ever running a lookup. Confirmed live against production (2026-07-05).
+  const contratos = await consultacliente({ cpfcnpj: clean });
   if (!contratos.length) throw new Error(`Cliente não encontrado para o CPF ${cpf}`);
   return contratoToCustomer(selectBestContrato(contratos), contactPhone);
+}
+
+/**
+ * All phone numbers the SGP has on file for a CPF, across every contrato returned
+ * (not just the best one — a person can have more than one contract with different
+ * registered numbers). Used to verify a session's phone actually has a link to a
+ * CPF before trusting/persisting it — see agent/identity-verification.ts.
+ */
+export async function getContratoPhonesByCpf(cpf: string): Promise<string[]> {
+  const clean = cpf.replace(/\D/g, '');
+  const contratos = await consultacliente({ cpfcnpj: clean });
+  const phones = new Set<string>();
+  for (const c of contratos) {
+    for (const t of c.telefones ?? []) {
+      const digits = t.contato.replace(/\D/g, '');
+      if (digits.length < 10) continue;
+      const local = digits.replace(/^55/, '');
+      phones.add(local.length <= 11 ? normalizePhone(local) : normalizePhone(digits));
+    }
+  }
+  return [...phones];
 }
 
 export async function getCustomerById(id: string): Promise<Customer> {

@@ -1,0 +1,62 @@
+{
+  "contratos": [
+    {
+      "telefones_cargos": [],
+      "cobPermuta": false,
+      "servico_tipo_conexao": "PPPoE",
+      "contratoCentralSenha": "senhaFake123",
+      "endereco_complemento": null,
+      "popNome": "POP FORTALEZA/CE",
+      "link_quitacao": "https://example.invalid/quitacao/fake",
+      "contratoStatus": 1,
+      "servico_wifi_channel": "auto",
+      "motivo_status": "",
+      "dataCadastro": "18/02/2020 00:00:00",
+      "endereco_uf": "CE",
+      "servico_plano": "Plano 200 mega - 2026**",
+      "endereco_pontoreferencia": null,
+      "cobVencimento": 1,
+      "servico_vlan": "None",
+      "cobIsento": 0,
+      "cpfCnpj": "11144477735",
+      "servico_mac2": "",
+      "endereco_logradouro": "RUA EXEMPLO",
+      "dataNascimento": "1988-09-01",
+      "contratoStatusModo": 2,
+      "telefones": [
+        { "inscricoes": [], "tipoContato": "Celular Pessoal", "contato": "(85) 90000-0000" }
+      ],
+      "contratoStatusDisplay": "Ativo",
+      "contratoCentralLogin": "clientefake",
+      "tags": [],
+      "contratoTitulosAReceber": 0,
+      "servico_wifi_ssid_5": "",
+      "servico_grupo": "fibra",
+      "endereco_numero": 800,
+      "contratoValorAberto": 0,
+      "planointernet": "Plano 200 mega - 2026**",
+      "clienteId": 900001,
+      "endereco_bairro": "BAIRRO EXEMPLO",
+      "emails": [
+        { "inscricoes": [], "tipoContato": "E-Mail", "contato": "cliente.fake@example.invalid" }
+      ],
+      "razaoSocial": "CLIENTE FAKE",
+      "servico_mac": "AA:BB:CC:00:11:22",
+      "fidelidade": {},
+      "servico_wifi_password_5": "",
+      "popId": 1,
+      "endereco_cep": "60000-000",
+      "promessasPagamentoMes": 0,
+      "servico_wifi_password": "",
+      "endereco_cidade": "FORTALEZA",
+      "servico_senha": "senhaFake123",
+      "dataAlteracao": "14/05/2026 10:49:17",
+      "servico_login": "clientefake",
+      "anotacoes": [],
+      "servico_wifi_channel_5": "auto",
+      "servico_wifi_ssid": "",
+      "contratoId": 41,
+      "endereco_ll": "-3.0000000,-38.0000000"
+    }
+  ]
+}

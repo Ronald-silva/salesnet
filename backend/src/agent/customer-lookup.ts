@@ -4,6 +4,20 @@ import { persistThreadCpf } from './memory';
 import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../lib/cpf';
 import type { Customer } from '../integrations/sgp/types';
 
+/**
+ * getCustomerByPhone/getCustomerByCpf throw a plain Error with "não encontrado" in the
+ * message for the one truly-expected outcome (SGP has no matching contrato). Anything
+ * else — network timeout, SgpSchemaMismatchError, an unexpected ZodError from
+ * CustomerSchema, etc. — is a real failure and must never vanish silently, or we
+ * reproduce the exact "real failure looks like not-found" bug this file used to have.
+ */
+function logIfUnexpected(context: string, err: unknown): void {
+  const isExpectedNotFound = err instanceof Error && /não encontrado/i.test(err.message);
+  if (!isExpectedNotFound) {
+    console.error(`[customer-lookup] ${context}:`, err);
+  }
+}
+
 export type CustomerLookupMethod = 'phone' | 'cpf' | 'cpf_stored_phone';
 
 export interface CustomerLookupResult {
@@ -59,7 +73,8 @@ export async function lookupCustomer(params: {
       await persistThreadCpf(whatsappPhone, tenantId, customer.document);
     }
     return { customer, method: 'phone', attempts };
-  } catch {
+  } catch (err) {
+    logIfUnexpected(`phone lookup for ${whatsappPhone}`, err);
     // fall through to CPF
   }
 
@@ -75,7 +90,8 @@ export async function lookupCustomer(params: {
       const customer = await sgp.getCustomerByCpf(cpf, whatsappPhone);
       await persistThreadCpf(whatsappPhone, tenantId, cpf);
       return { customer, method: 'cpf', cpfUsed: cpf, attempts };
-    } catch {
+    } catch (err) {
+      logIfUnexpected(`cpf lookup for ${cpf.slice(0, 3)}***`, err);
       attempts.push(`cpf_stored_phone:${cpf.slice(0, 3)}***`);
       const fromStored = await tryLookupByStoredCpfPhone(cpf, tenantId);
       if (fromStored) {

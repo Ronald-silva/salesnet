@@ -4,6 +4,7 @@ import { supabase } from '../config/supabase';
 import { adminAuthMiddleware } from '../middleware/adminAuth';
 import { getCustomerByPhone, getCustomerById, getCurrentInvoice, getCustomerByCpf, generatePixKey } from '../integrations/sgp';
 import type { Customer, Invoice } from '../integrations/sgp';
+import { redactSensitiveFields } from '../integrations/sgp';
 import { whatsappService } from '../services/whatsapp-service';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import { EvolutionGoProvider } from '../integrations/whatsapp/providers/evolution-go';
@@ -92,8 +93,7 @@ async function cachedCustomerByPhone(phone: string): Promise<Customer> {
 /** Strip SGP portal credentials before sending customer data to the admin UI. */
 function safeCustomer(c: Customer | null | undefined): Omit<Customer, 'contratoCentralLogin' | 'contratoCentralSenha'> | null {
   if (!c) return null;
-  const { contratoCentralLogin: _l, contratoCentralSenha: _s, ...safe } = c;
-  return safe;
+  return redactSensitiveFields(c);
 }
 
 function getThreadLastText(messages: unknown): string {

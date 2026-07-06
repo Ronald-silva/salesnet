@@ -96,7 +96,7 @@ jest.mock('../../services/whatsapp-service', () => ({
 import { processMessage } from '../../agent/processor';
 import { isHumanMode, getThread, saveMessage } from '../../agent/memory';
 import { executeTool } from '../../agent/tools';
-import { lookupCustomer } from '../../agent/customer-lookup';
+import { lookupCustomer, extractCpfFromText } from '../../agent/customer-lookup';
 import { anthropic } from '../../config/anthropic';
 import { whatsappService } from '../../services/whatsapp-service';
 
@@ -216,5 +216,108 @@ describe('processMessage — tool use loop', () => {
       PHONE,
       'Sua fatura é R$90.'
     );
+  });
+
+  it('never sends SGP portal credentials to the LLM, even when a tool result carries them', async () => {
+    (isHumanMode as jest.Mock).mockResolvedValue(false);
+    (saveMessage as jest.Mock).mockResolvedValue(undefined);
+    (getThread as jest.Mock).mockResolvedValue(THREAD);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'phone',
+      attempts: ['phone'],
+    });
+
+    (executeTool as jest.Mock).mockResolvedValueOnce({
+      id: 'c1',
+      name: 'João Silva',
+      status: 'active',
+      contratoCentralLogin: 'joao.silva',
+      contratoCentralSenha: 'super-secreta',
+    });
+
+    const toolUseResponse = {
+      stop_reason: 'tool_use',
+      content: [
+        { type: 'tool_use', id: 'toolu_001', name: 'buscar_cliente', input: { phone: PHONE } },
+      ],
+      usage: { input_tokens: 10, output_tokens: 5 },
+    };
+    const finalResponse = {
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Encontrei seu contrato.' }],
+      usage: { input_tokens: 15, output_tokens: 20 },
+    };
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(toolUseResponse)
+      .mockResolvedValueOnce(finalResponse);
+
+    await processMessage(PHONE, 'meu cpf é 049.763.013-38');
+
+    const secondCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[1]![0];
+    const toolResultContent = JSON.stringify(secondCallArgs.messages);
+    expect(toolResultContent).not.toContain('joao.silva');
+    expect(toolResultContent).not.toContain('super-secreta');
+    expect(toolResultContent).not.toContain('contratoCentralLogin');
+    expect(toolResultContent).not.toContain('contratoCentralSenha');
+  });
+});
+
+describe('processMessage — invalid CPF in the message', () => {
+  beforeEach(() => {
+    (isHumanMode as jest.Mock).mockResolvedValue(false);
+    (saveMessage as jest.Mock).mockResolvedValue(undefined);
+    (getThread as jest.Mock).mockResolvedValue(THREAD);
+    (executeTool as jest.Mock).mockResolvedValue(CUSTOMER);
+    (anthropic.messages.create as jest.Mock).mockResolvedValue(TEXT_RESPONSE);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it('never forwards a checksum-invalid CPF to lookupCustomer (never reaches the SGP)', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce('00000000000');
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
+
+    await processMessage(PHONE, 'meu cpf é 00000000000');
+
+    expect(lookupCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ cpfFromMessage: null }),
+    );
+  });
+
+  it('tells Sofia (via system context) that the CPF looks invalid instead of "not found"', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce('00000000000');
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
+
+    await processMessage(PHONE, 'meu cpf é 00000000000');
+
+    const firstCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[0]![0];
+    expect(firstCallArgs.system).toContain('CPF informado pelo cliente parece inválido');
+  });
+
+  it('forwards a checksum-valid CPF normally', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce('04976301338');
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'cpf',
+      cpfUsed: '04976301338',
+      attempts: ['phone', 'cpf'],
+    });
+
+    await processMessage(PHONE, 'meu cpf é 049.763.013-38');
+
+    expect(lookupCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ cpfFromMessage: '04976301338' }),
+    );
+    const firstCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[0]![0];
+    expect(firstCallArgs.system).not.toContain('parece inválido');
   });
 });

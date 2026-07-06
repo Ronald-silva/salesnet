@@ -106,7 +106,7 @@ const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contr
 | Operação | Endpoint | Parâmetros chave |
 |----------|----------|-----------------|
 | Buscar cliente por telefone | `POST /api/ura/consultacliente/` | `telefone` (sem +55) |
-| Buscar cliente por CPF | `POST /api/ura/consultacliente/` | `cpf` (11 dígitos, sem formatação) |
+| Buscar cliente por CPF | `POST /api/ura/consultacliente/` | `cpfcnpj` (11 dígitos, sem formatação) — **não** `cpf`; o SGP ignora `cpf` silenciosamente e responde `{ msg: "CPF/CNPJ ou Contrato ID Não informados" }` sem erro HTTP (confirmado ao vivo em produção, 2026-07-05) |
 | Buscar cliente por contrato | `POST /api/ura/consultacliente/` | `contrato` |
 | Listar faturas | `POST /api/central/titulos/` | `contrato`, `status` (1=aberto), `limit` |
 | Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body |
@@ -116,6 +116,14 @@ const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contr
 ### Normalização de telefone
 
 `getCustomerByPhone('+5585991993833')` → passa `'85991993833'` para a API (strip do `55`). Lógica em `customers.ts`. Não duplique.
+
+### Formato real de `telefones`/`emails` e `SgpSchemaMismatchError`
+
+O SGP retorna `telefones`/`emails` como **array de objetos** (`{ tipoContato, contato, inscricoes }`), não array de strings — `ContratoSchema` em `integrations/sgp/types.ts` exige esse shape. Um contrato malformado individualmente é descartado silenciosamente (`.catch([])`) mas **loga** via `logSchemaFallback` quando isso acontece — nunca remova esse log, é a única forma de perceber uma degradação silenciosa em produção.
+
+Se **todos** os contratos retornados falharem o parse (schema desatualizado, mudança de shape do SGP), `consultacliente()` lança `SgpSchemaMismatchError` em vez de deixar a chamada parecer "cliente não encontrado". `customer-lookup.ts` loga qualquer erro que não seja o "não encontrado" esperado (`logIfUnexpected`) — isso cobre `SgpSchemaMismatchError` e qualquer outra falha real (timeout, erro de rede).
+
+**Lição de teste:** `customer-lookup.test.ts` e outras ~10 suítes mockam o módulo `sgp` inteiro (`jest.mock('../../integrations/sgp', ...)`) — isso nunca teria pego uma regressão de schema, porque `ContratoSchema.parse()` nunca roda de verdade nesses testes. `src/__tests__/integrations/sgp/customers.test.ts` é o único teste de contrato que roda o parse real contra um payload no formato de produção (`fixtures/consultacliente-response.json`) — ao adicionar um novo campo ou endpoint no SGP, prefira estender esse teste de contrato em vez de (ou além de) mockar `sgp` por inteiro.
 
 ### Stubs intencionais — esses endpoints não existem no SGP
 
@@ -259,7 +267,20 @@ Ordem automática em **toda mensagem** (`processor.ts` passo 8):
 
 **Tools:** `buscar_cliente` (campo `cpf`), `salvar_cpf_cliente` (persiste + tenta SGP). Auditoria em `interaction_logs.tool_calls` → `buscar_cliente._lookup.method` (`phone` | `cpf` | `cpf_stored_phone`).
 
-**Arquivos:** `customer-lookup.ts`, `lib/cpf.ts`, `integrations/sgp/customers.ts` (`getCustomerByCpf`).
+**`buscar_cliente(phone=...)` cross-phone — verificação obrigatória (fix IDOR):** quando o `phone` passado pra tool é diferente do telefone da sessão WhatsApp atual, `tools.ts` NUNCA retorna o `Customer` direto. Antes disso existia zero verificação — qualquer número podia consultar dados (incluindo `contratoCentralLogin`/`contratoCentralSenha`) de qualquer outro telefone cadastrado só citando o número; confirmado em produção via `interaction_logs` (um não-cliente puxou saldo em aberto + credencial de outro cliente real). Comportamento atual:
+- Sem `cpf` informado na mesma chamada → bloqueia sem consultar o SGP, retorna mensagem orientando a Sofia a pedir o CPF do titular da linha.
+- Com `cpf` informado → valida checksum (`isValidCpf`), busca o cliente pelo `phone` alternativo e só retorna o `Customer` se o CPF fornecido bater com `customer.document`. CPF errado e "telefone não encontrado" retornam **a mesma mensagem genérica** (`Cliente não encontrado`) — nunca revelar se o telefone existe.
+- Toda tentativa cross-phone (bloqueada ou verificada) sai com `cross_phone_attempt: true` no retorno, que cai naturalmente em `interaction_logs.tool_calls` — dá auditoria sem precisar de investigação forense.
+- Não persiste mais `customer.document` do telefone alternativo na thread da sessão atual (bug secundário do design antigo: associava o CPF de um terceiro à thread de quem está de fato conversando, contaminando identificação futura).
+
+**`isPhoneRegisteredToCpf` — padrão obrigatório para qualquer tool que aceite identificador de terceiro:** `agent/identity-verification.ts` exporta `isPhoneRegisteredToCpf(phone, cpf): Promise<boolean>`, única fonte de verdade para "este telefone tem vínculo real com este CPF no SGP" (via `sgp.getContratoPhonesByCpf`, que retorna todos os telefones de todos os contratos daquele CPF — não só o telefone resolvido de `getCustomerByCpf`). Toda tool nova que recebe um identificador (phone/cpf/contrato/customer_id) potencialmente de terceiro **deve** usar essa função em vez de reimplementar a checagem. Falha do SGP (timeout, schema mismatch) retorna `false` — falso negativo é o modo de falha seguro; nunca trate erro como vínculo confirmado.
+
+Aplicado hoje em (auditoria 2026-07-05, mesmo padrão do fix de `buscar_cliente` acima):
+- `salvar_cpf_cliente`: só persiste o CPF na thread se `isPhoneRegisteredToCpf(phone, cpf)` for `true`. Caso contrário retorna `{ success: false, cpf_binding_rejected: true }` sem persistir — loga `cpf_binding_rejected` para auditoria. **Trade-off aceito:** isso quebra o caso "cliente legítimo cujo telefone mudou" (SGP tem o CPF registrado só no número antigo) — nesse caso a tool recusa vincular automaticamente. `prompt-builder.ts` tem uma exceção explícita pra esse retorno: a Sofia orienta primeiro o portal `/minha-conta` ou o canal comercial, e só usa `transferir_humano` se o cliente não conseguir por nenhum dos dois — comportamento verificado com uma simulação real (prompt + tool + LLM), não só leitura do texto (`scripts/sim-cpf-binding-rejected.ts`). Prioriza segurança sobre conveniência: exploração real confirmada em produção via `buscar_cliente(phone=...)` cross-phone (não via `salvar_cpf_cliente` — nenhuma das 3 chamadas logadas dessa tool conseguiu vincular um CPF de terceiro com sucesso). **2 vítimas confirmadas** por reverificação forense direta em `interaction_logs` (não 3, não 5 — contagens anteriores não resistiram à checagem): Thiago (contrato 104225) e Antônio Fábio (contrato 104180), ambos com fatura/PIX/credenciais da Central do Assinante expostos a um telefone que não era o deles. Reset de senha desses dois no SGP é ação manual pendente, fora do escopo de qualquer fix de código.
+- `listar_chamados_sofia` e `abrir_chamado`: nunca usam `input.contrato`/`input.customer_id` da chamada da tool. Resolvem o contrato via `resolveSessionCustomerId(phone, tenantId)` (mesma cascata telefone→CPF do `lookupCustomer`) e ignoram silenciosamente qualquer valor divergente vindo da tool call, logando a tentativa (`cross-contrato attempt`) sem enumerar se o contrato "de terceiro" existe.
+- `agendar_visita`: mesma regra para `customer_id`. Como consequência, o fallback de `contactPhone` (usa `phone` da sessão quando o contrato-alvo não tem telefone no SGP) passou a ser sempre seguro — `customer_id` nunca mais diverge do contrato da própria sessão, então não há mais cenário de "endereço de um contrato, retorno de contato para outro".
+
+**Arquivos:** `customer-lookup.ts`, `lib/cpf.ts`, `integrations/sgp/customers.ts` (`getCustomerByCpf`, `getContratoPhonesByCpf`), `identity-verification.ts`.
 
 ---
 
@@ -666,7 +687,8 @@ O prompt da Sofia não é mais uma string estática. É gerado em runtime a part
 
 - `lookupCustomer`: telefone → CPF (mensagem/thread) → phone armazenado por CPF.
 - Tools `buscar_cliente(cpf)` e `salvar_cpf_cliente`; migration `023` (`conversation_threads.cpf`).
-- SGP `consultacliente` aceita parâmetro `cpf` (11 dígitos).
+- SGP `consultacliente` aceita o parâmetro **`cpfcnpj`** (11 dígitos) — não `cpf` (ver "Formato real de `telefones`/`emails` e `SgpSchemaMismatchError`" acima).
+- CPF é validado por checksum (`isValidCpf`, módulo 11) em **todo** ponto de entrada antes de qualquer chamada ao SGP — `processor.ts` (extração da mensagem) e `tools.ts` (`buscar_cliente`, `salvar_cpf_cliente`). Um CPF que só bate no comprimento (11 dígitos) mas falha o checksum nunca deve chegar ao SGP: existe um contrato real cadastrado com `cpfCnpj = "00000000000"` (dado sujo do SGP), então um CPF inválido sem essa validação pode casualmente identificar o cliente errado.
 
 ### 10) JIDs LID e filtro de canais (implementado)
 
@@ -925,6 +947,10 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não amplie o interceptor `makeServiceRoleFetch` para além de `/rest/v1/`** — sobrescrever `/auth/v1/` quebra `supabase.auth.getUser(token)` causando logout imediato após login
 - **Não retorne objeto `Customer` direto em rotas admin** — use `safeCustomer()` para remover `contratoCentralLogin`/`contratoCentralSenha` antes de `res.json()`
 - **Não registre rotas de escrita em `/api/` sem `adminAuthMiddleware`** — `/api/campaigns` sem auth foi uma brecha real que permitia disparo de WhatsApp em massa
+- **Não deixe `buscar_cliente` retornar dados de um `phone` diferente do telefone da sessão atual sem verificação de vínculo (CPF batendo com o telefone consultado)** — era IDOR real em produção: qualquer número consultava saldo em aberto e credenciais da Central do Assinante de outro cliente só citando o telefone dele. Ver seção "Identificação do cliente" para o fix (`cross_phone_attempt` + verificação por CPF + mensagem genérica indistinguível entre "não existe" e "CPF não confere").
 - **`permission denied for table X TO authenticated` não é problema de chave** — são grants revogados; ver seção "Grants Supabase" para o fix SQL
 - **Não use `date` para a coluna de data em `scheduled_visits`** — a coluna se chama `visit_date` (confirmado em migrations, tools.ts, bring-forward-flow.ts). `client.ts` usava `date` erroneamente e visita nunca aparecia no portal — já corrigido.
 - **Não adicione colunas em `scheduled_visits` sem migration** — `reminder_sent`/`followup_sent` foram usadas antes da migration 034 existir, fazendo o cron de lembrete/follow-up falhar silenciosamente. Sempre crie a migration antes de usar a coluna no código.
+- **Não confie em CPF sem validação de checksum (`isValidCpf`, módulo 11) antes de consultar o SGP** — checar só o comprimento (11 dígitos) não basta: existe um contrato real no SGP com `cpfCnpj = "00000000000"` (dado sujo), e um CPF inválido sem checksum pode casualmente identificar o cliente errado. Todo ponto de entrada de CPF (`processor.ts`, `tools.ts` `buscar_cliente`/`salvar_cpf_cliente`) precisa validar antes de chamar `getCustomerByCpf`.
+- **Não deixe resultado bruto de tool call (ou `customerData`) virar string para o LLM ou para `interaction_logs` sem passar por `redactSensitiveFields`** (`integrations/sgp/types.ts`) — `contratoCentralLogin`/`contratoCentralSenha` vazam para o provedor de LLM (DeepSeek/Anthropic) e para o Supabase se esse filtro for pulado em qualquer serialização nova. É a mesma fonte de verdade usada por `safeCustomer()` nas rotas admin — não duplique a lista de campos sensíveis.
+- **Não persista nem retorne dado de um identificador (phone/cpf/contrato/customer_id) diferente da sessão atual sem passar por `isPhoneRegisteredToCpf`** (`agent/identity-verification.ts`) — era o mesmo bug raiz repetido em 4 tools: `salvar_cpf_cliente` vinculava qualquer CPF informado à thread sem checar se o telefone da sessão tinha relação com ele (exploração real confirmada em produção — CPF de terceiros persistido na thread de outro número, dando acesso automático ao saldo/credenciais dele); `listar_chamados_sofia`, `abrir_chamado` e `agendar_visita` confiavam no `contrato`/`customer_id` vindo da chamada da tool em vez de resolver o da sessão. Toda tool nova que aceita um identificador de terceiro deve usar essa função (ou `resolveSessionCustomerId` em `tools.ts` para contrato) — nunca reimplementar a checagem ad hoc. Ver seção "Identificação do cliente" para detalhes.
