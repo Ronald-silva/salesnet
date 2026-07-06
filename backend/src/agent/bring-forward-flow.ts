@@ -73,6 +73,7 @@ export async function offerBringForward(
     .from('scheduled_visits')
     .select(SELECT)
     .eq('id', visitId)
+    .eq('tenant_id', tenantId)
     .single();
 
   if (error || !data) return { ok: false, error: 'agendamento não encontrado' };
@@ -89,7 +90,8 @@ export async function offerBringForward(
   const { error: updErr } = await supabase
     .from('scheduled_visits')
     .update({ bring_forward_status: 'offered', bring_forward_offered_at: now, updated_at: now })
-    .eq('id', visitId);
+    .eq('id', visitId)
+    .eq('tenant_id', tenantId);
   if (updErr) return { ok: false, error: 'falha ao registrar oferta' };
 
   const message =
@@ -105,7 +107,8 @@ export async function offerBringForward(
     await supabase
       .from('scheduled_visits')
       .update({ bring_forward_status: 'none', bring_forward_offered_at: null })
-      .eq('id', visitId);
+      .eq('id', visitId)
+      .eq('tenant_id', tenantId);
     console.error('[bring-forward] failed to send offer:', err);
     return { ok: false, error: 'falha ao enviar mensagem ao cliente' };
   }
@@ -114,12 +117,13 @@ export async function offerBringForward(
 }
 
 /** Busca uma oferta pendente (offered + dentro da janela de 20 min) pro telefone. */
-async function getPendingOffer(phone: string): Promise<VisitRow | null> {
+async function getPendingOffer(phone: string, tenantId: string): Promise<VisitRow | null> {
   const cutoff = new Date(Date.now() - OFFER_WINDOW_MS).toISOString();
   const { data } = await supabase
     .from('scheduled_visits')
     .select(SELECT)
     .eq('phone', phone)
+    .eq('tenant_id', tenantId)
     .eq('bring_forward_status', 'offered')
     .gte('bring_forward_offered_at', cutoff)
     .order('bring_forward_offered_at', { ascending: false })
@@ -137,7 +141,7 @@ export async function handleBringForwardReply(
   message: string,
   tenantId: string,
 ): Promise<boolean> {
-  const offer = await getPendingOffer(phone);
+  const offer = await getPendingOffer(phone, tenantId);
   if (!offer) return false;
 
   if (isAffirmative(message)) {
@@ -168,7 +172,8 @@ export async function handleBringForwardReply(
         followup_sent: false,
         updated_at: now,
       })
-      .eq('id', offer.id);
+      .eq('id', offer.id)
+      .eq('tenant_id', tenantId);
 
     await whatsappService.sendText(
       tenantId,
@@ -185,7 +190,8 @@ export async function handleBringForwardReply(
     await supabase
       .from('scheduled_visits')
       .update({ bring_forward_status: 'declined', updated_at: new Date().toISOString() })
-      .eq('id', offer.id);
+      .eq('id', offer.id)
+      .eq('tenant_id', tenantId);
 
     await whatsappService.sendText(
       tenantId,

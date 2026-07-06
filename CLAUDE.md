@@ -491,12 +491,18 @@ Migrations em `backend/src/db/migrations/` (executar em ordem):
 - `024_quality_feedback.sql` — tabela `conversation_quality` (feedback loop NPS↔conversa)
 - `025_knowledge_base.sql` — tabela `knowledge_base` (soluções reutilizáveis, GIN em `problem_keywords`)
 - `026_pattern_detection.sql` — tabela `operational_alerts` (detecção de padrões operacionais; RLS service_role-only). **Em produção** (9 colunas confirmadas).
+- `026_pattern_detection_idempotent.sql` — variante idempotente de `026`: rodar **só** se `026` falhou com `already exists` (cria a tabela apenas se faltar e aplica RLS de qualquer forma).
 - `027_rls_service_role_policies.sql` — políticas `service_role_only` + GRANT em tabelas das migrations 016/024/025/026
+- `028_grants_service_role_core.sql` — GRANT explícito de `service_role` nas tabelas centrais (`conversation_threads`, `interaction_logs`, `scheduled_visits`, etc.) — ver seção "Grants Supabase".
+- `029_verify_grants_diagnostic.sql` — apenas diagnóstico (SELECT), roda após `028` para confirmar grants/existência de tabela; não altera schema.
+- `030_grant_schema_usage_service_role.sql` — `GRANT USAGE ON SCHEMA public` + `GRANT ALL` em todas as tabelas/sequences para `service_role` — ver seção "Grants Supabase".
 - `009_performance_indexes.sql` — índices para o Supabase SQL Editor (sem CONCURRENTLY; arquivo inteiro de uma vez). **Foi este o executado em produção** (via SQL Editor).
 - `009_performance_indexes_concurrent.sql` — mesmos índices com CONCURRENTLY (alternativa só via psql, uma statement por vez; **não** usar no SQL Editor — erro 25001)
 - `032_conversation_status.sql` — `conversation_threads`: colunas `status` (active/waiting/closed), `closed_at`, `starred` + índices. Executar antes de usar filtros de status no painel admin.
 - `033_copilot_metrics.sql` — `interaction_logs`: colunas `copilot_used` e `copilot_edited` para rastreio de uso do copiloto. Executar antes de usar o endpoint `/conversations/:id/suggest`.
 - `034_visit_reminder_followup_columns.sql` — `scheduled_visits`: colunas `reminder_sent` e `followup_sent` (usadas pelo cron `visit-followup.ts`). **Obrigatória** — sem ela o cron falha silenciosamente em produção.
+- `035_otp_attempts.sql` — coluna `attempts INTEGER` em `otp_codes` (lockout de força bruta no portal do cliente — ver seção "Portal do Cliente").
+- `036_webhook_replay_protection.sql` — tabela `processed_webhook_ids` (fingerprint SHA-256 do raw body; RLS service_role-only) — dedupe de replay em webhooks externos (hoje só `payment-webhook.ts`/SGP).
 
 ---
 
@@ -507,6 +513,7 @@ Purge automático via `data-cleanup.ts` (cron 06:00 UTC = 03:00 Fortaleza):
 | Tabela | Retenção | Purge automático |
 |--------|----------|------------------|
 | `processed_message_ids` | 24 horas | Sim |
+| `processed_webhook_ids` | 24 horas | Sim |
 | `interaction_logs` | 90 dias | Sim |
 | `nps_responses` | 90 dias | Sim |
 | `billing_notifications` | 180 dias (`sent_at`) | Sim |
@@ -838,6 +845,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
 ### 22) Portal do Cliente (`/minha-conta`)
 
 - Login por OTP: cliente informa telefone → recebe código via WhatsApp → acessa portal.
+- **Lockout de força bruta (`auth.ts`, migration `035`):** `otp_codes.attempts` conta tentativas erradas. Na 5ª tentativa errada (`MAX_ATTEMPTS = 5`), o código é invalidado na hora (`expires_at` zerado) — mesmo um palpite certo depois disso é rejeitado até o cliente pedir um novo código em `/request-otp` (que reseta `attempts` para 0 no `upsert`). Código válido é apagado (`delete`) após uso, para não permitir replay do mesmo OTP.
 - Rotas em `backend/src/routes/client.ts` (todas protegidas por `clientAuthMiddleware`):
   - `GET /api/client/invoice` — fatura atual + PIX gerado
   - `GET /api/client/invoices` — histórico de faturas do SGP
@@ -848,6 +856,19 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role
   - `GET /api/client/connection` — status da conexão (via SGP)
   - `GET /api/client/referral` — link de indicação
 - Coluna `visit_date` (não `date`) em `scheduled_visits` — armadilha já corrigida em `client.ts`.
+
+### 23) Replay protection no webhook de pagamento + fechamento de auditoria final (2026-07-05)
+
+- **Replay protection SGP (`payment-webhook.ts`, migration `036`):** cada `POST /webhook/sgp/payment-confirmed` válido (HMAC ok) tem o SHA-256 do raw body inserido em `processed_webhook_ids`. Insert duplicado (`23505`) = payload já processado → responde `200` sem reprocessar (idempotência, não erro). Falha de insert que **não** seja duplicidade só loga e segue (dedup best-effort, nunca bloqueia o fluxo de negócio). Purge automático em 24h junto com `processed_message_ids`.
+- **`visit-followup.ts` filtra por status:** lembretes (`sendVisitReminders`) só consideram `status='scheduled'`; follow-ups (`sendVisitFollowups`) só `status='done'` — evita mandar lembrete/follow-up pra visita cancelada ou ainda pendente.
+- **`scheduled_visits` totalmente escopado por `tenant_id` (fix 2026-07-05/06):** todas as queries de leitura/escrita em `scheduled_visits` agora filtram por tenant — cobre os 4 arquivos que tocam a tabela:
+  - `visit-followup.ts` — `select`/`update` de `reminder_sent`/`followup_sent` via `env.DEFAULT_TENANT_ID` (não tem contexto de request; é cron).
+  - `visit-scheduling.ts` — `loadOccupancy` (usada por `isSlotAvailable`/`nextAvailableSlots`) via `env.DEFAULT_TENANT_ID`.
+  - `bring-forward-flow.ts` — `offerBringForward`/`getPendingOffer`/`handleBringForwardReply` via o parâmetro `tenantId` já recebido dessas funções (não precisou de `env`, já tinham o tenant da chamada).
+  - `routes/schedules.ts` — todas as rotas (`GET /`, `GET /today`, `PATCH /:id`, `PATCH /:id/reschedule`, `DELETE /:id`, incluindo os fallbacks de coluna ausente) via `env.DEFAULT_TENANT_ID`.
+  Antes, essas queries rodavam sem filtro de tenant — inofensivo hoje com um único tenant em produção, mas um cron/painel multi-tenant leria/escreveria visitas cruzadas entre tenants. Testes de escopo em `visit-followup.test.ts`, `visit-scheduling.test.ts`, `bring-forward-flow.test.ts` e `schedules.test.ts`.
+- **Métricas do copiloto agora gravadas (fix 2026-07-05):** `POST /conversations/:id/reply` passou a aceitar `copilot_used`/`copilot_edited` no body (o frontend já enviava, mas a rota ignorava). Como `interaction_logs` não tem `conversation_id`, a rota atualiza o registro mais recente por `(tenant_id, phone)` — melhor esforço, não bloqueia o envio da resposta se a atualização falhar.
+- **Alerta de queda prolongada de WhatsApp (`instance-manager.ts`, fix 2026-07-05):** `healthCheckAll` (cron 5 min) agora rastreia, em memória, desde quando cada instância está desconectada. Se a queda passar de 15 min contínuos (3 ciclos), dispara **um** WhatsApp pra `ADMIN_ALERT_PHONE` (mesmo padrão de `pattern-detector.ts`) e não repete até a instância reconectar e cair de novo. Isso é mitigação, não causa raiz — o ciclo `event=Disconnected`/`event=Connected` observado nos logs do Evolution Go é do lado do WebSocket whatsmeow↔WhatsApp (fora do controle do backend); ver análise na auditoria de 2026-07-05 para detalhes e limitações (sem acesso a logs do Railway, a frequência real não pôde ser quantificada nesta rodada).
 
 ---
 
@@ -954,3 +975,5 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não confie em CPF sem validação de checksum (`isValidCpf`, módulo 11) antes de consultar o SGP** — checar só o comprimento (11 dígitos) não basta: existe um contrato real no SGP com `cpfCnpj = "00000000000"` (dado sujo), e um CPF inválido sem checksum pode casualmente identificar o cliente errado. Todo ponto de entrada de CPF (`processor.ts`, `tools.ts` `buscar_cliente`/`salvar_cpf_cliente`) precisa validar antes de chamar `getCustomerByCpf`.
 - **Não deixe resultado bruto de tool call (ou `customerData`) virar string para o LLM ou para `interaction_logs` sem passar por `redactSensitiveFields`** (`integrations/sgp/types.ts`) — `contratoCentralLogin`/`contratoCentralSenha` vazam para o provedor de LLM (DeepSeek/Anthropic) e para o Supabase se esse filtro for pulado em qualquer serialização nova. É a mesma fonte de verdade usada por `safeCustomer()` nas rotas admin — não duplique a lista de campos sensíveis.
 - **Não persista nem retorne dado de um identificador (phone/cpf/contrato/customer_id) diferente da sessão atual sem passar por `isPhoneRegisteredToCpf`** (`agent/identity-verification.ts`) — era o mesmo bug raiz repetido em 4 tools: `salvar_cpf_cliente` vinculava qualquer CPF informado à thread sem checar se o telefone da sessão tinha relação com ele (exploração real confirmada em produção — CPF de terceiros persistido na thread de outro número, dando acesso automático ao saldo/credenciais dele); `listar_chamados_sofia`, `abrir_chamado` e `agendar_visita` confiavam no `contrato`/`customer_id` vindo da chamada da tool em vez de resolver o da sessão. Toda tool nova que aceita um identificador de terceiro deve usar essa função (ou `resolveSessionCustomerId` em `tools.ts` para contrato) — nunca reimplementar a checagem ad hoc. Ver seção "Identificação do cliente" para detalhes.
+- **Não remova o lockout de tentativas de `verify-otp`** (`auth.ts`, coluna `otp_codes.attempts`, migration `035`) — sem ele o código de 6 dígitos é bruteforçável (1 milhão de combinações, 10 min de validade). O limite é 5 tentativas; a 5ª errada invalida o código na hora, não só conta.
+- **Não remova o dedupe de `processed_webhook_ids` em `payment-webhook.ts`** (migration `036`) — é a única defesa contra replay do webhook de pagamento do SGP (reenvio do mesmo payload não deve gerar nova notificação/side-effect). Insert duplicado (`23505`) é o sinal de replay, não um erro de banco.

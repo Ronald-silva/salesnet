@@ -11,6 +11,7 @@
  */
 
 import { supabase } from '../config/supabase';
+import { env } from '../config/env';
 
 export type VisitPeriod = 'morning' | 'afternoon';
 
@@ -102,6 +103,7 @@ async function loadOccupancy(
   const { data, error } = await supabase
     .from('scheduled_visits')
     .select('visit_date, period, status')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .eq('status', 'scheduled')
     .gte('visit_date', fromDate)
     .lte('visit_date', toDate);

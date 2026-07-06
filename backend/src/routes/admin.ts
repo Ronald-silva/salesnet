@@ -560,7 +560,11 @@ adminRouter.patch('/conversations/:id/human-mode', async (req, res) => {
 });
 
 adminRouter.post('/conversations/:id/reply', async (req, res) => {
-  const { message } = req.body as { message?: string };
+  const { message, copilot_used, copilot_edited } = req.body as {
+    message?: string;
+    copilot_used?: boolean;
+    copilot_edited?: boolean;
+  };
   if (!message) {
     res.status(400).json({ error: 'message is required' });
     return;
@@ -584,6 +588,34 @@ adminRouter.post('/conversations/:id/reply', async (req, res) => {
     .eq('tenant_id', adminTenantId());
 
   await whatsappService.sendText(env.DEFAULT_TENANT_ID, replyThread.phone, message);
+
+  // Best-effort: registra o uso do copiloto no último interaction_log dessa conversa
+  // (não há coluna conversation_id em interaction_logs — resolve pelo par tenant_id+phone mais recente)
+  if (copilot_used || copilot_edited) {
+    try {
+      const { data: lastLog } = await supabase
+        .from('interaction_logs')
+        .select('id')
+        .eq('tenant_id', adminTenantId())
+        .eq('phone', replyThread.phone)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastLog) {
+        await supabase
+          .from('interaction_logs')
+          .update({
+            ...(copilot_used ? { copilot_used: true } : {}),
+            ...(copilot_edited ? { copilot_edited: true } : {}),
+          })
+          .eq('id', lastLog.id);
+      }
+    } catch (err) {
+      console.error('[admin] failed to record copilot metrics:', err);
+    }
+  }
+
   res.status(200).json({ ok: true });
 });
 

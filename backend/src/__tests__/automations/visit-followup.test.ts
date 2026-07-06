@@ -14,15 +14,23 @@ import { sendVisitReminders, sendVisitFollowups } from '../../automations/visit-
 
 beforeEach(() => jest.clearAllMocks());
 
+// Builder thenable e encadeável — resolve independente de quantos .eq()/.lte()
+// forem chamados antes do await, refletindo o filtro extra de tenant_id nas queries.
+function chain(result: { data?: unknown; error: unknown }): any {
+  const obj: any = {
+    select: jest.fn(() => obj),
+    eq: jest.fn(() => obj),
+    lte: jest.fn(() => obj),
+    update: jest.fn(() => chain({ error: null })),
+    then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+  };
+  return obj;
+}
+
 function mockVisits(rows: unknown[]) {
-  (supabase.from as jest.Mock).mockReturnValue({
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    lte: jest.fn().mockResolvedValue({ data: rows, error: null }),
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockResolvedValue({ error: null }),
-    }),
-  });
+  const builder = chain({ data: rows, error: null });
+  (supabase.from as jest.Mock).mockReturnValue(builder);
+  return builder;
 }
 
 describe('sendVisitReminders', () => {
@@ -74,6 +82,20 @@ describe('sendVisitReminders', () => {
     await sendVisitReminders();
     expect(whatsappService.sendText).not.toHaveBeenCalled();
   });
+
+  it('scopes the select and the reminder_sent update by tenant_id', async () => {
+    const builder = mockVisits([
+      { id: 'v1', phone: '+5585999990001', visit_date: '2026-05-23', period: 'morning' },
+    ]);
+
+    await sendVisitReminders();
+
+    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.update).toHaveBeenCalledWith({ reminder_sent: true });
+    const updateResult = builder.update.mock.results[0].value;
+    expect(updateResult.eq).toHaveBeenCalledWith('id', 'v1');
+    expect(updateResult.eq).toHaveBeenCalledWith('tenant_id', 'default');
+  });
 });
 
 describe('sendVisitFollowups', () => {
@@ -96,5 +118,19 @@ describe('sendVisitFollowups', () => {
     mockVisits([]);
     await sendVisitFollowups();
     expect(whatsappService.sendText).not.toHaveBeenCalled();
+  });
+
+  it('scopes the select and the followup_sent update by tenant_id', async () => {
+    const builder = mockVisits([
+      { id: 'v2', phone: '+5585999990002', visit_date: '2026-05-22', period: 'afternoon' },
+    ]);
+
+    await sendVisitFollowups();
+
+    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.update).toHaveBeenCalledWith({ followup_sent: true });
+    const updateResult = builder.update.mock.results[0].value;
+    expect(updateResult.eq).toHaveBeenCalledWith('id', 'v2');
+    expect(updateResult.eq).toHaveBeenCalledWith('tenant_id', 'default');
   });
 });

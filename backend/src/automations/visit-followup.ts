@@ -16,6 +16,7 @@ export async function sendVisitReminders(): Promise<void> {
   const { data } = await supabase
     .from('scheduled_visits')
     .select('id, phone, visit_date, period')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .eq('reminder_sent', false)
     .eq('status', 'scheduled')
     .eq('visit_date', todayStr);
@@ -33,7 +34,8 @@ export async function sendVisitReminders(): Promise<void> {
       await supabase
         .from('scheduled_visits')
         .update({ reminder_sent: true })
-        .eq('id', visit.id);
+        .eq('id', visit.id)
+        .eq('tenant_id', env.DEFAULT_TENANT_ID);
     } catch (err) {
       console.error(`[visit-reminder] failed for visit ${visit.id}:`, err);
     }
@@ -48,6 +50,7 @@ export async function sendVisitFollowups(): Promise<void> {
   const { data } = await supabase
     .from('scheduled_visits')
     .select('id, phone, visit_date, period')
+    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .eq('followup_sent', false)
     .eq('status', 'done')
     .lte('visit_date', yesterdayStr);
@@ -64,7 +67,8 @@ export async function sendVisitFollowups(): Promise<void> {
       await supabase
         .from('scheduled_visits')
         .update({ followup_sent: true })
-        .eq('id', visit.id);
+        .eq('id', visit.id)
+        .eq('tenant_id', env.DEFAULT_TENANT_ID);
     } catch (err) {
       console.error(`[visit-followup] failed for visit ${visit.id}:`, err);
     }

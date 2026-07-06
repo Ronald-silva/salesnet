@@ -8,6 +8,14 @@
 import { supabase } from '../config/supabase';
 import { providerRegistry } from '../integrations/whatsapp/provider-registry';
 import type { InstanceConfig, InstanceInfo, InstanceStatus } from '../integrations/whatsapp/whatsapp-provider';
+import { whatsappService } from './whatsapp-service';
+import { env } from '../config/env';
+
+// Alerta se uma instância ficar desconectada por mais que isso entre health checks
+// (healthCheckAll roda a cada 5min — 3 ciclos = ~15min de indisponibilidade real).
+const DISCONNECT_ALERT_THRESHOLD_MS = 15 * 60 * 1000;
+const disconnectedSince = new Map<string, number>();
+const alertedForOutage = new Set<string>();
 
 export interface StoredInstance {
   id: string;
@@ -232,11 +240,43 @@ class InstanceManager {
           await provider.connectInstance(row.instance_name).catch((err: unknown) => {
             console.error(`[instance-manager] Reconnect failed for ${row.instance_name}:`, err);
           });
+          await this.trackOutage(row.instance_name);
+        } else {
+          disconnectedSince.delete(row.instance_name);
+          alertedForOutage.delete(row.instance_name);
         }
       } catch (err) {
         console.error(`[instance-manager] Health check error for ${row.instance_name}:`, err);
       }
     }
+  }
+
+  /**
+   * Marca o início de uma queda contínua e dispara um alerta único (best-effort) se ela
+   * ultrapassar DISCONNECT_ALERT_THRESHOLD_MS — não repete a cada ciclo de 5min enquanto
+   * a mesma queda persistir, só quando reconectar e cair de novo.
+   */
+  private async trackOutage(instanceName: string): Promise<void> {
+    const since = disconnectedSince.get(instanceName) ?? Date.now();
+    disconnectedSince.set(instanceName, since);
+
+    const outageMs = Date.now() - since;
+    if (outageMs < DISCONNECT_ALERT_THRESHOLD_MS || alertedForOutage.has(instanceName)) return;
+
+    alertedForOutage.add(instanceName);
+    const adminPhone = env.ADMIN_ALERT_PHONE;
+    if (!adminPhone) {
+      console.warn('[instance-manager] ADMIN_ALERT_PHONE not set — skipping disconnect alert');
+      return;
+    }
+    const minutes = Math.round(outageMs / 60_000);
+    await whatsappService
+      .sendText(
+        env.DEFAULT_TENANT_ID,
+        adminPhone,
+        `⚠️ WhatsApp instância "${instanceName}" desconectada há ~${minutes} min. Mensagens recebidas nesse período podem não ter sido processadas — verifique o Evolution Go.`,
+      )
+      .catch((err: unknown) => console.error('[instance-manager] disconnect alert failed:', err));
   }
 
   /** Atualiza status de uma instância a partir de um webhook de conexão */
