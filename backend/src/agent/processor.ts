@@ -26,8 +26,30 @@ import { withPhoneLock } from '../utils/phone-mutex';
 import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 import { warnIfDailyBudgetExceeded } from './llm-budget';
 import { isSendableWhatsAppTarget } from '../lib/phone';
+import { withRetry } from '../utils/retry';
 
 type Provider = 'anthropic' | 'deepseek';
+
+type DeliveryResult = { status: 'sent' | 'failed'; error?: string };
+
+/** Envia via WhatsApp com retry curto; nunca lança — resultado vira delivery_status em interaction_logs. */
+const SEND_TEXT_RETRY_DELAYS_MS = [1_000, 3_000];
+
+async function sendTextWithDeliveryStatus(
+  tenantId: string,
+  phone: string,
+  text: string,
+): Promise<DeliveryResult> {
+  try {
+    await withRetry(() => whatsappService.sendText(tenantId, phone, text), {
+      delaysMs: SEND_TEXT_RETRY_DELAYS_MS,
+    });
+    return { status: 'sent' };
+  } catch (err) {
+    console.error(`[processor] sendText failed after retries for ${phone}:`, err);
+    return { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 type ToolCallLog = { name: string; input: unknown; output: unknown };
 
@@ -603,7 +625,7 @@ export async function processMessage(
     try {
       await saveMessage(phone, 'user', clean, tenantId);
       await saveMessage(phone, 'assistant', faqResponse, tenantId);
-      await whatsappService.sendText(tenantId, phone, formatOutgoingWhatsApp(faqResponse));
+      const delivery = await sendTextWithDeliveryStatus(tenantId, phone, formatOutgoingWhatsApp(faqResponse));
       await supabase.from('interaction_logs').insert({
         phone,
         tenant_id: tenantId,
@@ -611,6 +633,8 @@ export async function processMessage(
         tool_calls: [],
         response: faqResponse,
         processing_ms: Date.now() - startMs,
+        delivery_status: delivery.status,
+        delivery_error: delivery.error ?? null,
       });
     } catch (err) {
       console.error(`[processor] quick-reply send error for ${phone}:`, err);
@@ -821,7 +845,7 @@ export async function processMessage(
 
     await saveMessage(phone, 'assistant', finalText, tenantId);
     const safeResponse = sanitizeOutgoingMessage(finalText);
-    await whatsappService.sendText(tenantId, phone, safeResponse);
+    const delivery = await sendTextWithDeliveryStatus(tenantId, phone, safeResponse);
 
     // Schedule NPS before inserting the log so shouldSendNps sees the previous session
     if (sessionMode !== 'prospect') {
@@ -848,15 +872,27 @@ export async function processMessage(
       output_tokens: llmUsage.outputTokens > 0 ? llmUsage.outputTokens : null,
       llm_provider:  llmUsage.inputTokens > 0 ? llmUsage.provider : null,
       llm_model:     llmUsage.inputTokens > 0 ? llmUsage.model : null,
+      delivery_status: delivery.status,
+      delivery_error: delivery.error ?? null,
     });
 
     await warnIfDailyBudgetExceeded();
   } catch (err) {
     console.error(`[processor] error for ${phone}:`, err);
+    const fallbackText = 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.';
     if (isSendableWhatsAppTarget(phone)) {
-      await whatsappService
-        .sendText(tenantId, phone, 'Desculpe, ocorreu um erro interno. Tente novamente em instantes.')
-        .catch((e: unknown) => console.error('[processor] failed to send error reply:', e));
+      const delivery = await sendTextWithDeliveryStatus(tenantId, phone, fallbackText);
+      const { error: logError } = await supabase.from('interaction_logs').insert({
+        phone,
+        tenant_id: tenantId,
+        session_mode: 'default',
+        tool_calls: [],
+        response: fallbackText,
+        processing_ms: Date.now() - startMs,
+        delivery_status: delivery.status,
+        delivery_error: delivery.error ?? (err instanceof Error ? err.message : String(err)),
+      });
+      if (logError) console.error('[processor] failed to log pipeline error:', logError.message);
     } else {
       console.warn(`[processor] skip error reply — invalid phone: ${phone}`);
     }

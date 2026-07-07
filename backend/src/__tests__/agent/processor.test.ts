@@ -99,6 +99,7 @@ import { executeTool } from '../../agent/tools';
 import { lookupCustomer, extractCpfFromText } from '../../agent/customer-lookup';
 import { anthropic } from '../../config/anthropic';
 import { whatsappService } from '../../services/whatsapp-service';
+import { supabase } from '../../config/supabase';
 
 const PHONE = '+5585999990000';
 const THREAD = {
@@ -261,6 +262,71 @@ describe('processMessage — tool use loop', () => {
     expect(toolResultContent).not.toContain('super-secreta');
     expect(toolResultContent).not.toContain('contratoCentralLogin');
     expect(toolResultContent).not.toContain('contratoCentralSenha');
+  });
+});
+
+describe('processMessage — delivery status', () => {
+  beforeEach(() => {
+    (isHumanMode as jest.Mock).mockResolvedValue(false);
+    (saveMessage as jest.Mock).mockResolvedValue(undefined);
+    (getThread as jest.Mock).mockResolvedValue(THREAD);
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'phone',
+      attempts: ['phone'],
+    });
+    (executeTool as jest.Mock).mockResolvedValue(CUSTOMER);
+    (anthropic.messages.create as jest.Mock).mockResolvedValue(TEXT_RESPONSE);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  function interactionLogsInserts(): Array<Record<string, unknown>> {
+    const fromMock = supabase.from as jest.Mock;
+    const inserts: Array<Record<string, unknown>> = [];
+    fromMock.mock.calls.forEach((callArgs, i) => {
+      if (callArgs[0] !== 'interaction_logs') return;
+      const chain = fromMock.mock.results[i]!.value as { insert: jest.Mock };
+      chain.insert.mock.calls.forEach((c) => inserts.push(c[0] as Record<string, unknown>));
+    });
+    return inserts;
+  }
+
+  it('retries sendText and records delivery_status "sent" when the second attempt succeeds', async () => {
+    jest.useFakeTimers();
+    (whatsappService.sendText as jest.Mock)
+      .mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValue(undefined);
+
+    const promise = processMessage(PHONE, 'Oi');
+    await jest.advanceTimersByTimeAsync(1_000); // first retry backoff
+    await promise;
+
+    expect(whatsappService.sendText).toHaveBeenCalledTimes(2);
+    const logs = interactionLogsInserts();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({ delivery_status: 'sent', delivery_error: null });
+  });
+
+  it('records delivery_status "failed" with the undelivered content when sendText fails on every attempt', async () => {
+    jest.useFakeTimers();
+    (whatsappService.sendText as jest.Mock).mockRejectedValue(new Error('instance disconnected'));
+
+    const promise = processMessage(PHONE, 'Oi');
+    await jest.advanceTimersByTimeAsync(1_000); // 1st retry backoff
+    await jest.advanceTimersByTimeAsync(3_000); // 2nd retry backoff
+    await promise;
+
+    expect(whatsappService.sendText).toHaveBeenCalledTimes(3);
+    const logs = interactionLogsInserts();
+    expect(logs).toHaveLength(1);
+    expect(logs[0]).toMatchObject({
+      delivery_status: 'failed',
+      delivery_error: expect.stringContaining('instance disconnected'),
+      response: 'Olá João! Posso ajudar?',
+    });
   });
 });
 

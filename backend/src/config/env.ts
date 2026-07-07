@@ -57,6 +57,8 @@ const envSchema = z.object({
   BACKEND_URL: z.string().url().optional(),
   /** Número WhatsApp (dígitos, ex.: 5585996032957) que recebe alertas operacionais da Sofia */
   ADMIN_ALERT_PHONE: z.string().optional(),
+  /** Número sandbox dedicado para testes ao vivo (webhook simulado, processMessage direto, scripts de diagnóstico) — nunca um número real de cliente/equipe. Ver assertSandboxNumber em utils/test-sandbox.ts. */
+  TEST_SANDBOX_PHONE: z.string().optional(),
 
   // ── ERP ───────────────────────────────────────────────────────────────────
   SGP_BASE_URL: z.string().url('SGP_BASE_URL must be a valid URL'),
