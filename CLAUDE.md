@@ -122,7 +122,7 @@ const { data } = await sgpClient.post('/api/central/titulos/', { contrato: contr
 | Buscar cliente por CPF | `POST /api/ura/consultacliente/` | `cpfcnpj` (11 dígitos, sem formatação) — **não** `cpf`; o SGP ignora `cpf` silenciosamente e responde `{ msg: "CPF/CNPJ ou Contrato ID Não informados" }` sem erro HTTP (confirmado ao vivo em produção, 2026-07-05) |
 | Buscar cliente por contrato | `POST /api/ura/consultacliente/` | `contrato` |
 | Listar faturas | `POST /api/central/titulos/` | `contrato`, `status` (1=aberto), `limit` |
-| Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body |
+| Gerar PIX | `POST /api/central/pagamento/pix/{invoiceId}` | `contrato` no body — **⚠️ retorna 403 "credenciais de autenticação não foram fornecidas" com o `app`+`token` de sistema, testado ao vivo em produção 2026-07-08 (body, query string, `Authorization: Token`, `Authorization: Bearer`, header `apikey`, GET — todas falharam igual; `Allow: POST, OPTIONS` confirma que a rota existe, não é 404). Causa não confirmada — talvez exija sessão de login do cliente (Central do Assinante), não token de sistema. `generatePixKey()` em `integrations/sgp/billing.ts` só funciona hoje pelo caminho de cache (`codigopix` já presente na fatura via `/api/central/titulos/`, que funciona normalmente); a chamada direta a este endpoint está inacessível com as credenciais atuais.** |
 | Abrir chamado | `POST /api/central/chamado/` | `contrato` |
 | Listar chamados Sofia | Supabase `sofia_tickets` | `contrato`, `tenant_id`, `status` |
 
@@ -141,8 +141,8 @@ Se **todos** os contratos retornados falharem o parse (schema desatualizado, mud
 ### Stubs intencionais — esses endpoints não existem no SGP
 
 ```typescript
-getOverdueCustomers()     // retorna [] — sem endpoint bulk
-getCustomersDueInDays()   // retorna [] — sem endpoint bulk
+getOverdueCustomers()     // retorna [] — sem endpoint bulk. CONSEQUÊNCIA (confirmada 2026-07-08): runBillingCadenceD5/D2 (billing-cadence.ts) e runBillingJobD3/D0/OverdueD3/SuspendD5 (billing-reminders.ts) iteram sobre o resultado dessas duas funções — hoje são loops vazios, nenhuma dessas 6 automações envia mensagem pra ninguém em produção, mesmo estando registradas em startAutomations(). Não assuma que essas mensagens de cobrança estão saindo sem verificar de novo.
+getCustomersDueInDays()   // retorna [] — sem endpoint bulk (ver consequência acima)
 getCustomerTickets()      // retorna [] — sem token auth
 suspendCustomer()         // stub — endpoint não exposto
 reactivateCustomer()      // stub — endpoint não exposto
@@ -548,6 +548,14 @@ Todas em `backend/src/automations/`. Iniciadas via `startAutomations()` em `inde
 
 `getHabitualLatePayerIds()` consulta `billing_notifications` no Supabase — não o SGP.
 
+### Allowlist de envio de cobrança (`billing-allowlist.ts`)
+
+`getOverdueCustomers()`/`getCustomersDueInDays()` (`integrations/sgp/billing.ts`) continuam stub (sem endpoint bulk no SGP — ver seção "Stubs intencionais"). `resolveDueSoonCustomers`/`resolveOverdueCustomers` em `billing-allowlist.ts` resolvem o status de cobrança diretamente por CPF (`getBillingStatusForAllowlist`, um lookup sequencial por CPF, nunca em paralelo) para os CPFs listados em `BILLING_ALLOWLIST_CPFS` (env var, string separada por vírgula, normalizada no boot) — é assim que as 6 automações (D-5/D-2/D0/D+3/D+5) enviam mensagem de verdade sem depender do endpoint bulk que não existe.
+
+- `isCpfSendAllowed(document)` é checado imediatamente antes de todo envio real em `billing-cadence.ts`/`billing-reminders.ts`; fora da allowlist → `logSkippedOutsideAllowlist` (console.warn, telefone mascarado), nunca envia, nunca grava em `billing_notifications`.
+- `BILLING_ALLOWLIST_CPFS` ausente ou vazia → allowlist inativa (mesmo efeito de antes de existir: `resolveDueSoonCustomers`/`resolveOverdueCustomers` caem no fallback stub, que retorna `[]`) — não trava o boot, só loga `[billing:allowlist]` avisando. **Precisa ser configurada na env var do serviço no Railway** (nunca commitada) antes de qualquer deploy que dependa dessas automações enviando algo de verdade — ver "Variáveis de ambiente críticas".
+- **Não remova o gate `isCpfSendAllowed` nem esvazie `BILLING_ALLOWLIST_CPFS` sem pedido explícito do Ronald** — rollout pra base completa é decisão dele, pendente; ver memória do projeto `project_billing_allowlist_restriction`.
+
 ### Detecção de padrões (`pattern-detector.ts`)
 
 - **A cada 30 min:** roda os 5 detectores (`outage_cluster`, `billing_spike`, `churn_wave`,
@@ -590,6 +598,8 @@ GROQ_API_KEY=gsk_...     # console.groq.com — transcribe.ts (whisper-large-v3)
 BACKEND_URL=https://salesnet-production.up.railway.app
 
 ADMIN_ALERT_PHONE=5585996032957 # WhatsApp (dígitos) que recebe alertas operacionais (pattern-detector). Sem ela, alertas vão pro painel mas não pro WhatsApp
+
+BILLING_ALLOWLIST_CPFS=<cpf1,cpf2,cpf3,cpf4>  # ⚠️ OBRIGATÓRIA para as automações de cobrança enviarem mensagem de verdade — ver "Allowlist de envio de cobrança" abaixo. **Precisa ser configurada direto na env var do serviço no Railway (nunca no git)** antes de considerar esse deploy funcional; sem ela (ausente ou vazia), o boot não trava, mas a allowlist fica inativa e `resolveDueSoonCustomers`/`resolveOverdueCustomers` continuam devolvendo `[]` (mesmo efeito de no-op de antes) — confirme no log de boot `[billing:allowlist]` que carregou com o número esperado de CPFs.
 ```
 
 `config/supabase.ts` valida no boot que `SUPABASE_SERVICE_ROLE_KEY` decodifica como `service_role`; loga erro se for chave anon.
@@ -1025,3 +1035,4 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não chame `whatsappService.sendText()` direto nos 3 pontos de resposta principal ao cliente (fluxo LLM, quick-reply, catch geral de `processMessage`) sem passar por `sendTextWithDeliveryStatus()`** (`processor.ts`) — era a causa raiz de uma falha de entrega totalmente invisível em produção: `sendText` lançava, a exceção pulava pro `catch` geral, e o `interaction_logs.insert()` (que só rodava depois do envio) nunca acontecia — a resposta ficava salva na thread mas nunca chegava ao cliente nem aparecia no painel. `interaction_logs.delivery_status`/`delivery_error` (migration `037`) é a fonte de verdade de entrega hoje — presença de linha não significa mais entrega bem-sucedida sozinha. Ver seção "Falha de entrega silenciosa em `sendText`".
 - **Não envie mensagem real nem chame `processMessage` diretamente contra produção em script/diagnóstico sem chamar `assertSandboxNumber(phone)` primeiro** (`utils/test-sandbox.ts`) — foi assim que um teste sintético vazou pra conversa real do WhatsApp pessoal do Ronald (ver "Política de testes ao vivo contra produção" e item 25). A trava só funciona se `TEST_SANDBOX_PHONE` estiver configurado no ambiente; sem ela, `assertSandboxNumber` lança em vez de deixar passar silenciosamente.
 - **Não bloqueie a resposta HTTP do webhook (`webhook-router.ts`) esperando `provider.parseWebhook()` ou o processamento do agente** — o ACK deve sair logo após `validateWebhook`, antes de qualquer I/O caro (download/transcrição de mídia, chamada de LLM). É isso que faz o retry nativo do Evolution Go (5x/~30s) funcionar como rede de segurança em vez de correr risco de timeout. Ver item 25 e seção 5 da skill `evolution-go`.
+- **Não esvazie `BILLING_ALLOWLIST_CPFS` nem remova o gate `isCpfSendAllowed` em `billing-cadence.ts`/`billing-reminders.ts` sem pedido explícito do Ronald** — rollout de cobrança automática pra base completa de clientes é decisão dele, ainda pendente; ver seção "Allowlist de envio de cobrança" e memória do projeto `project_billing_allowlist_restriction`. Nunca commite CPFs reais em código — a lista vive só na env var do serviço no Railway.

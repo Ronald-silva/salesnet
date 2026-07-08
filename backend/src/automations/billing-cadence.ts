@@ -1,8 +1,14 @@
 import { supabase } from '../config/supabase';
-import { getCustomersDueInDays, getCurrentInvoice, generatePixKey } from '../integrations/sgp';
 import { getHabitualLatePayerIds } from '../integrations/sgp/billing';
+import {
+  resolveDueSoonCustomers,
+  isCpfSendAllowed,
+  logSkippedOutsideAllowlist,
+} from './billing-allowlist';
 import { whatsappService } from '../services/whatsapp-service';
 import { env } from '../config/env';
+import { titleCaseName } from '../lib/format';
+import { pixLine } from '../templates/billing';
 
 async function alreadySentCadence(customerId: string, type: string): Promise<boolean> {
   const todayStart = new Date();
@@ -31,21 +37,23 @@ async function logCadenceNotification(customerId: string, phone: string, type: s
 export async function runBillingCadenceD5(): Promise<void> {
   const [habituals, customers] = await Promise.all([
     getHabitualLatePayerIds(),
-    getCustomersDueInDays(5),
+    resolveDueSoonCustomers(5),
   ]);
 
   for (const customer of customers) {
     if (!habituals.has(customer.customerId)) continue;
     if (await alreadySentCadence(customer.customerId, 'd5_habitual')) continue;
+    if (!isCpfSendAllowed(customer.document)) {
+      logSkippedOutsideAllowlist(customer.customerId, customer.phone, 'd5_habitual');
+      continue;
+    }
 
     try {
-      const invoice = await getCurrentInvoice(customer.customerId);
-      const pix = await generatePixKey(invoice.id);
-
-      const firstName = customer.name.split(' ')[0];
+      const fullName = titleCaseName(customer.name);
       const msg =
-        `Oi ${firstName}! Sua fatura de R$${customer.amount.toFixed(2)} vence em 5 dias (${customer.dueDate}). ` +
-        `Pague com PIX:\n${pix.pixKey}`;
+        `Olá, ${fullName}! 👋\n\nSua fatura de R$ ${customer.amount.toFixed(2)} vence em 5 dias (${customer.dueDate}).\n\n` +
+        pixLine(customer.pixCode ?? '', '💳 Pague via PIX (copia e cola):') +
+        `Qualquer dúvida, é só falar! 😊`;
 
       await whatsappService.sendText(env.DEFAULT_TENANT_ID, customer.phone, msg);
       await logCadenceNotification(customer.customerId, customer.phone, 'd5_habitual');
@@ -58,25 +66,27 @@ export async function runBillingCadenceD5(): Promise<void> {
 export async function runBillingCadenceD2(): Promise<void> {
   const [habituals, customers] = await Promise.all([
     getHabitualLatePayerIds(),
-    getCustomersDueInDays(2),
+    resolveDueSoonCustomers(2),
   ]);
 
   for (const customer of customers) {
     const isHabitualLatePayer = habituals.has(customer.customerId);
     const notificationType = isHabitualLatePayer ? 'd2_habitual' : 'd2_regular';
     if (await alreadySentCadence(customer.customerId, notificationType)) continue;
+    if (!isCpfSendAllowed(customer.document)) {
+      logSkippedOutsideAllowlist(customer.customerId, customer.phone, notificationType);
+      continue;
+    }
 
     try {
-      const invoice = await getCurrentInvoice(customer.customerId);
-      const pix = await generatePixKey(invoice.id);
-
-      const firstName = customer.name.split(' ')[0];
+      const fullName = titleCaseName(customer.name);
       const msg = isHabitualLatePayer
-        ? `⚠️ ${firstName}, faltam 2 dias para sua fatura vencer e a internet ser suspensa. ` +
-          `Pague agora via PIX:\n${pix.pixKey}`
-        : `Oi ${firstName}! Só um lembrete rápido: sua fatura de R$ ${customer.amount.toFixed(2)} ` +
-          `vence em 2 dias. Posso gerar o PIX agora pra facilitar?\n` +
-          `Se já quiser pagar, aqui está o PIX copia e cola:\n${pix.pixKey}`;
+        ? `Olá, ${fullName}! ⚠️\n\nFaltam 2 dias para o vencimento da sua fatura de R$ ${customer.amount.toFixed(2)}. Evite juros e risco de suspensão futura pagando agora.\n\n` +
+          pixLine(customer.pixCode ?? '', '💳 PIX copia e cola:') +
+          `Qualquer dúvida, é só falar! 😊`
+        : `Olá, ${fullName}! 👋\n\nSó um lembrete rápido: sua fatura de R$ ${customer.amount.toFixed(2)} vence em 2 dias.\n\n` +
+          pixLine(customer.pixCode ?? '', '💳 PIX copia e cola:') +
+          `Qualquer dúvida, é só falar! 😊`;
 
       await whatsappService.sendText(env.DEFAULT_TENANT_ID, customer.phone, msg);
       await logCadenceNotification(customer.customerId, customer.phone, notificationType);

@@ -2,14 +2,14 @@ jest.mock('../../config/supabase', () => ({
   supabase: { from: jest.fn() },
 }));
 
-jest.mock('../../integrations/sgp', () => ({
-  getCustomersDueInDays: jest.fn(),
-  getCurrentInvoice: jest.fn(),
-  generatePixKey: jest.fn(),
-}));
-
 jest.mock('../../integrations/sgp/billing', () => ({
   getHabitualLatePayerIds: jest.fn(),
+}));
+
+jest.mock('../../automations/billing-allowlist', () => ({
+  resolveDueSoonCustomers: jest.fn(),
+  isCpfSendAllowed: jest.fn(),
+  logSkippedOutsideAllowlist: jest.fn(),
 }));
 
 jest.mock('../../services/whatsapp-service', () => ({
@@ -21,19 +21,20 @@ jest.mock('../../config/env', () => ({
 }));
 
 import { supabase } from '../../config/supabase';
-import * as sgp from '../../integrations/sgp';
 import * as sgpBilling from '../../integrations/sgp/billing';
+import { resolveDueSoonCustomers, isCpfSendAllowed, logSkippedOutsideAllowlist } from '../../automations/billing-allowlist';
 import { whatsappService } from '../../services/whatsapp-service';
 import { runBillingCadenceD5, runBillingCadenceD2 } from '../../automations/billing-cadence';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  (isCpfSendAllowed as jest.Mock).mockReturnValue(true); // allowlist inactive by default in these tests
+});
 
 function mockHabituals(customerIds: string[]) {
-  // Build habitual set from given ids
   const habSet = new Set(customerIds);
   (sgpBilling.getHabitualLatePayerIds as jest.Mock).mockResolvedValue(habSet);
 
-  // Mock supabase for alreadySentCadence and logCadenceNotification calls
   (supabase.from as jest.Mock).mockReturnValue({
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
@@ -45,18 +46,16 @@ function mockHabituals(customerIds: string[]) {
 
 describe('runBillingCadenceD5', () => {
   it('sends message only to habitual late payers', async () => {
-    // c1 appears twice (habitual), c2 does not appear
     mockHabituals(['c1', 'c1']);
 
-    (sgp.getCustomersDueInDays as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90 },
-      { customerId: 'c2', name: 'Maria', phone: '+5585999990002', dueDate: '2026-06-01', amount: 70 },
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
+      { customerId: 'c2', name: 'Maria', phone: '+5585999990002', dueDate: '2026-06-01', amount: 70, document: '98765432100', pixCode: '00020126xyz' },
     ]);
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open' });
-    (sgp.generatePixKey as jest.Mock).mockResolvedValue({ pixKey: '00020126abc' });
 
     await runBillingCadenceD5();
 
+    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(5);
     expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
     expect(whatsappService.sendText).toHaveBeenCalledWith(
       expect.any(String),
@@ -65,13 +64,11 @@ describe('runBillingCadenceD5', () => {
     );
   });
 
-  it('includes PIX key in the message', async () => {
+  it('includes PIX key in the message when present', async () => {
     mockHabituals(['c1', 'c1']);
-    (sgp.getCustomersDueInDays as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90 },
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
     ]);
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open' });
-    (sgp.generatePixKey as jest.Mock).mockResolvedValue({ pixKey: '00020126abc' });
 
     await runBillingCadenceD5();
 
@@ -81,19 +78,43 @@ describe('runBillingCadenceD5', () => {
       expect.stringContaining('00020126abc')
     );
   });
+
+  it('omits the PIX line when pixCode is missing (best-effort, never blocks the message)', async () => {
+    mockHabituals(['c1', 'c1']);
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909' },
+    ]);
+
+    await runBillingCadenceD5();
+
+    const [, , msg] = (whatsappService.sendText as jest.Mock).mock.calls[0]!;
+    expect(msg).not.toMatch(/pix/i);
+  });
+
+  it('skips and logs when the customer CPF is outside the send allowlist', async () => {
+    mockHabituals(['c1', 'c1']);
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'Fora', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '99999999999' },
+    ]);
+    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+
+    await runBillingCadenceD5();
+
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
+    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd5_habitual');
+  });
 });
 
 describe('runBillingCadenceD2', () => {
   it('sends D-2 message mentioning 2 dias to habitual late payers', async () => {
     mockHabituals(['c1', 'c1']);
-    (sgp.getCustomersDueInDays as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90 },
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
     ]);
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open' });
-    (sgp.generatePixKey as jest.Mock).mockResolvedValue({ pixKey: '00020126abc' });
 
     await runBillingCadenceD2();
 
+    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(2);
     expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
     expect(whatsappService.sendText).toHaveBeenCalledWith(
       expect.any(String),
@@ -104,16 +125,13 @@ describe('runBillingCadenceD2', () => {
 
   it('sends reminder to non-habitual payers too (different message)', async () => {
     mockHabituals([]); // no habituals
-    (sgp.getCustomersDueInDays as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90 },
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'João', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
     ]);
-    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', status: 'open' });
-    (sgp.generatePixKey as jest.Mock).mockResolvedValue({ pixKey: '00020126abc' });
 
     await runBillingCadenceD2();
 
     expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
-    // non-habitual gets a gentle reminder (not the warning)
     expect(whatsappService.sendText).toHaveBeenCalledWith(
       expect.any(String),
       '+5585999990001',
@@ -124,5 +142,18 @@ describe('runBillingCadenceD2', () => {
       expect.any(String),
       expect.stringContaining('suspensa'),
     );
+  });
+
+  it('skips and logs when the customer CPF is outside the send allowlist', async () => {
+    mockHabituals([]);
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', name: 'Fora', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '99999999999' },
+    ]);
+    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+
+    await runBillingCadenceD2();
+
+    expect(whatsappService.sendText).not.toHaveBeenCalled();
+    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd2_regular');
   });
 });

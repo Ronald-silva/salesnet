@@ -60,6 +60,10 @@ const envSchema = z.object({
   /** Número sandbox dedicado para testes ao vivo (webhook simulado, processMessage direto, scripts de diagnóstico) — nunca um número real de cliente/equipe. Ver assertSandboxNumber em utils/test-sandbox.ts. */
   TEST_SANDBOX_PHONE: z.string().optional(),
 
+  // ── Billing ───────────────────────────────────────────────────────────────
+  /** CPFs (separados por vírgula, com ou sem formatação) autorizados a receber cobrança automática real enquanto o rollout é limitado. Vazia/ausente = allowlist inativa (nenhum CPF bloqueado). Ver backend/src/automations/billing-allowlist.ts. */
+  BILLING_ALLOWLIST_CPFS: z.string().optional(),
+
   // ── ERP ───────────────────────────────────────────────────────────────────
   SGP_BASE_URL: z.string().url('SGP_BASE_URL must be a valid URL'),
   SGP_API_TOKEN: z.string().min(1, 'SGP_API_TOKEN is required'),

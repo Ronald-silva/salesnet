@@ -1,13 +1,18 @@
 import { sgpClient, systemParams } from './client';
+import { getCustomerByCpf } from './customers';
+import { isValidCpf, normalizeCpf } from '../../lib/cpf';
 import {
   TitulosResponseSchema,
   InvoiceSchema,
   PixKeySchema,
+  BillingStatusEntrySchema,
   type Invoice,
   type PixKey,
   type OverdueCustomer,
   type DueSoonCustomer,
   type SuspendReactivateResponse,
+  type BillingStage,
+  type BillingStatusEntry,
 } from './types';
 
 // SGP às vezes devolve links apontando para o frontend Vercel em vez do próprio SGP.
@@ -40,7 +45,7 @@ function faturaToInvoice(f: { id: number; valor: number; valorcorrigido: number;
     amount:         f.valorcorrigido ?? f.valor,
     dueDate:        f.vencimento,
     status,
-    pixCode:        f.codigopix || undefined,
+    pixCode:        f.codigopix?.trim() || undefined,
     canGeneratePix: f.gerarpix,
     barcode:        f.linhadigitavel || undefined,
     link:           fixedLink,
@@ -79,7 +84,7 @@ export async function generatePixKey(invoiceId: string, contratoId?: string, for
       const parsed = TitulosResponseSchema.parse(data);
       const fatura = parsed.faturas.find((f) => String(f.id) === invoiceId);
       if (fatura?.codigopix) {
-        return PixKeySchema.parse({ invoiceId, pixKey: fatura.codigopix });
+        return PixKeySchema.parse({ invoiceId, pixKey: fatura.codigopix.trim() });
       }
     } catch {
       // fall through to direct PIX generation
@@ -93,7 +98,7 @@ export async function generatePixKey(invoiceId: string, contratoId?: string, for
   const pixCode = data?.codigopix ?? data?.pix ?? data?.codigo ?? data?.qrcode;
   if (!pixCode) throw new Error('PIX não disponível para esta fatura');
 
-  return PixKeySchema.parse({ invoiceId, pixKey: String(pixCode) });
+  return PixKeySchema.parse({ invoiceId, pixKey: String(pixCode).trim() });
 }
 
 /** Returns all invoices for a contract (paid + open). */
@@ -115,6 +120,72 @@ export async function getOverdueCustomers(_daysOverdue: number): Promise<Overdue
 
 export async function getCustomersDueInDays(_days: number): Promise<DueSoonCustomer[]> {
   return [];
+}
+
+function computeBillingStage(daysUntilDue: number): BillingStage | null {
+  switch (daysUntilDue) {
+    case 5:  return 'd5';
+    case 2:  return 'd2';
+    case 0:  return 'd0';
+    case -3: return 'd3_overdue';
+    case -5: return 'd5_overdue';
+    default: return null;
+  }
+}
+
+/**
+ * Resolves billing status directly for a fixed list of CPFs — no SGP bulk-listing
+ * endpoint exists (getOverdueCustomers/getCustomersDueInDays above remain stubs for
+ * that reason). Looks up each CPF individually (consultacliente + titulos) and
+ * SEQUENTIALLY — never in parallel — to avoid bursting the SGP with concurrent calls.
+ * A failure on one CPF (invalid checksum, not found, invoice lookup error) is logged
+ * and skipped; it never aborts the rest of the list.
+ */
+export async function getBillingStatusForAllowlist(cpfs: string[]): Promise<BillingStatusEntry[]> {
+  const results: BillingStatusEntry[] = [];
+  const today = new Date().toISOString().split('T')[0]!;
+
+  for (const rawCpf of cpfs) {
+    const cpf = normalizeCpf(rawCpf);
+    if (!isValidCpf(cpf)) {
+      console.error(`[billing] getBillingStatusForAllowlist: skipping CPF that fails checksum validation`);
+      continue;
+    }
+
+    let customer: { id: string; name: string; phone: string };
+    try {
+      customer = await getCustomerByCpf(cpf);
+    } catch (err) {
+      console.error(`[billing] getBillingStatusForAllowlist: lookup failed for a CPF in the allowlist:`, err);
+      continue;
+    }
+
+    try {
+      const body = systemParams({ contrato: customer.id, status: '1', limit: '5' });
+      const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
+      const parsed = TitulosResponseSchema.parse(data);
+      if (!parsed.faturas.length) continue; // no open invoice — nothing to notify
+
+      const nearest = [...parsed.faturas].sort((a, b) => a.vencimento.localeCompare(b.vencimento))[0]!;
+      const daysUntilDue = Math.round((Date.parse(nearest.vencimento) - Date.parse(today)) / 86_400_000);
+
+      results.push(BillingStatusEntrySchema.parse({
+        customerId:   customer.id,
+        document:     cpf,
+        name:         customer.name,
+        phone:        customer.phone,
+        dueDate:      nearest.vencimento,
+        amount:       nearest.valorcorrigido ?? nearest.valor,
+        daysUntilDue,
+        pixCode:      nearest.codigopix?.trim() || undefined,
+        stage:        computeBillingStage(daysUntilDue),
+      }));
+    } catch (err) {
+      console.error(`[billing] getBillingStatusForAllowlist: invoice lookup failed for contrato ${customer.id}:`, err);
+    }
+  }
+
+  return results;
 }
 
 /** SGP does not expose a suspend endpoint via Central API — stub. */

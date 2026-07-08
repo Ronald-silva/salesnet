@@ -227,6 +227,10 @@ export const OverdueCustomerSchema = z.object({
   phone:       z.string(),
   daysOverdue: z.number(),
   amountDue:   z.number(),
+  // Present when the record came from a CPF-targeted lookup (getBillingStatusForAllowlist);
+  // used to re-verify the allowlist gate at send time regardless of source.
+  document:    z.string().optional(),
+  pixCode:     z.string().optional(),
 });
 
 export const DueSoonCustomerSchema = z.object({
@@ -235,6 +239,8 @@ export const DueSoonCustomerSchema = z.object({
   phone:      z.string(),
   dueDate:    z.string(),
   amount:     z.number(),
+  document:   z.string().optional(),
+  pixCode:    z.string().optional(),
 });
 
 export const SuspendReactivateResponseSchema = z.object({
@@ -246,6 +252,24 @@ export const SuspendReactivateResponseSchema = z.object({
 export type OverdueCustomer = z.infer<typeof OverdueCustomerSchema>;
 export type DueSoonCustomer = z.infer<typeof DueSoonCustomerSchema>;
 export type SuspendReactivateResponse = z.infer<typeof SuspendReactivateResponseSchema>;
+
+// ── Billing status by CPF (targeted allowlist lookup, no bulk endpoint needed) ─
+
+export const BillingStageSchema = z.enum(['d5', 'd2', 'd0', 'd3_overdue', 'd5_overdue']);
+export type BillingStage = z.infer<typeof BillingStageSchema>;
+
+export const BillingStatusEntrySchema = z.object({
+  customerId:   z.string(),
+  document:     z.string(),
+  name:         z.string(),
+  phone:        z.string(),
+  dueDate:      z.string(),
+  amount:       z.number(),
+  daysUntilDue: z.number(), // negative = overdue
+  pixCode:      z.string().optional(),
+  stage:        BillingStageSchema.nullable(), // null = not in any tracked notification window today
+});
+export type BillingStatusEntry = z.infer<typeof BillingStatusEntrySchema>;
 
 // ── Legacy list schemas (used by billing automations) ────────────────────────
 

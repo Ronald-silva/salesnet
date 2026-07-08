@@ -26,11 +26,14 @@ jest.mock('../../config/supabase', () => ({
 }));
 
 jest.mock('../../integrations/sgp', () => ({
-  getCustomersDueInDays: jest.fn(),
-  getOverdueCustomers: jest.fn(),
   suspendCustomer: jest.fn(),
-  generatePixKey: jest.fn(),
-  getCurrentInvoice: jest.fn(),
+}));
+
+jest.mock('../../automations/billing-allowlist', () => ({
+  resolveDueSoonCustomers: jest.fn(),
+  resolveOverdueCustomers: jest.fn(),
+  isCpfSendAllowed: jest.fn(),
+  logSkippedOutsideAllowlist: jest.fn(),
 }));
 
 jest.mock('../../services/whatsapp-service', () => ({
@@ -40,11 +43,18 @@ jest.mock('../../services/whatsapp-service', () => ({
 }));
 
 import { supabase } from '../../config/supabase';
-import { getCustomersDueInDays, getOverdueCustomers, suspendCustomer, generatePixKey, getCurrentInvoice } from '../../integrations/sgp';
+import { suspendCustomer } from '../../integrations/sgp';
+import {
+  resolveDueSoonCustomers,
+  resolveOverdueCustomers,
+  isCpfSendAllowed,
+  logSkippedOutsideAllowlist,
+} from '../../automations/billing-allowlist';
 import { whatsappService } from '../../services/whatsapp-service';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  (isCpfSendAllowed as jest.Mock).mockReturnValue(true); // allowlist inactive by default in these tests
 });
 
 function mockSupabaseChain(overrides: Record<string, jest.Mock> = {}) {
@@ -92,34 +102,51 @@ describe('logNotification', () => {
 });
 
 describe('runBillingJobD3', () => {
-  it('sends template and logs for each due-soon customer', async () => {
+  it('sends template using the invoice pixCode already resolved (no PIX endpoint call)', async () => {
     const customers = [
-      { customerId: 'c1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-05-10', amount: 70 },
+      { customerId: 'c1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-05-10', amount: 70, document: '12345678909', pixCode: 'pix123' },
     ];
-    (getCustomersDueInDays as jest.Mock).mockResolvedValue(customers);
-    (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv1', amount: 70, dueDate: '2026-05-10' });
-    (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pix123', invoiceId: 'inv1' });
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
     const chain = mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
     });
 
     await runBillingJobD3();
 
-    expect(getCustomersDueInDays).toHaveBeenCalledWith(3);
+    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(3);
     expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
       expect.any(String),
-      customers[0].phone,
+      customers[0]!.phone,
       'billing_reminder_d3',
-      expect.objectContaining({ nome: 'Maria' })
+      expect.objectContaining({ nome: 'Maria', chave_pix: 'pix123' })
     );
     expect(chain.insert).toHaveBeenCalled();
   });
 
+  it('sends with an empty chave_pix when the invoice has no cached codigopix (best-effort, never blocks the message)', async () => {
+    const customers = [
+      { customerId: 'c1b', name: 'Bruno', phone: '+5585999990010', dueDate: '2026-05-10', amount: 70, document: '12345678909' },
+    ];
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+    });
+
+    await runBillingJobD3();
+
+    expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
+      expect.any(String),
+      customers[0]!.phone,
+      'billing_reminder_d3',
+      expect.objectContaining({ chave_pix: '' })
+    );
+  });
+
   it('skips customer already notified today', async () => {
     const customers = [
-      { customerId: 'c2', name: 'João', phone: '+5585999990002', dueDate: '2026-05-10', amount: 60 },
+      { customerId: 'c2', name: 'João', phone: '+5585999990002', dueDate: '2026-05-10', amount: 60, document: '12345678909' },
     ];
-    (getCustomersDueInDays as jest.Mock).mockResolvedValue(customers);
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
     });
@@ -128,36 +155,50 @@ describe('runBillingJobD3', () => {
 
     expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
   });
+
+  it('skips and logs when the customer CPF is outside the send allowlist', async () => {
+    const customers = [
+      { customerId: 'c1c', name: 'Fora', phone: '+5585999990099', dueDate: '2026-05-10', amount: 70, document: '99999999999' },
+    ];
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
+    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+    });
+
+    await runBillingJobD3();
+
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
+    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1c', '+5585999990099', 'd3');
+  });
 });
 
 describe('runBillingJobD0', () => {
   it('sends d0 template for due-today customers not yet notified', async () => {
     const customers = [
-      { customerId: 'c3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 90 },
+      { customerId: 'c3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 90, document: '12345678909', pixCode: 'pix456' },
     ];
-    (getCustomersDueInDays as jest.Mock).mockResolvedValue(customers);
-    (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv3', amount: 90, dueDate: '2026-05-07' });
-    (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pix456', invoiceId: 'inv3' });
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
     });
 
     await runBillingJobD0();
 
-    expect(getCustomersDueInDays).toHaveBeenCalledWith(0);
+    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(0);
     expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
       expect.any(String),
-      customers[0].phone,
+      customers[0]!.phone,
       'billing_reminder_d0',
-      expect.objectContaining({ nome: 'Ana' })
+      expect.objectContaining({ nome: 'Ana', chave_pix: 'pix456' })
     );
   });
 
   it('skips customer already notified today', async () => {
     const customers = [
-      { customerId: 'c3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 90 },
+      { customerId: 'c3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 90, document: '12345678909' },
     ];
-    (getCustomersDueInDays as jest.Mock).mockResolvedValue(customers);
+    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
     });
@@ -171,31 +212,29 @@ describe('runBillingJobD0', () => {
 describe('runBillingJobOverdueD3', () => {
   it('sends overdue template for 3-day overdue customers', async () => {
     const customers = [
-      { customerId: 'c4', name: 'Pedro', phone: '+5585999990004', daysOverdue: 3, amountDue: 70 },
+      { customerId: 'c4', name: 'Pedro', phone: '+5585999990004', daysOverdue: 3, amountDue: 70, document: '12345678909', pixCode: 'pix789' },
     ];
-    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
-    (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv4', amount: 70, dueDate: '2026-05-04' });
-    (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pix789', invoiceId: 'inv4' });
+    (resolveOverdueCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
     });
 
     await runBillingJobOverdueD3();
 
-    expect(getOverdueCustomers).toHaveBeenCalledWith(3);
+    expect(resolveOverdueCustomers).toHaveBeenCalledWith(3);
     expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
       expect.any(String),
-      customers[0].phone,
+      customers[0]!.phone,
       'billing_overdue_d3',
-      expect.objectContaining({ nome: 'Pedro' })
+      expect.objectContaining({ nome: 'Pedro', chave_pix: 'pix789' })
     );
   });
 
   it('skips customer already notified today', async () => {
     const customers = [
-      { customerId: 'c4', name: 'Pedro', phone: '+5585999990004', daysOverdue: 3, amountDue: 70 },
+      { customerId: 'c4', name: 'Pedro', phone: '+5585999990004', daysOverdue: 3, amountDue: 70, document: '12345678909' },
     ];
-    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
+    (resolveOverdueCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
     });
@@ -209,11 +248,9 @@ describe('runBillingJobOverdueD3', () => {
 describe('runBillingJobSuspendD5', () => {
   it('sends suspension template then suspends customer after 5 days overdue', async () => {
     const customers = [
-      { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60 },
+      { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60, document: '12345678909', pixCode: 'pixABC' },
     ];
-    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
-    (getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv5', amount: 60, dueDate: '2026-05-02' });
-    (generatePixKey as jest.Mock).mockResolvedValue({ pixKey: 'pixABC', invoiceId: 'inv5' });
+    (resolveOverdueCustomers as jest.Mock).mockResolvedValue(customers);
     const callOrder: string[] = [];
     (whatsappService.sendTemplate as jest.Mock).mockImplementation(async () => { callOrder.push('sendTemplate'); });
     (suspendCustomer as jest.Mock).mockImplementation(async () => { callOrder.push('suspendCustomer'); return { customerId: 'c5', status: 'suspended', updatedAt: '' }; });
@@ -223,10 +260,10 @@ describe('runBillingJobSuspendD5', () => {
 
     await runBillingJobSuspendD5();
 
-    expect(getOverdueCustomers).toHaveBeenCalledWith(5);
+    expect(resolveOverdueCustomers).toHaveBeenCalledWith(5);
     expect(whatsappService.sendTemplate).toHaveBeenCalledWith(
       expect.any(String),
-      customers[0].phone,
+      customers[0]!.phone,
       'billing_suspended_d5',
       expect.objectContaining({ nome: 'Clara' })
     );
@@ -236,9 +273,9 @@ describe('runBillingJobSuspendD5', () => {
 
   it('skips customer already notified today', async () => {
     const customers = [
-      { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60 },
+      { customerId: 'c5', name: 'Clara', phone: '+5585999990005', daysOverdue: 5, amountDue: 60, document: '12345678909' },
     ];
-    (getOverdueCustomers as jest.Mock).mockResolvedValue(customers);
+    (resolveOverdueCustomers as jest.Mock).mockResolvedValue(customers);
     mockSupabaseChain({
       single: jest.fn().mockResolvedValue({ data: { id: 'existing' }, error: null }),
     });
@@ -247,5 +284,22 @@ describe('runBillingJobSuspendD5', () => {
 
     expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
     expect(suspendCustomer).not.toHaveBeenCalled();
+  });
+
+  it('skips and logs when the customer CPF is outside the send allowlist, never suspending', async () => {
+    const customers = [
+      { customerId: 'c5b', name: 'Fora', phone: '+5585999990098', daysOverdue: 5, amountDue: 60, document: '99999999999' },
+    ];
+    (resolveOverdueCustomers as jest.Mock).mockResolvedValue(customers);
+    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    mockSupabaseChain({
+      single: jest.fn().mockResolvedValue({ data: null, error: { code: 'PGRST116' } }),
+    });
+
+    await runBillingJobSuspendD5();
+
+    expect(whatsappService.sendTemplate).not.toHaveBeenCalled();
+    expect(suspendCustomer).not.toHaveBeenCalled();
+    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c5b', '+5585999990098', 'suspended_d5');
   });
 });
