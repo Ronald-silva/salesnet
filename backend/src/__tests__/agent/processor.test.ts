@@ -27,6 +27,7 @@ jest.mock('../../config/env', () => ({
 jest.mock('../../agent/customer-lookup', () => ({
   lookupCustomer: jest.fn(),
   extractCpfFromText: jest.fn().mockReturnValue(null),
+  extractBareCpfWhenAsked: jest.fn().mockReturnValue(null),
   buildIdentificationContext: jest.fn().mockReturnValue(''),
 }));
 
@@ -96,7 +97,7 @@ jest.mock('../../services/whatsapp-service', () => ({
 import { processMessage } from '../../agent/processor';
 import { isHumanMode, getThread, saveMessage } from '../../agent/memory';
 import { executeTool } from '../../agent/tools';
-import { lookupCustomer, extractCpfFromText } from '../../agent/customer-lookup';
+import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked } from '../../agent/customer-lookup';
 import { anthropic } from '../../config/anthropic';
 import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
@@ -385,5 +386,22 @@ describe('processMessage — invalid CPF in the message', () => {
     );
     const firstCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[0]![0];
     expect(firstCallArgs.system).not.toContain('parece inválido');
+  });
+
+  it('forwards a short bare checksum-valid CPF even when Sofia did not ask for CPF first', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce(null);
+    (extractBareCpfWhenAsked as jest.Mock).mockReturnValueOnce('04976301338');
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'cpf',
+      cpfUsed: '04976301338',
+      attempts: ['phone', 'cpf'],
+    });
+
+    await processMessage(PHONE, '04976301338');
+
+    expect(lookupCustomer).toHaveBeenCalledWith(
+      expect.objectContaining({ cpfFromMessage: '04976301338' }),
+    );
   });
 });

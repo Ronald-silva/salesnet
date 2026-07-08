@@ -2,6 +2,7 @@ import * as sgp from '../integrations/sgp';
 import { supabase } from '../config/supabase';
 import { persistThreadCpf } from './memory';
 import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../lib/cpf';
+import { isPhoneRegisteredToCpf } from './identity-verification';
 import type { Customer } from '../integrations/sgp/types';
 
 /**
@@ -66,6 +67,12 @@ export async function lookupCustomer(params: {
 
   const messageCpf = params.cpfFromMessage ? normalizeCpf(params.cpfFromMessage) : null;
 
+  async function persistCpfIfVerified(cpf: string): Promise<void> {
+    if (await isPhoneRegisteredToCpf(whatsappPhone, cpf)) {
+      await persistThreadCpf(whatsappPhone, tenantId, cpf);
+    }
+  }
+
   try {
     attempts.push('phone');
     const customer = await sgp.getCustomerByPhone(whatsappPhone);
@@ -88,7 +95,7 @@ export async function lookupCustomer(params: {
     try {
       attempts.push(`cpf:${cpf.slice(0, 3)}***`);
       const customer = await sgp.getCustomerByCpf(cpf, whatsappPhone);
-      await persistThreadCpf(whatsappPhone, tenantId, cpf);
+      await persistCpfIfVerified(cpf);
       return { customer, method: 'cpf', cpfUsed: cpf, attempts };
     } catch (err) {
       logIfUnexpected(`cpf lookup for ${cpf.slice(0, 3)}***`, err);

@@ -19,9 +19,14 @@ jest.mock('../../agent/memory', () => ({
   persistThreadCpf: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../../agent/identity-verification', () => ({
+  isPhoneRegisteredToCpf: jest.fn(),
+}));
+
 import { lookupCustomer } from '../../agent/customer-lookup';
 import * as sgp from '../../integrations/sgp';
 import { persistThreadCpf } from '../../agent/memory';
+import { isPhoneRegisteredToCpf } from '../../agent/identity-verification';
 
 const PHONE = '+5585999990000';
 const TENANT = 'salesnet-default';
@@ -30,6 +35,7 @@ const CUSTOMER = { id: 'c1', name: 'João', document: '04976301338', status: 'ac
 describe('lookupCustomer', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (isPhoneRegisteredToCpf as jest.Mock).mockResolvedValue(true);
   });
 
   it('returns customer by phone when found', async () => {
@@ -59,6 +65,23 @@ describe('lookupCustomer', () => {
     expect(result.method).toBe('cpf');
     expect(result.cpfUsed).toBe('04976301338');
     expect(sgp.getCustomerByCpf).toHaveBeenCalledWith('04976301338', PHONE);
+  });
+
+  it('can identify by CPF without persisting the CPF when the WhatsApp phone is not linked', async () => {
+    (sgp.getCustomerByPhone as jest.Mock).mockRejectedValue(new Error('not found'));
+    (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue(CUSTOMER);
+    (isPhoneRegisteredToCpf as jest.Mock).mockResolvedValue(false);
+
+    const result = await lookupCustomer({
+      whatsappPhone: PHONE,
+      tenantId: TENANT,
+      cpfFromMessage: '04976301338',
+    });
+
+    expect(result.method).toBe('cpf');
+    expect(result.customer).toEqual(CUSTOMER);
+    expect(isPhoneRegisteredToCpf).toHaveBeenCalledWith(PHONE, '04976301338');
+    expect(persistThreadCpf).not.toHaveBeenCalled();
   });
 
   it('uses CPF from thread when phone fails', async () => {

@@ -651,10 +651,17 @@ export async function processMessage(
       content: m.content,
     }));
 
-    // Gap 4: if Sofia's last message asked for CPF, also try bare 11-digit extraction
+    // Bare 11-digit values overlap with BR mobile numbers. Accept them as CPF only
+    // when Sofia asked for CPF, or when the value itself passes CPF checksum.
     const lastAssistantMsg = [...thread.messages].reverse().find(m => m.role === 'assistant');
     const sofiaAskedForCpf = lastAssistantMsg != null && /\bcpf\b|\bdocumento\b/i.test(lastAssistantMsg.content);
-    const extractedCpf = extractCpfFromText(clean) ?? (sofiaAskedForCpf ? extractBareCpfWhenAsked(clean) : null);
+    const explicitCpf = extractCpfFromText(clean);
+    const bareCpf = extractBareCpfWhenAsked(clean);
+    const extractedCpf = explicitCpf ?? (
+      sofiaAskedForCpf || (bareCpf !== null && isValidCpf(bareCpf))
+        ? bareCpf
+        : null
+    );
     // Checksum (not just length) — an invalid CPF must never reach the SGP, where it
     // can coincidentally match an unrelated real customer's dirty data.
     const cpfLooksInvalid = extractedCpf !== null && !isValidCpf(extractedCpf);
