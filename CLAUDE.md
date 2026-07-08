@@ -204,12 +204,12 @@ Confirmado em produção (2026-05): a Evolution Go **não envia** `x-webhook-sig
 - **Sem** assinatura (padrão Evolution):
   - se vier header `apikey` **e** ele **não** casar com nenhum secret configurado → `return false` (rejeita) — correção aplicada e confirmada no código (`evolution-go.ts`, ~linha 478).
   - se vier `apikey` e casar, ou se o token da instância no body casar → aceita.
-  - se **não** vier `apikey` nenhum (caso padrão do Evolution Go) → aceita (não há como validar).
+  - se **não** vier HMAC, `apikey` nem `instanceToken` válido no body → rejeita. O payload real confirmado em produção inclui `instanceToken` no topo; sem ele, é spoofing ou configuração quebrada.
 - `EVOLUTION_WEBHOOK_SKIP_HMAC=true` → desliga tudo (só emergência).
 
 `EVOLUTION_WEBHOOK_SECRET` no serviço Railway **evolution-go** não é variável oficial da Evolution — só o backend **salesnet** usa para verificar, se um dia a Evolution assinar.
 
-**Sintoma de regressão:** logs `Missing x-webhook-signature — rejected` e zero `event=Message` processado. Boot deve mostrar `validation enabled (HMAC if x-webhook-signature sent; else apikey or open for Evolution Go)`.
+**Sintoma de regressão:** logs `missing HMAC signature, apikey header, or instanceToken` e zero `event=Message` processado. Boot deve mostrar validação habilitada por HMAC, `apikey` ou `instanceToken`.
 
 `connectInstance` envia `webhookSecret` no body (undocumented); fingerprint no log: `fp=df0bb2ea` para `salesnet-token-2026`. Diagnóstico no boot: `[webhook-hmac]` em `webhook-hmac-diagnostics.ts`.
 

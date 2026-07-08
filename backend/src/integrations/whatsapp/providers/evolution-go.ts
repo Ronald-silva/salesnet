@@ -469,8 +469,11 @@ export class EvolutionGoProvider implements WhatsAppProvider {
     }
 
     const secrets = evolutionWebhookSecrets(options?.extraSecrets);
-    if (secrets.length === 0) return true;
-    if (!(rawBody instanceof Buffer)) return true;
+    if (secrets.length === 0) {
+      console.warn('[webhook] rejected: no webhook secret, instance token, or API key configured');
+      return false;
+    }
+    if (!(rawBody instanceof Buffer)) return false;
 
     const rawSig = getWebhookSignatureHeader(headers);
 
@@ -483,7 +486,8 @@ export class EvolutionGoProvider implements WhatsAppProvider {
         return false;
       }
       if (bodyInstanceTokenMatches(rawBody, secrets)) return true;
-      return true;
+      console.warn('[webhook] rejected: missing HMAC signature, apikey header, or instanceToken');
+      return false;
     }
 
     const matched = secrets.find((secret) => hmacSha256Matches(rawBody, secret, rawSig));

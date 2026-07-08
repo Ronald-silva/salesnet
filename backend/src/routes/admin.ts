@@ -145,8 +145,8 @@ function getFortalezaTodayStart(): string {
 
 function resolveRole(raw: unknown): string | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
-  const data = raw as { app_metadata?: { role?: string }; user_metadata?: { role?: string } };
-  return data.app_metadata?.role ?? data.user_metadata?.role;
+  const data = raw as { app_metadata?: { role?: string } };
+  return data.app_metadata?.role;
 }
 
 adminRouter.post('/login', async (req, res) => {

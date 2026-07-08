@@ -21,10 +21,10 @@ export function logEvolutionWebhookHmacConfig(): void {
   if (skip) {
     console.warn('[webhook-hmac] EVOLUTION_WEBHOOK_SKIP_HMAC=true — validation disabled');
   } else if (!webhookSecret && !instanceToken) {
-    console.warn('[webhook-hmac] no secrets configured — validation disabled');
+    console.warn('[webhook-hmac] no webhook secret or instance token configured — webhooks require a valid apikey or will be rejected');
   } else {
     console.log(
-      '[webhook-hmac] validation enabled (HMAC if x-webhook-signature sent; else apikey or open for Evolution Go)',
+      '[webhook-hmac] validation enabled (HMAC, apikey, or instanceToken required)',
     );
   }
 

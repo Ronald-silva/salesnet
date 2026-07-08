@@ -352,6 +352,14 @@ async function resolveSessionCustomerId(phone: string, tenantId: string): Promis
   return 'error' in result.customer ? null : result.customer.id;
 }
 
+async function requireSessionCustomerId(phone: string, tenantId: string): Promise<string | { error: string }> {
+  const customerId = await resolveSessionCustomerId(phone, tenantId);
+  if (!customerId) {
+    return { error: 'Não foi possível confirmar o contrato desta sessão. Peça o CPF do titular antes de continuar.' };
+  }
+  return customerId;
+}
+
 export async function markChurnRiskByPhone(phone: string, tenantId: string): Promise<void> {
   const { error } = await supabase
     .from('conversation_threads')
@@ -426,22 +434,39 @@ export async function executeTool(
       return result.customer;
     }
 
-    case 'get_fatura_atual':
-      return sgp.getCurrentInvoice(input.customer_id as string);
+    case 'get_fatura_atual': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
+      return sgp.getCurrentInvoice(customerId);
+    }
 
-    case 'listar_faturas':
-      return sgp.getCustomerInvoices(input.customer_id as string);
+    case 'listar_faturas': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
+      return sgp.getCustomerInvoices(customerId);
+    }
 
-    case 'gerar_pix':
+    case 'gerar_pix': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
+      const invoiceId = String(input.invoice_id ?? '');
+      const invoices = await sgp.getCustomerInvoices(customerId);
+      const ownsInvoice = invoices.some((inv) => inv.id === invoiceId);
+      if (!ownsInvoice) {
+        return { error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' };
+      }
       return sgp.generatePixKey(
-        input.invoice_id as string,
-        input.customer_id as string | undefined,
+        invoiceId,
+        customerId,
         input.force_new === true,
       );
+    }
 
     case 'confirmar_pagamento': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
       try {
-        const invoices = await sgp.getCustomerInvoices(input.customer_id as string);
+        const invoices = await sgp.getCustomerInvoices(customerId);
         // If specific invoice_id given, find it; otherwise check if any open invoice exists
         if (input.invoice_id) {
           const target = invoices.find((inv) => inv.id === String(input.invoice_id));
@@ -729,16 +754,22 @@ export async function executeTool(
       };
     }
 
-    case 'status_conexao':
-      return sgp.getConnectionStatus(input.customer_id as string);
+    case 'status_conexao': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
+      return sgp.getConnectionStatus(customerId);
+    }
 
     case 'solicitar_teste_velocidade': {
       let planMbps = (input.plan_mbps as number | undefined) ?? 0;
 
-      // Resolve plan speed from SGP when the LLM omits plan_mbps
-      if (planMbps <= 0 && input.customer_id) {
+      // Resolve plan speed from the session contract when the LLM omits plan_mbps.
+      // Never trust input.customer_id here: the tool call can be prompt-injected.
+      if (planMbps <= 0) {
+        const customerId = await requireSessionCustomerId(phone, tenantId);
+        if (typeof customerId !== 'string') return customerId;
         try {
-          const customer = await sgp.getCustomerById(String(input.customer_id));
+          const customer = await sgp.getCustomerById(customerId);
           planMbps = customer.plan?.downloadMbps ?? 0;
         } catch {
           // best-effort — continue with unknown speed
@@ -811,7 +842,8 @@ export async function executeTool(
     }
 
     case 'solicitar_upgrade': {
-      const customerId = String(input.customer_id ?? '');
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
       const newPlan = String(input.new_plan ?? '');
       const description = `Upgrade solicitado pelo cliente via Sofia. Plano desejado: ${newPlan}.`;
 
@@ -850,7 +882,8 @@ export async function executeTool(
     }
 
     case 'aplicar_cortesia': {
-      const customerId = String(input.customer_id ?? '');
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
       const reason = String(input.reason ?? '');
       const description = `Cortesia solicitada via Sofia. Motivo: ${reason}`;
 
@@ -982,8 +1015,10 @@ export async function executeTool(
       };
 
     case 'registrar_negociacao': {
+      const customerId = await requireSessionCustomerId(phone, tenantId);
+      if (typeof customerId !== 'string') return customerId;
       const { error } = await supabase.from('billing_notifications').insert({
-        customer_id: input.customer_id as string,
+        customer_id: customerId,
         phone,
         type: 'negociacao',
         status: 'registered',

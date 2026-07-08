@@ -8,8 +8,8 @@ export interface AdminRequest extends Request {
 
 function extractRole(user: unknown): string | undefined {
   if (!user || typeof user !== 'object') return undefined;
-  const data = user as { app_metadata?: { role?: string }; user_metadata?: { role?: string } };
-  return data.app_metadata?.role ?? data.user_metadata?.role;
+  const data = user as { app_metadata?: { role?: string } };
+  return data.app_metadata?.role;
 }
 
 export async function adminAuthMiddleware(

@@ -40,6 +40,7 @@ import { setHumanMode, persistThreadCpf } from '../../agent/memory';
 import { lookupCustomer } from '../../agent/customer-lookup';
 
 const PHONE = '+5585999990000';
+const SESSION_CUSTOMER = { id: 'session-customer', name: 'João Silva', status: 'active' as const };
 
 /** Chainable + thenable Supabase query-builder mock: every method returns itself,
  * and the builder can be awaited (or terminated via .limit/.maybeSingle/.single)
@@ -54,6 +55,14 @@ function buildQueryMock(finalResult: { data: unknown; error: unknown }) {
   builder.then = (resolve: (v: typeof finalResult) => unknown, reject?: (e: unknown) => unknown) =>
     Promise.resolve(finalResult).then(resolve, reject);
   return builder;
+}
+
+function mockResolvedSession(customer = SESSION_CUSTOMER) {
+  (lookupCustomer as jest.Mock).mockResolvedValue({
+    customer,
+    method: 'phone',
+    attempts: ['phone'],
+  });
 }
 
 describe('TOOL_DEFINITIONS', () => {
@@ -239,6 +248,7 @@ describe('executeTool — marcar_churn_risk', () => {
 
 describe('executeTool — solicitar_upgrade', () => {
   it('returns queued status without calling SGP', async () => {
+    mockResolvedSession({ id: 'c1', name: 'João Silva', status: 'active' as const });
     const result = await executeTool('solicitar_upgrade', { customer_id: 'c1', new_plan: '100Mbps' }, PHONE);
     expect(result).toMatchObject({ status: 'queued' });
   });
@@ -246,6 +256,7 @@ describe('executeTool — solicitar_upgrade', () => {
 
 describe('executeTool — aplicar_cortesia', () => {
   it('returns queued status without calling SGP', async () => {
+    mockResolvedSession({ id: 'c1', name: 'João Silva', status: 'active' as const });
     const result = await executeTool('aplicar_cortesia', { customer_id: 'c1', reason: 'Instabilidade' }, PHONE);
     expect(result).toMatchObject({ status: 'queued' });
   });
@@ -277,6 +288,7 @@ describe('executeTool — detectar_apagao_bairro', () => {
 
 describe('executeTool — confirmar_pagamento', () => {
   it('returns paid true when invoice status is paid', async () => {
+    mockResolvedSession({ id: 'c1', name: 'João Silva', status: 'active' as const });
     (sgp.getCustomerInvoices as jest.Mock).mockResolvedValue([{ id: 'inv1', status: 'paid', amount: 90 }]);
 
     const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
@@ -284,6 +296,7 @@ describe('executeTool — confirmar_pagamento', () => {
   });
 
   it('returns paid false when invoice status is open', async () => {
+    mockResolvedSession({ id: 'c1', name: 'João Silva', status: 'active' as const });
     (sgp.getCustomerInvoices as jest.Mock).mockResolvedValue([{ id: 'inv1', status: 'open', amount: 90 }]);
 
     const result = await executeTool('confirmar_pagamento', { invoice_id: 'inv1' }, PHONE);
@@ -293,6 +306,7 @@ describe('executeTool — confirmar_pagamento', () => {
 
 describe('executeTool — registrar_negociacao', () => {
   it('inserts negotiation record and returns confirmation', async () => {
+    mockResolvedSession({ id: 'c1', name: 'João Silva', status: 'active' as const });
     mockFrom.mockReturnValue({
       insert: jest.fn().mockResolvedValue({ error: null }),
     });
@@ -303,6 +317,141 @@ describe('executeTool — registrar_negociacao', () => {
       PHONE
     );
     expect(result).toMatchObject({ status: 'registered' });
+  });
+});
+
+describe('executeTool — sensitive customer_id tools are session-scoped', () => {
+  beforeEach(() => {
+    mockResolvedSession();
+    (sgp.getCurrentInvoice as jest.Mock).mockReset().mockResolvedValue({ id: 'inv-session', status: 'open' });
+    (sgp.getCustomerInvoices as jest.Mock).mockReset().mockResolvedValue([
+      { id: 'inv-session', status: 'open', amount: 90 },
+    ]);
+    (sgp.generatePixKey as jest.Mock).mockReset().mockResolvedValue({ invoiceId: 'inv-session', pixKey: 'pix' });
+    (sgp.getConnectionStatus as jest.Mock).mockReset().mockResolvedValue({ customerId: 'session-customer', online: true });
+  });
+
+  it('uses the session customer for get_fatura_atual, ignoring injected customer_id', async () => {
+    await executeTool('get_fatura_atual', { customer_id: 'foreign-customer' }, PHONE);
+
+    expect(sgp.getCurrentInvoice).toHaveBeenCalledWith('session-customer');
+    expect(sgp.getCurrentInvoice).not.toHaveBeenCalledWith('foreign-customer');
+  });
+
+  it('uses the session customer for listar_faturas, ignoring injected customer_id', async () => {
+    await executeTool('listar_faturas', { customer_id: 'foreign-customer' }, PHONE);
+
+    expect(sgp.getCustomerInvoices).toHaveBeenCalledWith('session-customer');
+    expect(sgp.getCustomerInvoices).not.toHaveBeenCalledWith('foreign-customer');
+  });
+
+  it('uses the session customer for status_conexao, ignoring injected customer_id', async () => {
+    await executeTool('status_conexao', { customer_id: 'foreign-customer' }, PHONE);
+
+    expect(sgp.getConnectionStatus).toHaveBeenCalledWith('session-customer');
+    expect(sgp.getConnectionStatus).not.toHaveBeenCalledWith('foreign-customer');
+  });
+
+  it('uses the session customer to resolve speed test plan, ignoring injected customer_id', async () => {
+    (sgp.getCustomerById as jest.Mock).mockReset().mockResolvedValue({
+      id: 'session-customer',
+      name: 'João Silva',
+      status: 'active',
+      plan: { downloadMbps: 500 },
+    });
+
+    const result = await executeTool(
+      'solicitar_teste_velocidade',
+      { customer_id: 'foreign-customer' },
+      PHONE,
+    );
+
+    expect(sgp.getCustomerById).toHaveBeenCalledWith('session-customer');
+    expect(sgp.getCustomerById).not.toHaveBeenCalledWith('foreign-customer');
+    expect(result).toMatchObject({ status: 'sent', plan_mbps: 500, min_expected_mbps: 400 });
+  });
+
+  it('does not resolve speed test plan from an injected customer_id when session is unknown', async () => {
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
+    (sgp.getCustomerById as jest.Mock).mockReset();
+
+    const result = await executeTool(
+      'solicitar_teste_velocidade',
+      { customer_id: 'foreign-customer' },
+      PHONE,
+    );
+
+    expect(sgp.getCustomerById).not.toHaveBeenCalled();
+    expect(result).toEqual({ error: expect.stringContaining('Não foi possível confirmar') });
+  });
+
+  it('uses the session customer for gerar_pix and rejects a foreign invoice_id', async () => {
+    const result = await executeTool(
+      'gerar_pix',
+      { customer_id: 'foreign-customer', invoice_id: 'foreign-invoice' },
+      PHONE,
+    );
+
+    expect(sgp.getCustomerInvoices).toHaveBeenCalledWith('session-customer');
+    expect(sgp.generatePixKey).not.toHaveBeenCalled();
+    expect(result).toEqual({ error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' });
+  });
+
+  it('uses the session customer for gerar_pix when the invoice belongs to the session', async () => {
+    await executeTool(
+      'gerar_pix',
+      { customer_id: 'foreign-customer', invoice_id: 'inv-session', force_new: true },
+      PHONE,
+    );
+
+    expect(sgp.generatePixKey).toHaveBeenCalledWith('inv-session', 'session-customer', true);
+  });
+
+  it('stores upgrade requests against the session customer, ignoring injected customer_id', async () => {
+    const insert = jest.fn().mockResolvedValue({ error: null });
+    mockFrom.mockReturnValue({ insert });
+
+    await executeTool('solicitar_upgrade', { customer_id: 'foreign-customer', new_plan: '700 Mega' }, PHONE);
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ contrato: 'session-customer' }));
+    expect(insert).not.toHaveBeenCalledWith(expect.objectContaining({ contrato: 'foreign-customer' }));
+  });
+
+  it('stores courtesy requests against the session customer, ignoring injected customer_id', async () => {
+    const insert = jest.fn().mockResolvedValue({ error: null });
+    mockFrom.mockReturnValue({ insert });
+
+    await executeTool('aplicar_cortesia', { customer_id: 'foreign-customer', reason: 'instabilidade' }, PHONE);
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ contrato: 'session-customer' }));
+    expect(insert).not.toHaveBeenCalledWith(expect.objectContaining({ contrato: 'foreign-customer' }));
+  });
+
+  it('stores negotiation records against the session customer, ignoring injected customer_id', async () => {
+    const insert = jest.fn().mockResolvedValue({ error: null });
+    mockFrom.mockReturnValue({ insert });
+
+    await executeTool('registrar_negociacao', { customer_id: 'foreign-customer', condicoes: 'pagar amanhã' }, PHONE);
+
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'session-customer' }));
+    expect(insert).not.toHaveBeenCalledWith(expect.objectContaining({ customer_id: 'foreign-customer' }));
+  });
+
+  it('does not call SGP when the session customer cannot be resolved', async () => {
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
+
+    const result = await executeTool('get_fatura_atual', { customer_id: 'foreign-customer' }, PHONE);
+
+    expect(sgp.getCurrentInvoice).not.toHaveBeenCalled();
+    expect(result).toEqual({ error: expect.stringContaining('Não foi possível confirmar') });
   });
 });
 
