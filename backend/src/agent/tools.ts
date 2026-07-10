@@ -54,7 +54,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'gerar_pix',
-    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true SOMENTE quando o cliente relatar explicitamente que o código anterior não funcionou (expirado, inválido, "chave inexistente") — NUNCA na primeira geração, em pedido normal ou reenvio simples; fora desse caso força um caminho de geração que falha e impede a entrega do código. Copie o campo pixKey EXATAMENTE como veio, em texto puro — sem negrito, sem crase, sem aspas, sem quebra de linha no meio, sem nenhum caractere adicionado antes/depois. Qualquer caractere extra colado junto quebra o checksum e invalida o PIX no banco do cliente.',
+    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true SOMENTE quando o cliente relatar explicitamente que o código anterior não funcionou (expirado, inválido, "chave inexistente") — NUNCA na primeira geração, em pedido normal ou reenvio simples; fora desse caso força um caminho de geração que falha e impede a entrega do código. O campo pixKey retorna um placeholder no formato {{PIX_xxxxxxxx}} — não o código real. Cole o placeholder EXATAMENTE como veio (com as duas chaves de cada lado, sem formatação, em sua própria linha); o sistema o substitui pelo código PIX real antes do envio ao cliente. Nunca tente escrever um código PIX real nem reaproveitar placeholder de uma resposta anterior — ambos são bloqueados e a mensagem não chega ao cliente.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -479,14 +479,10 @@ export async function executeTool(
       if (!ownsInvoice) {
         return { error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' };
       }
-      // Sem crase/negrito no retorno: crase simples não é markdown real no WhatsApp
-      // (aparece como caractere literal) e, se o cliente copiar a mensagem inteira,
-      // esse caractere extra vai colado ao payload EMV e quebra o CRC16 — mesmo
-      // problema que os asteriscos causavam, só que introduzido pela própria "proteção"
-      // anterior. gerar_pix entrega pixKey puro; a proteção contra o LLM
-      // acidentalmente inserir negrito/crase ao redor do código já é feita em
-      // formatOutgoingWhatsApp (sanitize.ts), que agora também descarta qualquer
-      // crase residual em vez de preservá-la no texto final.
+      // pixKey sai daqui cru — a tokenização em placeholder ({{PIX_xxxxxxxx}})
+      // acontece no boundary único das flows do processor (pix-token-vault.ts),
+      // nunca dentro das tools; o LLM só vê o placeholder e a substituição pelo
+      // payload real ocorre após formatOutgoingWhatsApp, antes do envio.
       return sgp.generatePixKey(
         invoiceId,
         customerId,
