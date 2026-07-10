@@ -2,6 +2,17 @@ import request from 'supertest';
 import express from 'express';
 import { clientRouter } from '../../routes/client';
 
+jest.mock('../../config/env', () => ({
+  env: {
+    NODE_ENV: 'test',
+    SGP_BASE_URL: 'https://example.com',
+    SGP_API_TOKEN: 'test',
+    SGP_APP_NAME: 'test',
+    SUPABASE_URL: 'https://example.com',
+    SUPABASE_SERVICE_ROLE_KEY: 'test',
+  },
+}));
+
 jest.mock('../../middleware/clientAuth', () => ({
   clientAuthMiddleware: (req: any, _res: any, next: any) => {
     req.customerId = 'cust1';
