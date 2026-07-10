@@ -54,13 +54,13 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'gerar_pix',
-    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP. Copie o campo pixKey EXATAMENTE como veio, em texto puro — sem negrito, sem crase, sem aspas, sem quebra de linha no meio, sem nenhum caractere adicionado antes/depois. Qualquer caractere extra colado junto quebra o checksum e invalida o PIX no banco do cliente.',
+    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true SOMENTE quando o cliente relatar explicitamente que o código anterior não funcionou (expirado, inválido, "chave inexistente") — NUNCA na primeira geração, em pedido normal ou reenvio simples; fora desse caso força um caminho de geração que falha e impede a entrega do código. Copie o campo pixKey EXATAMENTE como veio, em texto puro — sem negrito, sem crase, sem aspas, sem quebra de linha no meio, sem nenhum caractere adicionado antes/depois. Qualquer caractere extra colado junto quebra o checksum e invalida o PIX no banco do cliente.',
     input_schema: {
       type: 'object' as const,
       properties: {
         invoice_id:  { type: 'string', description: 'ID da fatura no SGP — omitir para autopick/resolução automática (ver descrição da tool)' },
         customer_id: { type: 'string', description: 'ID do contrato no SGP' },
-        force_new:   { type: 'boolean', description: 'true para forçar geração de código novo no SGP, ignorando código armazenado. Use quando cliente relatar que o código anterior não funcionou.' },
+        force_new:   { type: 'boolean', description: 'true para forçar geração de código novo no SGP, ignorando código armazenado. Use SOMENTE quando o cliente relatar explicitamente que o código anterior não funcionou — nunca na primeira geração nem por padrão.' },
       },
     },
   },

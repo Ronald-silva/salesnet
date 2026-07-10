@@ -124,4 +124,66 @@ describe('containsUnverifiedPix', () => {
     ];
     expect(containsUnverifiedPix(`Aqui está seu código:\n${realPix}`, toolCallLog)).toBe(true);
   });
+
+  it('allows a pixCode that came from listar_faturas this turn even when every gerar_pix call errored', () => {
+    // Regression for the exact production incident of 2026-07-10 03:50:54 UTC
+    // (interaction_logs id=37661add-b151-472a-a696-67b5fd1c50e1): gerar_pix with a
+    // wrong invoice_id errored, gerar_pix with force_new=true hit the known-broken
+    // 403 SGP endpoint, but listar_faturas in the SAME turn returned the real cached
+    // pixCode for the invoice. The LLM correctly reused that real, same-turn data —
+    // the old allowlist only recognized gerar_pix outputs and blocked a legitimate code.
+    const toolCallLog = [
+      { name: 'gerar_pix', output: { error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' } },
+      {
+        name: 'listar_faturas',
+        output: [
+          { id: '244565', amount: 71.62, status: 'overdue', dueDate: '2026-06-30', pixCode: realPix },
+          { id: '244566', amount: 69.99, status: 'open', dueDate: '2026-07-30' },
+        ],
+      },
+      { name: 'gerar_pix', output: { error: 'Request failed with status code 403' } },
+    ];
+    expect(containsUnverifiedPix(`Aqui está o PIX da fatura de junho:\n${realPix}`, toolCallLog)).toBe(false);
+  });
+
+  it('allows the suggested_invoice.pixCode from a gerar_pix requires_disambiguation response this turn', () => {
+    const toolCallLog = [
+      {
+        name: 'gerar_pix',
+        output: {
+          requires_disambiguation: true,
+          total_open_invoices: 8,
+          total_amount_due: 561.55,
+          suggested_invoice: { id: '244565', amount: 71.62, status: 'overdue', dueDate: '2026-06-30', pixCode: realPix },
+        },
+      },
+    ];
+    expect(containsUnverifiedPix(`Segue o código da fatura sugerida:\n${realPix}`, toolCallLog)).toBe(false);
+  });
+
+  it('allows the pixCode from a get_fatura_atual call made by the LLM this turn', () => {
+    const toolCallLog = [
+      { name: 'get_fatura_atual', output: { id: '244565', amount: 71.62, status: 'overdue', dueDate: '2026-06-30', pixCode: realPix } },
+    ];
+    expect(containsUnverifiedPix(`Aqui está:\n${realPix}`, toolCallLog)).toBe(false);
+  });
+
+  it('still blocks a PIX code absent from every invoice-bearing tool output this turn', () => {
+    const otherPix =
+      '00020101021226900014br.gov.bcb.pix2568qrcodepix.bb.com.br/pix/v2/cobv/503cdc10-63cc-49b9-b6c9-6125b81d396f520400005303986540569.995802BR5925NEGOCIARIE COBRANCA E ASS6008BARRETOS62070503***63043388';
+    const toolCallLog = [
+      { name: 'listar_faturas', output: [{ id: '244565', pixCode: realPix }] },
+    ];
+    expect(containsUnverifiedPix(`Aqui está:\n${otherPix}`, toolCallLog)).toBe(true);
+  });
+
+  it('does not treat pixCode-shaped fields from unrelated tools as verified sources', () => {
+    // Only invoice-bearing tools (gerar_pix, listar_faturas, get_fatura_atual) are
+    // trusted — a hypothetical tool echoing attacker-controlled text must not be able
+    // to launder a fabricated code into the allowlist.
+    const toolCallLog = [
+      { name: 'atualizar_notas_cliente', output: { pixCode: realPix } },
+    ];
+    expect(containsUnverifiedPix(`Aqui está:\n${realPix}`, toolCallLog)).toBe(true);
+  });
 });

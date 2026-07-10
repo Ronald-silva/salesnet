@@ -128,18 +128,46 @@ export function formatOutgoingWhatsApp(text: string): string {
   return stripped.replace(CODE_SPAN_RE, (_, i: string) => codeSpans[Number(i)]!);
 }
 
+// Só tools que devolvem fatura real do SGP contam como fonte verificada de PIX —
+// uma tool qualquer que ecoe texto controlado pelo cliente não pode "lavar" um
+// código fabricado para dentro da allowlist.
+const INVOICE_BEARING_TOOLS = new Set(['gerar_pix', 'listar_faturas', 'get_fatura_atual']);
+
+function collectPixCodes(value: unknown, into: Set<string>): void {
+  if (Array.isArray(value)) {
+    for (const item of value) collectPixCodes(item, into);
+    return;
+  }
+  if (value === null || typeof value !== 'object') return;
+
+  const obj = value as { pixKey?: unknown; pixCode?: unknown; suggested_invoice?: unknown };
+  for (const key of [obj.pixKey, obj.pixCode]) {
+    if (typeof key === 'string' && key.length > 0) into.add(key);
+  }
+  if (obj.suggested_invoice) collectPixCodes(obj.suggested_invoice, into);
+}
+
 /**
  * Última rede de segurança contra PIX fabricado/alucinado pelo LLM: todo trecho da
- * resposta que bate PIX_EMV_RE precisa corresponder EXATAMENTE a um pixKey devolvido
- * por uma chamada real de gerar_pix nesta mesma interação (toolCallLog do turno
+ * resposta que bate PIX_EMV_RE precisa corresponder EXATAMENTE a um código devolvido
+ * por uma chamada real de tool de fatura nesta mesma interação (toolCallLog do turno
  * atual — nunca histórico persistido). Sem isso, um LLM que "lembra" um código PIX
  * de uma mensagem anterior da conversa (em vez de rechamar a tool) pode reproduzi-lo
  * com corrupção sutil — checksum quebrado, sem erro visível até o cliente tentar
  * pagar — ou inventar um código para uma fatura que nunca existiu. Confirmado em
  * produção: código com estrutura EMV inválida (asterisco único onde deveria haver
  * três) e PIX gerado para uma fatura fictícia ("Março/2027") fora da lista real do
- * cliente. Fail-safe: se algo parece PIX e não bate com nenhuma saída real de tool
- * deste turno, o chamador deve bloquear o envio — nunca deixar passar sem certeza.
+ * cliente.
+ *
+ * Fontes aceitas: pixKey de gerar_pix, pixCode das faturas de listar_faturas /
+ * get_fatura_atual e da suggested_invoice de um gerar_pix com
+ * requires_disambiguation — todas vêm do mesmo cache do SGP (/api/central/titulos/),
+ * só por caminhos de chamada diferentes. Incidente real (2026-07-10, interaction_logs
+ * id=37661add): gerar_pix falhou (403 no endpoint direto do SGP) mas listar_faturas
+ * do mesmo turno já trazia o pixCode legítimo; a versão antiga só reconhecia
+ * gerar_pix e bloqueava um código real. Fail-safe: se algo parece PIX e não bate com
+ * nenhuma saída real de tool deste turno, o chamador deve bloquear o envio — nunca
+ * deixar passar sem certeza.
  */
 export function containsUnverifiedPix(
   text: string,
@@ -148,12 +176,11 @@ export function containsUnverifiedPix(
   const matches = text.match(PIX_EMV_RE);
   if (!matches) return false;
 
-  const verifiedPixKeys = new Set(
-    toolCallLog
-      .filter((call) => call.name === 'gerar_pix')
-      .map((call) => (call.output as { pixKey?: unknown } | null)?.pixKey)
-      .filter((key): key is string => typeof key === 'string' && key.length > 0),
-  );
+  const verifiedPixKeys = new Set<string>();
+  for (const call of toolCallLog) {
+    if (!INVOICE_BEARING_TOOLS.has(call.name)) continue;
+    collectPixCodes(call.output, verifiedPixKeys);
+  }
 
   return matches.some((match) => !verifiedPixKeys.has(match));
 }

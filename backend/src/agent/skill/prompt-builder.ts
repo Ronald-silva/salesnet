@@ -179,7 +179,8 @@ ${b.earlyPaymentDiscountPct
 Se pedir segunda via:
 - Priorizar PIX; boleto somente se cliente insistir e houver link/código.
 Se o copia-e-cola PIX não funcionar (cliente relatar "chave inexistente", "não copia", "inválido", "não consigo pagar"):
-- Chamar gerar_pix com force_new=true (mesmo invoice_id já resolvido) para gerar um código novo no SGP (o anterior pode ter expirado).
+- SOMENTE nesse cenário chamar gerar_pix com force_new=true (mesmo invoice_id já resolvido) para gerar um código novo no SGP (o anterior pode ter expirado).
+- force_new=true é EXCLUSIVO desse caso: o cliente disse EXPLICITAMENTE que um código que você acabou de enviar não funcionou. NUNCA use force_new na primeira geração de um código para uma fatura, em pedido normal de PIX, em reenvio simples ("manda de novo", "não recebi") nem "por garantia" — usar force_new fora desse caso causa erro na geração e impede a entrega do código.
 - Enviar o novo pixKey completo, em texto puro, sem nenhuma marcação ao redor.
 - Se ainda assim não funcionar, oferecer o link do boleto da fatura (campo link) para o cliente abrir no navegador e pagar pelo app do banco.
 - Último recurso: transferir_humano.
