@@ -86,3 +86,54 @@ describe('PixTokenVault.resolve', () => {
     expect(res.text).toBe('Sua fatura vence dia 15, tudo certo?');
   });
 });
+
+describe('PixTokenVault.resolve — parts (split para envio em mensagens separadas)', () => {
+  it('splits text around a single placeholder: text before, bare code, text after', () => {
+    const vault = createPixTokenVault();
+    const { pixKey } = vault.tokenize({ pixKey: RAW_PIX });
+    const res = vault.resolve(`Aqui está seu PIX:\n${pixKey}\nCopie o código inteiro e pague no app.`);
+    expect(res.ok).toBe(true);
+    expect(res.parts).toEqual([
+      { kind: 'text', content: 'Aqui está seu PIX:\n' },
+      { kind: 'pix', content: RAW_PIX },
+      { kind: 'text', content: '\nCopie o código inteiro e pague no app.' },
+    ]);
+  });
+
+  it('keeps each of multiple codes isolated, in order, with its own context text', () => {
+    const vault = createPixTokenVault();
+    const a = vault.tokenize({ pixKey: RAW_PIX });
+    const b = vault.tokenize({ pixKey: RAW_PIX_2 });
+    const res = vault.resolve(
+      `Fatura de junho:\n${a.pixKey}\nFatura de julho:\n${b.pixKey}\nQualquer dúvida me chame.`,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.parts).toEqual([
+      { kind: 'text', content: 'Fatura de junho:\n' },
+      { kind: 'pix', content: RAW_PIX },
+      { kind: 'text', content: '\nFatura de julho:\n' },
+      { kind: 'pix', content: RAW_PIX_2 },
+      { kind: 'text', content: '\nQualquer dúvida me chame.' },
+    ]);
+  });
+
+  it('returns a single text part for plain text', () => {
+    const vault = createPixTokenVault();
+    const res = vault.resolve('Sua fatura vence dia 15.');
+    expect(res.parts).toEqual([{ kind: 'text', content: 'Sua fatura vence dia 15.' }]);
+  });
+
+  it('parts concatenation always equals the resolved text', () => {
+    const vault = createPixTokenVault();
+    const { pixKey } = vault.tokenize({ pixKey: RAW_PIX });
+    const res = vault.resolve(`Segue:\n${pixKey}`);
+    expect(res.parts.map((p) => p.content).join('')).toBe(res.text);
+  });
+
+  it('a placeholder alone becomes a single pix part', () => {
+    const vault = createPixTokenVault();
+    const { pixKey } = vault.tokenize({ pixKey: RAW_PIX });
+    const res = vault.resolve(pixKey as string);
+    expect(res.parts).toEqual([{ kind: 'pix', content: RAW_PIX }]);
+  });
+});

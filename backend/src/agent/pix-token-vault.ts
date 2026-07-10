@@ -12,8 +12,19 @@ const LEFTOVER_TOKEN_RE = /PIX_[0-9a-fA-F]{8}/;
 // suggested_invoice aninhada). Toda tool futura com código PIX entra aqui.
 const PIX_FIELDS = new Set(['pixKey', 'pixCode']);
 
+export interface PixMessagePart {
+  kind: 'text' | 'pix';
+  content: string;
+}
+
 export interface PixResolveResult {
   text: string;
+  /**
+   * text fatiado nos placeholders, em ordem: cada código PIX vira uma parte 'pix'
+   * isolada (payload cru, pronto para ir sozinho numa mensagem de WhatsApp) e o
+   * texto ao redor vira partes 'text'. Invariante: concat(parts) === text.
+   */
+  parts: PixMessagePart[];
   substituted: number;
   /** false = havia placeholder desconhecido ou malformado — o chamador DEVE bloquear o envio. */
   ok: boolean;
@@ -65,20 +76,37 @@ export function createPixTokenVault(): PixTokenVault {
     },
     resolve(text: string): PixResolveResult {
       const unknownTokens: string[] = [];
+      const parts: PixMessagePart[] = [];
       let substituted = 0;
-      const resolvedText = text.replace(PLACEHOLDER_RE, (match, id: string) => {
-        const code = codeByTokenId.get(id.toLowerCase());
+      let sliceStart = 0;
+
+      PLACEHOLDER_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = PLACEHOLDER_RE.exec(text)) !== null) {
+        const code = codeByTokenId.get(match[1]!.toLowerCase());
         if (!code) {
-          unknownTokens.push(match);
-          return match;
+          // Placeholder desconhecido fica no texto (parte 'text' seguinte o inclui);
+          // ok=false abaixo obriga o chamador a bloquear antes de qualquer envio.
+          unknownTokens.push(match[0]);
+          continue;
         }
+        if (match.index > sliceStart) {
+          parts.push({ kind: 'text', content: text.slice(sliceStart, match.index) });
+        }
+        parts.push({ kind: 'pix', content: code });
         substituted += 1;
-        return code;
-      });
+        sliceStart = match.index + match[0].length;
+      }
+      if (sliceStart < text.length) {
+        parts.push({ kind: 'text', content: text.slice(sliceStart) });
+      }
+
+      const resolvedText = parts.map((p) => p.content).join('');
       const malformedLeftover =
         unknownTokens.length === 0 && LEFTOVER_TOKEN_RE.test(resolvedText);
       return {
         text: resolvedText,
+        parts,
         substituted,
         ok: unknownTokens.length === 0 && !malformedLeftover,
         unknownTokens,

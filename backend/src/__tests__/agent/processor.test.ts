@@ -437,7 +437,7 @@ describe('processMessage — PIX token substitution', () => {
     (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
   });
 
-  it('shows the LLM only a placeholder, delivers the real code, and saves the placeholder to the thread', async () => {
+  it('shows the LLM only a placeholder, delivers the code in its own separate message, and saves the placeholder to the thread', async () => {
     (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
     (anthropic.messages.create as jest.Mock)
       .mockResolvedValueOnce(PIX_TOOL_USE)
@@ -449,20 +449,101 @@ describe('processMessage — PIX token substitution', () => {
         expect(placeholder).toBeDefined();
         return Promise.resolve({
           stop_reason: 'end_turn',
-          content: [{ type: 'text', text: `Aqui está seu PIX:\n${placeholder}` }],
+          content: [{ type: 'text', text: `Aqui está seu PIX:\n${placeholder}\nCopie o código inteiro e pague no app do seu banco.` }],
           usage: { input_tokens: 10, output_tokens: 20 },
         });
       });
 
     await processMessage(PHONE, 'me manda o pix');
 
-    const sent = (whatsappService.sendText as jest.Mock).mock.calls[0]![2] as string;
-    expect(sent).toContain(RAW_PIX);
-    expect(sent).not.toContain('{{PIX_');
+    // Envio quebrado em mensagens separadas: contexto, código puro sozinho, instrução
+    const sends = (whatsappService.sendText as jest.Mock).mock.calls.map((c) => c[2] as string);
+    expect(sends).toEqual([
+      'Aqui está seu PIX:',
+      RAW_PIX,
+      'Copie o código inteiro e pague no app do seu banco.',
+    ]);
 
     const savedAssistant = (saveMessage as jest.Mock).mock.calls.find((c) => c[1] === 'assistant');
     expect(savedAssistant![2]).toContain('{{PIX_');
     expect(savedAssistant![2]).not.toContain(RAW_PIX);
+  });
+
+  it('splits multiple invoices into one isolated message per code, keeping order and per-invoice context', async () => {
+    const RAW_PIX_2 =
+      '00020126580014BR.GOV.BCB.PIX0136bbbbcccc-dddd-eeee-ffff-000011112222520400005303986540515.005802BR5913SALESNET6009FORTALEZA62070503***63041234';
+    (executeTool as jest.Mock).mockResolvedValue({
+      invoices: [
+        { id: '9001', pixCode: RAW_PIX },
+        { id: '9002', pixCode: RAW_PIX_2 },
+      ],
+    });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      .mockImplementationOnce((req: { messages: Array<{ content: unknown }> }) => {
+        const toolResultJson = JSON.stringify(req.messages[req.messages.length - 1]!.content);
+        const placeholders = toolResultJson.match(/\{\{PIX_[0-9a-f]{8}\}\}/g);
+        expect(placeholders).toHaveLength(2);
+        return Promise.resolve({
+          stop_reason: 'end_turn',
+          content: [{
+            type: 'text',
+            text: `Fatura de junho:\n${placeholders![0]}\nFatura de julho:\n${placeholders![1]}\nQualquer dúvida me chame.`,
+          }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        });
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const sends = (whatsappService.sendText as jest.Mock).mock.calls.map((c) => c[2] as string);
+    expect(sends).toEqual([
+      'Fatura de junho:',
+      RAW_PIX,
+      'Fatura de julho:',
+      RAW_PIX_2,
+      'Qualquer dúvida me chame.',
+    ]);
+  });
+
+  it('records delivery_status failed and stops the sequence when one message fails all retries', async () => {
+    jest.useFakeTimers();
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      .mockImplementationOnce((req: { messages: Array<{ content: unknown }> }) => {
+        const placeholder = /\{\{PIX_[0-9a-f]{8}\}\}/.exec(
+          JSON.stringify(req.messages[req.messages.length - 1]!.content),
+        )![0];
+        return Promise.resolve({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: `Aqui está seu PIX:\n${placeholder}\nCopie o código inteiro.` }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        });
+      });
+    (whatsappService.sendText as jest.Mock)
+      .mockResolvedValueOnce(undefined) // contexto entregue
+      .mockRejectedValue(new Error('instance disconnected')); // código falha em todas as tentativas
+
+    const promise = processMessage(PHONE, 'me manda o pix');
+    await jest.advanceTimersByTimeAsync(1_000);
+    await jest.advanceTimersByTimeAsync(3_000);
+    await promise;
+    jest.useRealTimers();
+
+    // 1 envio ok + 3 tentativas do código; a instrução final nunca é tentada (aborta)
+    expect(whatsappService.sendText).toHaveBeenCalledTimes(4);
+    const fromMock = supabase.from as jest.Mock;
+    const logInsert = fromMock.mock.calls
+      .map((args: unknown[], i: number) => ({
+        table: args[0] as string,
+        chain: fromMock.mock.results[i]!.value as { insert: jest.Mock },
+      }))
+      .filter((c) => c.table === 'interaction_logs' && c.chain.insert.mock.calls.length > 0)
+      .at(-1)!.chain.insert.mock.calls[0]![0] as { response: string; delivery_status: string };
+    expect(logInsert.delivery_status).toBe('failed');
+    // response guarda o texto completo pós-substituição para reenvio manual
+    expect(logInsert.response).toContain(RAW_PIX);
   });
 
   it('logs the delivered text (real code) in interaction_logs.response and tokens in tool_calls', async () => {

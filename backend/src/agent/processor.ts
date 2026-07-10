@@ -16,7 +16,7 @@ import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
 import { formatOutgoingWhatsApp, sanitizeUserInput, containsUnverifiedPix } from './sanitize';
-import { createPixTokenVault, type PixTokenVault } from './pix-token-vault';
+import { createPixTokenVault, type PixTokenVault, type PixMessagePart } from './pix-token-vault';
 import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { lookupKnowledge } from './knowledge-lookup';
@@ -50,6 +50,39 @@ async function sendTextWithDeliveryStatus(
     console.error(`[processor] sendText failed after retries for ${phone}:`, err);
     return { status: 'failed', error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Resposta com código PIX vira uma sequência de mensagens separadas: o cliente
+ * precisa copiar o código com um toque no WhatsApp, sem editar fora o texto de
+ * instrução que iria junto no mesmo balão. Partes 'pix' vão cruas (qualquer
+ * filtro poderia corromper o payload EMV e quebrar o checksum); partes 'text'
+ * passam pelo sanitize normal e são descartadas se ficarem vazias.
+ */
+function buildPixDeliverySequence(parts: PixMessagePart[]): string[] {
+  const messages: string[] = [];
+  for (const part of parts) {
+    if (part.kind === 'pix') {
+      messages.push(part.content);
+    } else {
+      const text = sanitizeOutgoingMessage(part.content);
+      if (text.length > 0) messages.push(text);
+    }
+  }
+  return messages;
+}
+
+/** Envia em ordem; aborta na primeira falha (após os retries internos) — o texto completo fica em interaction_logs.response para reenvio manual. */
+async function sendSequenceWithDeliveryStatus(
+  tenantId: string,
+  phone: string,
+  messages: string[],
+): Promise<DeliveryResult> {
+  for (const message of messages) {
+    const result = await sendTextWithDeliveryStatus(tenantId, phone, message);
+    if (result.status === 'failed') return result;
+  }
+  return { status: 'sent' };
 }
 
 type ToolCallLog = { name: string; input: unknown; output: unknown };
@@ -902,8 +935,11 @@ export async function processMessage(
     // Thread guarda a versão com placeholder — o histórico visto pelo LLM em
     // turnos futuros nunca contém código PIX real.
     await saveMessage(phone, 'assistant', finalText, tenantId);
-    const safeResponse = sanitizeOutgoingMessage(deliveredText);
-    const delivery = await sendTextWithDeliveryStatus(tenantId, phone, safeResponse);
+    const outgoingMessages =
+      resolved.ok && resolved.substituted > 0
+        ? buildPixDeliverySequence(resolved.parts)
+        : [sanitizeOutgoingMessage(deliveredText)];
+    const delivery = await sendSequenceWithDeliveryStatus(tenantId, phone, outgoingMessages);
 
     // Schedule NPS before inserting the log so shouldSendNps sees the previous session
     if (sessionMode !== 'prospect') {
