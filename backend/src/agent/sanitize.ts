@@ -168,6 +168,11 @@ function collectPixCodes(value: unknown, into: Set<string>): void {
  * gerar_pix e bloqueava um código real. Fail-safe: se algo parece PIX e não bate com
  * nenhuma saída real de tool deste turno, o chamador deve bloquear o envio — nunca
  * deixar passar sem certeza.
+ *
+ * Desde a migração para placeholders ({{PIX_xxxxxxxx}}, ver pix-token-vault.ts),
+ * o toolCallLog de produção carrega tokens — a allowlist fica vazia e qualquer
+ * EMV cru no texto do LLM bloqueia. A lógica de allowlist permanece como estava
+ * (defesa em profundidade e compat com chamadas que passem outputs crus).
  */
 export function containsUnverifiedPix(
   text: string,

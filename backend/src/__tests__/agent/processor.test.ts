@@ -405,3 +405,127 @@ describe('processMessage — invalid CPF in the message', () => {
     );
   });
 });
+
+describe('processMessage — PIX token substitution', () => {
+  const RAW_PIX =
+    '00020126580014BR.GOV.BCB.PIX0136aaaabbbb-cccc-dddd-eeee-ffff000011115204000053039865802BR5913SALESNET6009FORTALEZA62070503***6304ABCD';
+  const PIX_TOOL_USE = {
+    stop_reason: 'tool_use',
+    content: [{ type: 'tool_use', id: 'tu-pix', name: 'gerar_pix', input: {} }],
+    usage: { input_tokens: 10, output_tokens: 5 },
+  };
+  const PIX_FALLBACK =
+    'Desculpe, tive uma falha técnica gerando seu código PIX agora. Pode repetir o pedido, por favor?';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (isHumanMode as jest.Mock).mockResolvedValue(false);
+    (getThread as jest.Mock).mockResolvedValue(THREAD);
+    (lookupCustomer as jest.Mock).mockResolvedValue({ customer: CUSTOMER, method: 'phone', attempts: [] });
+    (extractCpfFromText as jest.Mock).mockReturnValue(null);
+    (extractBareCpfWhenAsked as jest.Mock).mockReturnValue(null);
+    (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  it('shows the LLM only a placeholder, delivers the real code, and saves the placeholder to the thread', async () => {
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      .mockImplementationOnce((req: { messages: Array<{ content: unknown }> }) => {
+        const toolResultJson = JSON.stringify(req.messages[req.messages.length - 1]!.content);
+        // O LLM nunca vê o payload cru
+        expect(toolResultJson).not.toContain(RAW_PIX);
+        const placeholder = /\{\{PIX_[0-9a-f]{8}\}\}/.exec(toolResultJson)?.[0];
+        expect(placeholder).toBeDefined();
+        return Promise.resolve({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: `Aqui está seu PIX:\n${placeholder}` }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        });
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const sent = (whatsappService.sendText as jest.Mock).mock.calls[0]![2] as string;
+    expect(sent).toContain(RAW_PIX);
+    expect(sent).not.toContain('{{PIX_');
+
+    const savedAssistant = (saveMessage as jest.Mock).mock.calls.find((c) => c[1] === 'assistant');
+    expect(savedAssistant![2]).toContain('{{PIX_');
+    expect(savedAssistant![2]).not.toContain(RAW_PIX);
+  });
+
+  it('logs the delivered text (real code) in interaction_logs.response and tokens in tool_calls', async () => {
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      .mockImplementationOnce((req: { messages: Array<{ content: unknown }> }) => {
+        const placeholder = /\{\{PIX_[0-9a-f]{8}\}\}/.exec(
+          JSON.stringify(req.messages[req.messages.length - 1]!.content),
+        )![0];
+        return Promise.resolve({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: `PIX: ${placeholder}` }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        });
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const fromMock = supabase.from as jest.Mock;
+    const logInsert = fromMock.mock.calls
+      .map((args: unknown[], i: number) => ({
+        table: args[0] as string,
+        chain: fromMock.mock.results[i]!.value as { insert: jest.Mock },
+      }))
+      .filter((c) => c.table === 'interaction_logs' && c.chain.insert.mock.calls.length > 0)
+      .at(-1)!.chain.insert.mock.calls[0]![0] as { response: string; tool_calls: Array<{ output: unknown }> };
+
+    expect(logInsert.response).toContain(RAW_PIX);
+    expect(JSON.stringify(logInsert.tool_calls)).not.toContain(RAW_PIX);
+    expect(JSON.stringify(logInsert.tool_calls)).toContain('{{PIX_');
+  });
+
+  it('blocks a placeholder that no tool from this turn issued', async () => {
+    (anthropic.messages.create as jest.Mock).mockResolvedValue({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Seu código: {{PIX_deadbeef}}' }],
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const sent = (whatsappService.sendText as jest.Mock).mock.calls[0]![2] as string;
+    expect(sent).toBe(PIX_FALLBACK);
+  });
+
+  it('blocks a malformed leftover token (braces lost by the LLM)', async () => {
+    (anthropic.messages.create as jest.Mock).mockResolvedValue({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Seu código: PIX_deadbeef' }],
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const sent = (whatsappService.sendText as jest.Mock).mock.calls[0]![2] as string;
+    expect(sent).toBe(PIX_FALLBACK);
+  });
+
+  it('still blocks a raw EMV payload typed by the LLM (defense in depth)', async () => {
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      // LLM ignora o placeholder e "digita" o código (impossível legítimo: nunca o viu)
+      .mockResolvedValueOnce({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: `Seu código: ${RAW_PIX}` }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    const sent = (whatsappService.sendText as jest.Mock).mock.calls[0]![2] as string;
+    expect(sent).toBe(PIX_FALLBACK);
+  });
+});

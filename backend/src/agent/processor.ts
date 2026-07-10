@@ -16,6 +16,7 @@ import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
 import { formatOutgoingWhatsApp, sanitizeUserInput, containsUnverifiedPix } from './sanitize';
+import { createPixTokenVault, type PixTokenVault } from './pix-token-vault';
 import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { lookupKnowledge } from './knowledge-lookup';
@@ -168,6 +169,7 @@ async function runAnthropicFlow(
   tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
+  vault: PixTokenVault,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   let messages: Anthropic.MessageParam[] = [...history];
   const toolCallLog = [...initialToolLog];
@@ -200,7 +202,9 @@ async function runAnthropicFlow(
         tenantId,
       );
       // Never let SGP portal credentials reach the LLM's context or the persisted log.
-      const result = redactSensitiveFields(rawResult);
+      // Payloads PIX são tokenizados aqui ({{PIX_xxxxxxxx}}): o LLM nunca vê o código
+      // real — o processor substitui o placeholder pelo payload só depois do LLM.
+      const result = vault.tokenize(redactSensitiveFields(rawResult));
       toolCallLog.push({ name: block.name, input: block.input, output: result });
       toolResults.push({
         type:        'tool_result',
@@ -235,6 +239,7 @@ async function runDeepSeekFlow(
   tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
+  vault: PixTokenVault,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   const baseUrl = env.DEEPSEEK_BASE_URL.replace(/\/$/, '');
   const toolCallLog = [...initialToolLog];
@@ -300,7 +305,9 @@ async function runDeepSeekFlow(
 
       const rawResult = await safeExecuteTool(call.function.name, parsedInput, phone, tenantId);
       // Never let SGP portal credentials reach the LLM's context or the persisted log.
-      const result = redactSensitiveFields(rawResult);
+      // Payloads PIX são tokenizados aqui ({{PIX_xxxxxxxx}}): o LLM nunca vê o código
+      // real — o processor substitui o placeholder pelo payload só depois do LLM.
+      const result = vault.tokenize(redactSensitiveFields(rawResult));
       toolCallLog.push({ name: call.function.name, input: parsedInput, output: result });
       messages.push({
         role:         'tool',
@@ -325,12 +332,13 @@ async function runLLMFlow(
   tenantId: string,
   initialToolLog: ToolCallLog[],
   options: RunOptions,
+  vault: PixTokenVault,
 ): Promise<{ finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals }> {
   if (provider === 'deepseek') {
-    return runDeepSeekFlow(history, systemWithContext, phone, tenantId, initialToolLog, options);
+    return runDeepSeekFlow(history, systemWithContext, phone, tenantId, initialToolLog, options, vault);
   }
 
-  return runAnthropicFlow(history, systemWithContext, phone, tenantId, initialToolLog, options);
+  return runAnthropicFlow(history, systemWithContext, phone, tenantId, initialToolLog, options, vault);
 }
 
 function getFortalezaContext(): string {
@@ -815,6 +823,10 @@ export async function processMessage(
     let result: { finalText: string; toolCallLog: ToolCallLog[]; usage: LlmUsageTotals };
     let llmUsage = disambiguationUsage;
 
+    // Um vault novo por turno: placeholders de turnos anteriores (inclusive os
+    // salvos no histórico da thread) nunca resolvem — bloqueio automático.
+    const pixVault = createPixTokenVault();
+
     try {
       result = await runLLMFlow(
         primaryProvider,
@@ -824,6 +836,7 @@ export async function processMessage(
         tenantId,
         initialToolLog,
         runOptions,
+        pixVault,
       );
       llmUsage = mergeUsage(llmUsage, result.usage);
     } catch (providerErr) {
@@ -840,6 +853,7 @@ export async function processMessage(
         tenantId,
         initialToolLog,
         runOptions,
+        pixVault,
       );
       llmUsage = mergeUsage(llmUsage, result.usage);
     }
@@ -853,9 +867,12 @@ export async function processMessage(
       );
     }
 
+    // Defesa em profundidade: o LLM nunca vê payload cru, então qualquer EMV
+    // no texto foi digitado/relembrado por ele — o toolCallLog tokenizado deixa
+    // a allowlist interna vazia e todo EMV cru bloqueia.
     if (containsUnverifiedPix(finalText, result.toolCallLog)) {
       console.error(
-        `[security] blocked unverified PIX in outgoing response phone=${maskPhone(phone)} tenant=${tenantId} — text did not match any gerar_pix output from this turn`,
+        `[security] blocked raw PIX payload in outgoing response phone=${maskPhone(phone)} tenant=${tenantId} — the LLM never sees real codes, so any raw EMV here was fabricated`,
       );
       result.toolCallLog.push({
         name: 'pix_hallucination_blocked',
@@ -865,8 +882,27 @@ export async function processMessage(
       finalText = PIX_HALLUCINATION_FALLBACK;
     }
 
+    // Linha de frente: troca {{PIX_xxxxxxxx}} pelo código real via lookup direto
+    // no vault deste turno. Placeholder desconhecido/malformado = fail-safe.
+    const resolved = pixVault.resolve(finalText);
+    let deliveredText = resolved.text;
+    if (!resolved.ok) {
+      console.error(
+        `[security] blocked unresolved PIX placeholder phone=${maskPhone(phone)} tenant=${tenantId} unknown=${resolved.unknownTokens.length} malformed=${resolved.malformedLeftover}`,
+      );
+      result.toolCallLog.push({
+        name: 'pix_token_blocked',
+        input: { unknown_tokens: resolved.unknownTokens, malformed_leftover: resolved.malformedLeftover },
+        output: { blocked: true },
+      });
+      finalText = PIX_HALLUCINATION_FALLBACK;
+      deliveredText = PIX_HALLUCINATION_FALLBACK;
+    }
+
+    // Thread guarda a versão com placeholder — o histórico visto pelo LLM em
+    // turnos futuros nunca contém código PIX real.
     await saveMessage(phone, 'assistant', finalText, tenantId);
-    const safeResponse = sanitizeOutgoingMessage(finalText);
+    const safeResponse = sanitizeOutgoingMessage(deliveredText);
     const delivery = await sendTextWithDeliveryStatus(tenantId, phone, safeResponse);
 
     // Schedule NPS before inserting the log so shouldSendNps sees the previous session
@@ -888,7 +924,9 @@ export async function processMessage(
       tenant_id: tenantId,
       session_mode: sessionMode,
       tool_calls: result.toolCallLog,
-      response:   finalText,
+      // Texto realmente entregue (pós-substituição) — obrigatório para reenvio
+      // manual quando delivery_status='failed'.
+      response:   deliveredText,
       processing_ms: Date.now() - startMs,
       input_tokens:  llmUsage.inputTokens > 0 ? llmUsage.inputTokens : null,
       output_tokens: llmUsage.outputTokens > 0 ? llmUsage.outputTokens : null,
