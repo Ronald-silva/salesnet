@@ -54,15 +54,14 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'gerar_pix',
-    description: 'Gera código PIX copia-e-cola para pagamento da fatura em aberto. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP.',
+    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP.',
     input_schema: {
       type: 'object' as const,
       properties: {
-        invoice_id:  { type: 'string', description: 'ID da fatura no SGP' },
+        invoice_id:  { type: 'string', description: 'ID da fatura no SGP — omitir para autopick/resolução automática (ver descrição da tool)' },
         customer_id: { type: 'string', description: 'ID do contrato no SGP' },
         force_new:   { type: 'boolean', description: 'true para forçar geração de código novo no SGP, ignorando código armazenado. Use quando cliente relatar que o código anterior não funcionou.' },
       },
-      required: ['invoice_id'],
     },
   },
   {
@@ -449,8 +448,33 @@ export async function executeTool(
     case 'gerar_pix': {
       const customerId = await requireSessionCustomerId(phone, tenantId);
       if (typeof customerId !== 'string') return customerId;
-      const invoiceId = String(input.invoice_id ?? '');
+
       const invoices = await sgp.getCustomerInvoices(customerId);
+      let invoiceId = input.invoice_id ? String(input.invoice_id) : null;
+
+      if (!invoiceId) {
+        const openInvoices = invoices.filter((inv) => inv.status === 'open' || inv.status === 'overdue');
+        if (openInvoices.length === 0) {
+          return { error: 'Nenhuma fatura em aberto encontrada.' };
+        }
+        // Mesmo critério de getCurrentInvoice() (usado no painel admin): fatura em
+        // aberto mais próxima do vencimento — dueDate em ISO "YYYY-MM-DD" ordena léxico.
+        const [nearest] = [...openInvoices].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+
+        if (openInvoices.length >= 3) {
+          const totalAmountDue = Math.round(openInvoices.reduce((sum, inv) => sum + inv.amount, 0) * 100) / 100;
+          return {
+            requires_disambiguation: true,
+            total_open_invoices: openInvoices.length,
+            total_amount_due: totalAmountDue,
+            suggested_invoice: nearest,
+            note: 'Cliente tem 3+ faturas em aberto — pergunte se quer pagar só a fatura sugerida (mais próxima do vencimento) ou negociar o total antes de chamar gerar_pix de novo com invoice_id.',
+          };
+        }
+
+        invoiceId = nearest!.id;
+      }
+
       const ownsInvoice = invoices.some((inv) => inv.id === invoiceId);
       if (!ownsInvoice) {
         return { error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' };

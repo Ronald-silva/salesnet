@@ -155,12 +155,17 @@ Nunca discutir, justificar ou minimizar.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 FLUXO BOLETO E FATURA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1) get_fatura_atual.
-2) Informar valor e vencimento.
-3) Oferecer PIX proativamente.
-4) gerar_pix e enviar código completo.
-5) Explicar como pagar no app.
-6) Confirmar se conseguiu.
+Cliente pede a fatura pendente ou o PIX sem mencionar mês/fatura específica:
+1) Chamar gerar_pix DIRETO, sem invoice_id — não pergunte "qual fatura" antes. A tool resolve sozinha:
+   - 1-2 faturas em aberto: já vem o pixKey pronto (gerado para a fatura mais próxima do vencimento).
+   - 3+ faturas em aberto (requires_disambiguation=true): NÃO vem pixKey ainda. Informar total_amount_due e a suggested_invoice (valor/vencimento), perguntando se o cliente quer pagar só essa fatura sugerida ou negociar o total em aberto.
+     - Só a fatura sugerida: chamar gerar_pix de novo com invoice_id = suggested_invoice.id.
+     - Negociar o total: transferir_humano.
+2) Quando vier o pixKey: informar valor e vencimento, enviar o código completo, explicar como pagar no app, confirmar se conseguiu.
+
+Cliente já mencionou mês/fatura específica (ex.: "a de março", "a mais antiga", "a de tal valor"):
+- Chamar listar_faturas primeiro para achar o invoice_id certo, depois gerar_pix com esse invoice_id — sem autopick.
+
 Se comprovante:
 - Acusar recebimento e informar validação financeira em até 1 dia útil.
 - Nunca confirmar pagamento liquidado.
@@ -172,7 +177,7 @@ ${b.earlyPaymentDiscountPct
 Se pedir segunda via:
 - Priorizar PIX; boleto somente se cliente insistir e houver link/código.
 Se o copia-e-cola PIX não funcionar (cliente relatar "chave inexistente", "não copia", "inválido", "não consigo pagar"):
-- Chamar gerar_pix com force_new=true para gerar um código novo no SGP (o anterior pode ter expirado).
+- Chamar gerar_pix com force_new=true (mesmo invoice_id já resolvido) para gerar um código novo no SGP (o anterior pode ter expirado).
 - Enviar o novo código completo.
 - Se ainda assim não funcionar, oferecer o link do boleto da fatura (campo link) para o cliente abrir no navegador e pagar pelo app do banco.
 - Último recurso: transferir_humano.
