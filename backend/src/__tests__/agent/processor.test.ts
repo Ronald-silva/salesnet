@@ -603,6 +603,116 @@ describe('processMessage — PIX token substitution', () => {
     expect(sent).toBe(PIX_FALLBACK);
   });
 
+  it('forces a directed retry when the LLM invents a placeholder without any invoice tool call, then delivers the real PIX (incident 2026-07-10 10:05)', async () => {
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '244566', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      // 1º turno: LLM responde direto com placeholder inventado, sem tool call
+      .mockResolvedValueOnce({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'Aqui está seu PIX:\n{{PIX_f7c6cffd}}\nCopie o código inteiro.' }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      })
+      // retry dirigido: agora o LLM chama gerar_pix de verdade
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      .mockImplementationOnce((req: { messages: Array<{ content: unknown }> }) => {
+        const placeholder = /\{\{PIX_[0-9a-f]{8}\}\}/.exec(
+          JSON.stringify(req.messages[req.messages.length - 1]!.content),
+        )![0];
+        return Promise.resolve({
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: `Aqui está seu PIX:\n${placeholder}\nCopie o código inteiro.` }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        });
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    // O retry recebe a resposta inventada + correção instruindo a chamar gerar_pix
+    const retryCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[1]![0] as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const lastMessage = retryCallArgs.messages[retryCallArgs.messages.length - 1]!;
+    expect(lastMessage.role).toBe('user');
+    expect(JSON.stringify(lastMessage.content)).toContain('gerar_pix');
+
+    // PIX real entregue em mensagem própria; nenhum fallback enviado
+    const sends = (whatsappService.sendText as jest.Mock).mock.calls.map((c) => c[2] as string);
+    expect(sends).toEqual(['Aqui está seu PIX:', RAW_PIX, 'Copie o código inteiro.']);
+
+    const fromMock = supabase.from as jest.Mock;
+    const logInsert = fromMock.mock.calls
+      .map((args: unknown[], i: number) => ({
+        table: args[0] as string,
+        chain: fromMock.mock.results[i]!.value as { insert: jest.Mock },
+      }))
+      .filter((c) => c.table === 'interaction_logs' && c.chain.insert.mock.calls.length > 0)
+      .at(-1)!.chain.insert.mock.calls[0]![0] as {
+        tool_calls: Array<{ name: string }>;
+        delivery_status: string;
+      };
+    const toolNames = logInsert.tool_calls.map((t) => t.name);
+    expect(toolNames).toContain('pix_retry_forced');
+    expect(toolNames).toContain('gerar_pix');
+    expect(toolNames).not.toContain('pix_token_blocked');
+    expect(logInsert.delivery_status).toBe('sent');
+  });
+
+  it('falls back to the generic message when the LLM invents a placeholder again after the directed retry (single retry cap)', async () => {
+    (anthropic.messages.create as jest.Mock).mockResolvedValue({
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'Seu código: {{PIX_f7c6cffd}}' }],
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    // 1 chamada original + 1 retry dirigido — nunca um segundo retry
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2);
+    expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
+    expect((whatsappService.sendText as jest.Mock).mock.calls[0]![2]).toBe(PIX_FALLBACK);
+
+    const fromMock = supabase.from as jest.Mock;
+    const logInsert = fromMock.mock.calls
+      .map((args: unknown[], i: number) => ({
+        table: args[0] as string,
+        chain: fromMock.mock.results[i]!.value as { insert: jest.Mock },
+      }))
+      .filter((c) => c.table === 'interaction_logs' && c.chain.insert.mock.calls.length > 0)
+      .at(-1)!.chain.insert.mock.calls[0]![0] as { tool_calls: Array<{ name: string }> };
+    const toolNames = logInsert.tool_calls.map((t) => t.name);
+    expect(toolNames).toContain('pix_retry_forced');
+    expect(toolNames).toContain('pix_token_blocked');
+  });
+
+  it('does NOT retry when the unknown placeholder appears alongside a real gerar_pix call (different signature)', async () => {
+    (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
+    (anthropic.messages.create as jest.Mock)
+      .mockResolvedValueOnce(PIX_TOOL_USE)
+      // LLM chamou gerar_pix mas escreveu um token diferente do emitido
+      .mockResolvedValueOnce({
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: 'Seu código: {{PIX_00000000}}' }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      });
+
+    await processMessage(PHONE, 'me manda o pix');
+
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2);
+    expect((whatsappService.sendText as jest.Mock).mock.calls[0]![2]).toBe(PIX_FALLBACK);
+
+    const fromMock = supabase.from as jest.Mock;
+    const logInsert = fromMock.mock.calls
+      .map((args: unknown[], i: number) => ({
+        table: args[0] as string,
+        chain: fromMock.mock.results[i]!.value as { insert: jest.Mock },
+      }))
+      .filter((c) => c.table === 'interaction_logs' && c.chain.insert.mock.calls.length > 0)
+      .at(-1)!.chain.insert.mock.calls[0]![0] as { tool_calls: Array<{ name: string }> };
+    const toolNames = logInsert.tool_calls.map((t) => t.name);
+    expect(toolNames).not.toContain('pix_retry_forced');
+    expect(toolNames).toContain('pix_token_blocked');
+  });
+
   it('still blocks a raw EMV payload typed by the LLM (defense in depth)', async () => {
     (executeTool as jest.Mock).mockResolvedValue({ invoiceId: '9001', pixKey: RAW_PIX });
     (anthropic.messages.create as jest.Mock)

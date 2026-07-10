@@ -391,6 +391,11 @@ const LLM_EMPTY_RESPONSE_FALLBACK =
 const PIX_HALLUCINATION_FALLBACK =
   'Desculpe, tive uma falha técnica gerando seu código PIX agora. Pode repetir o pedido, por favor?';
 
+// Correção reinjetada quando o LLM escreve um placeholder sem ter chamado
+// gerar_pix/listar_faturas no turno (token inventado — incidente 2026-07-10).
+const PIX_RETRY_CORRECTION =
+  '[sistema] O placeholder PIX da sua resposta anterior não corresponde a nenhuma chamada de tool real deste turno — você o escreveu sem chamar a ferramenta, então ele não pode ser substituído por um código válido e a mensagem NÃO foi enviada ao cliente. Chame gerar_pix AGORA (use listar_faturas antes se precisar do invoice_id) e cole na nova resposta o placeholder EXATO retornado no campo pixKey. Nunca escreva um placeholder PIX de memória. Não mencione esta correção ao cliente.';
+
 function defaultRunOptions(): RunOptions {
   return {
     maxTokens:         env.LLM_MAX_TOKENS,
@@ -860,6 +865,7 @@ export async function processMessage(
     // salvos no histórico da thread) nunca resolvem — bloqueio automático.
     const pixVault = createPixTokenVault();
 
+    let usedProvider = primaryProvider;
     try {
       result = await runLLMFlow(
         primaryProvider,
@@ -878,6 +884,7 @@ export async function processMessage(
       }
 
       console.error(`[processor] provider ${primaryProvider} failed, trying fallback ${env.LLM_FALLBACK_PROVIDER}:`, providerErr);
+      usedProvider = env.LLM_FALLBACK_PROVIDER;
       result = await runLLMFlow(
         env.LLM_FALLBACK_PROVIDER,
         history,
@@ -903,7 +910,8 @@ export async function processMessage(
     // Defesa em profundidade: o LLM nunca vê payload cru, então qualquer EMV
     // no texto foi digitado/relembrado por ele — o toolCallLog tokenizado deixa
     // a allowlist interna vazia e todo EMV cru bloqueia.
-    if (containsUnverifiedPix(finalText, result.toolCallLog)) {
+    const blockIfUnverifiedPix = (text: string): string => {
+      if (!containsUnverifiedPix(text, result.toolCallLog)) return text;
       console.error(
         `[security] blocked raw PIX payload in outgoing response phone=${maskPhone(phone)} tenant=${tenantId} — the LLM never sees real codes, so any raw EMV here was fabricated`,
       );
@@ -912,12 +920,56 @@ export async function processMessage(
         input: {},
         output: { blocked: true },
       });
-      finalText = PIX_HALLUCINATION_FALLBACK;
-    }
+      return PIX_HALLUCINATION_FALLBACK;
+    };
+    finalText = blockIfUnverifiedPix(finalText);
 
     // Linha de frente: troca {{PIX_xxxxxxxx}} pelo código real via lookup direto
     // no vault deste turno. Placeholder desconhecido/malformado = fail-safe.
-    const resolved = pixVault.resolve(finalText);
+    let resolved = pixVault.resolve(finalText);
+
+    // Retry dirigido (1x por turno): placeholder desconhecido SEM nenhuma chamada
+    // real de gerar_pix/listar_faturas = o LLM inventou o token em vez de chamar
+    // a tool (incidente 2026-07-10 10:05). Em vez do fallback genérico, reinjeta
+    // uma correção e deixa o loop rodar mais uma vez; se inventar de novo, cai no
+    // bloqueio normal abaixo. `pix_retry_forced` no log distingue os dois casos.
+    const invoiceToolCalled = result.toolCallLog.some(
+      (t) => t.name === 'gerar_pix' || t.name === 'listar_faturas',
+    );
+    if (!resolved.ok && resolved.unknownTokens.length > 0 && !invoiceToolCalled) {
+      console.warn(
+        `[processor] forcing PIX retry phone=${maskPhone(phone)} tenant=${tenantId} — invented placeholder without any invoice tool call (unknown=${resolved.unknownTokens.length})`,
+      );
+      result.toolCallLog.push({
+        name: 'pix_retry_forced',
+        input: { unknown_tokens: resolved.unknownTokens, malformed_leftover: resolved.malformedLeftover },
+        output: { retried: true },
+      });
+      try {
+        const retryHistory: Anthropic.MessageParam[] = [
+          ...history,
+          { role: 'assistant', content: result.finalText },
+          { role: 'user', content: PIX_RETRY_CORRECTION },
+        ];
+        const retry = await runLLMFlow(
+          usedProvider,
+          retryHistory,
+          systemWithContext,
+          phone,
+          tenantId,
+          result.toolCallLog,
+          runOptions,
+          pixVault,
+        );
+        llmUsage = mergeUsage(llmUsage, retry.usage);
+        result = retry;
+        finalText = blockIfUnverifiedPix(formatOutgoingWhatsApp(result.finalText));
+        resolved = pixVault.resolve(finalText);
+      } catch (retryErr) {
+        // resolved continua com a falha original → cai no bloqueio fail-safe abaixo.
+        console.error(`[processor] forced PIX retry failed phone=${maskPhone(phone)} tenant=${tenantId}:`, retryErr);
+      }
+    }
     let deliveredText = resolved.text;
     if (!resolved.ok) {
       console.error(
