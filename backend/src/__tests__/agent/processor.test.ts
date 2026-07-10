@@ -210,9 +210,19 @@ describe('processMessage — tool use loop', () => {
       .mockResolvedValueOnce(toolUseResponse)
       .mockResolvedValueOnce(finalResponse);
 
-    await processMessage(PHONE, 'Qual minha fatura?');
+    // "fatura"/"quero"/etc. tornariam a mensagem candidata à desambiguação por
+    // LLM, cuja chamada extra consumiria o 1º mock encadeado do Anthropic e o
+    // loop de tool-use nunca rodaria (o teste passava por coincidência: a
+    // pré-execução proativa satisfaz o toHaveBeenCalledWith e o finalResponse
+    // virava a resposta principal). Mensagem fora do regex de candidatos.
+    await processMessage(PHONE, 'me mostra o boleto');
 
     expect(executeTool).toHaveBeenCalledWith('get_fatura_atual', { customer_id: 'c1' }, PHONE, 'test-tenant');
+    // 2 chamadas = proativa (passo 9) + a disparada pelo LLM no loop. Só a contagem
+    // distingue o loop real da coincidência: a proativa sozinha já satisfaz o
+    // toHaveBeenCalledWith acima com os mesmos argumentos.
+    expect(executeTool).toHaveBeenCalledTimes(2);
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2);
     expect(whatsappService.sendText).toHaveBeenCalledWith(
       expect.any(String),
       PHONE,
