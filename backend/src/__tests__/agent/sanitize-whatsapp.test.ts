@@ -8,7 +8,7 @@ describe('formatOutgoingWhatsApp', () => {
     expect(formatOutgoingWhatsApp('Plano **500 Mega**')).toBe('Plano 500 Mega');
   });
 
-  it('never touches PIX codes wrapped in backticks, even when two codes on the same message each contain a literal "***" EMV placeholder', () => {
+  it('preserves PIX codes wrapped in backticks intact, even when two codes on the same message each contain a literal "***" EMV placeholder', () => {
     // Regression test for a real production incident: two PIX codes in one reply
     // (multi-invoice gerar_pix) each legitimately contain "***" (EMV tag 62 empty
     // txid placeholder). The old double-asterisk regex greedily paired a lone "*"
@@ -30,10 +30,23 @@ describe('formatOutgoingWhatsApp', () => {
     expect(result).toContain(pix2);
   });
 
+  it('strips the backticks themselves from the final message, so the customer never copies a stray literal backtick glued to the PIX payload', () => {
+    // Single backtick has no special meaning on WhatsApp (it's not real markdown —
+    // only triple backtick renders monospace) and shows up as a literal character.
+    // If it survived into the outgoing text, copying the message would paste that
+    // extra character stuck to the EMV payload and break the CRC16 checksum — the
+    // same class of corruption the asterisk bug caused, reintroduced by an earlier
+    // "fix" that preserved the backticks in the customer-facing text.
+    const code = '00020101021226900014br.gov.bcb.pix2568qrcodepix.bb.com.br62070503***63040357';
+    const result = formatOutgoingWhatsApp(`Aqui está o código:\n\`${code}\``);
+    expect(result).toBe(`Aqui está o código:\n${code}`);
+    expect(result).not.toContain('`');
+  });
+
   it('still strips bold markdown that happens to sit near a backtick-quoted code', () => {
     const code = '000201abc***9999';
     const result = formatOutgoingWhatsApp(`**Valor:** R$ 10,00\nCódigo: \`${code}\``);
-    expect(result).toBe(`Valor: R$ 10,00\nCódigo: \`${code}\``);
+    expect(result).toBe(`Valor: R$ 10,00\nCódigo: ${code}`);
   });
 
   it('protects a raw PIX payload even without backticks, as a safety net if the LLM forgets to quote it', () => {

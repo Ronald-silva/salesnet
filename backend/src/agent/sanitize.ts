@@ -79,13 +79,17 @@ const PIX_EMV_RE = /000201[^\n]{20,600}?6304[0-9A-Fa-f]{4}/g;
 
 function protectCodeSpans(text: string): { protectedText: string; codeSpans: string[] } {
   const codeSpans: string[] = [];
-  const toMarker = (match: string): string => {
-    codeSpans.push(match);
+  const toMarker = (content: string): string => {
+    codeSpans.push(content);
     return `${CODE_SPAN_MARKER}${codeSpans.length - 1}${CODE_SPAN_MARKER}`;
   };
 
-  // 1) Trechos entre crase simples — convenção que a Sofia já usa para PIX/boleto.
-  const afterBackticks = text.replace(/`[^`\n]*`/g, toMarker);
+  // 1) Trechos entre crase simples. A própria crase é descartada aqui (fica só o
+  // conteúdo interno): crase simples não é markdown real no WhatsApp — aparece como
+  // caractere literal — e se o cliente copiar a mensagem esse caractere extra vai
+  // colado ao payload EMV e quebra o CRC16, o mesmo problema que os asteriscos
+  // causavam antes deste arquivo existir.
+  const afterBackticks = text.replace(/`([^`\n]*)`/g, (_, inner: string) => toMarker(inner));
   // 2) Payload PIX cru que tenha escapado sem crase (ver PIX_EMV_RE acima).
   const protectedText = afterBackticks.replace(PIX_EMV_RE, toMarker);
 
@@ -95,17 +99,18 @@ function protectCodeSpans(text: string): { protectedText: string; codeSpans: str
 /**
  * Remove markdown com asteriscos — WhatsApp Web não renderiza negrito assim.
  *
- * Protege qualquer trecho entre crases simples (`código`) — é assim que a Sofia
- * envolve códigos PIX/boleto ao enviar — e, como rede de segurança adicional,
- * qualquer payload PIX cru reconhecível mesmo sem crase (PIX_EMV_RE). Sem essa
- * proteção, quando a resposta tem DOIS códigos PIX na mesma mensagem (ex.: "gere
- * o PIX das 2 faturas"), o regex de negrito duplo (**) casava um asterisco solto
- * de um código com outro do segundo código — ambos contêm literalmente "***"
- * (placeholder EMV de txid vazio, comum em códigos reais) — e apagava tudo entre
- * eles, incluindo 2 dos 3 asteriscos de cada código. Isso corrompe o payload EMV
- * de tamanho fixo e quebra o CRC16, invalidando o PIX no banco. Confirmado em
- * produção (interaction_logs id=35e5f11f-1a73-47cf-a6e2-3f167c971788): pixKey
- * original com "...62070503***6304..." chegou ao cliente como "...62070503*6304...".
+ * Protege qualquer trecho entre crases simples (`código`, caso a Sofia ainda insira
+ * isso por conta própria) e, como rede de segurança adicional, qualquer payload
+ * PIX cru reconhecível mesmo sem crase (PIX_EMV_RE) — em ambos os casos a crase em
+ * si é descartada no texto final, nunca chega ao cliente (ver protectCodeSpans).
+ *
+ * Sem a proteção do conteúdo entre crases, quando a resposta tem DOIS códigos PIX
+ * na mesma mensagem (ex.: "gere o PIX das 2 faturas"), o regex de negrito duplo
+ * (**) casava um asterisco solto de um código com outro do segundo código — ambos
+ * contêm literalmente "***" (placeholder EMV de txid vazio, comum em códigos
+ * reais) — e apagava tudo entre eles, incluindo 2 dos 3 asteriscos de cada código.
+ * Confirmado em produção (interaction_logs id=35e5f11f-1a73-47cf-a6e2-3f167c971788):
+ * pixKey original com "...62070503***6304..." chegou como "...62070503*6304...".
  *
  * Também restringe os dois regexes de negrito a não cruzar quebra de linha —
  * negrito legítimo nunca precisa atravessar parágrafos, e essa é a segunda camada
