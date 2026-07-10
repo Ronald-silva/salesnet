@@ -927,6 +927,18 @@ Auditoria da integração contra a skill `evolution-go` (payload, JIDs, mídia, 
 
 ---
 
+### 26) PIX via placeholder/token substitution (2026-07-10)
+
+O LLM nunca vê nem escreve payload PIX real. `pix-token-vault.ts` cria um vault por turno de `processMessage`; no boundary único onde saída de tool é serializada para o LLM (junto de `redactSensitiveFields`, nas duas flows), todo `pixKey`/`pixCode` — inclusive aninhado em `suggested_invoice` e arrays de `Invoice` — vira `{{PIX_xxxxxxxx}}`. Depois de `formatOutgoingWhatsApp`, o processor resolve os placeholders por lookup direto (`pixVault.resolve`); placeholder desconhecido ou malformado (`PIX_xxxxxxxx` sem chaves) = bloqueio fail-safe com `pix_token_blocked` no tool log.
+
+- **Thread (`saveMessage`) guarda a versão com placeholder** — o histórico visto pelo LLM nunca contém código real; placeholder antigo copiado do histórico não resolve e bloqueia (reenvio exige `gerar_pix` novo). Consequência aceita: o painel admin mostra `{{PIX_...}}` na conversa; o texto real entregue está em `interaction_logs.response`.
+- **`interaction_logs.response` guarda o texto pós-substituição** (necessário pro reenvio manual em `delivery_status='failed'`); `tool_calls` guarda a versão tokenizada (o que o LLM viu).
+- **As tools não mudaram**: `gerar_pix`/`listar_faturas`/`get_fatura_atual` continuam retornando `pixKey`/`pixCode` crus; a tokenização é só no boundary das flows. Templates de cobrança (`templates/billing.ts` e automações) NÃO passam pelo vault — não têm LLM no caminho.
+- **`containsUnverifiedPix` + `PIX_EMV_RE` viraram defesa em profundidade**: como o toolCallLog carrega tokens, a allowlist fica vazia e qualquer EMV cru digitado pelo LLM bloqueia.
+- Limitação conhecida: a rota `/conversations/:id/reply` (copiloto/human mode) não substitui placeholders — operador que copiar `{{PIX_...}}` de uma sugestão envia o literal. Follow-up pendente.
+
+---
+
 ## Gaps prioritários — briefing para melhoria da Sofia
 
 ### 1. Classificador de sessão baseado em LLM
@@ -1035,4 +1047,5 @@ O `console.warn` em `processor.ts` permanece apenas como observabilidade (log de
 - **Não chame `whatsappService.sendText()` direto nos 3 pontos de resposta principal ao cliente (fluxo LLM, quick-reply, catch geral de `processMessage`) sem passar por `sendTextWithDeliveryStatus()`** (`processor.ts`) — era a causa raiz de uma falha de entrega totalmente invisível em produção: `sendText` lançava, a exceção pulava pro `catch` geral, e o `interaction_logs.insert()` (que só rodava depois do envio) nunca acontecia — a resposta ficava salva na thread mas nunca chegava ao cliente nem aparecia no painel. `interaction_logs.delivery_status`/`delivery_error` (migration `037`) é a fonte de verdade de entrega hoje — presença de linha não significa mais entrega bem-sucedida sozinha. Ver seção "Falha de entrega silenciosa em `sendText`".
 - **Não envie mensagem real nem chame `processMessage` diretamente contra produção em script/diagnóstico sem chamar `assertSandboxNumber(phone)` primeiro** (`utils/test-sandbox.ts`) — foi assim que um teste sintético vazou pra conversa real do WhatsApp pessoal do Ronald (ver "Política de testes ao vivo contra produção" e item 25). A trava só funciona se `TEST_SANDBOX_PHONE` estiver configurado no ambiente; sem ela, `assertSandboxNumber` lança em vez de deixar passar silenciosamente.
 - **Não bloqueie a resposta HTTP do webhook (`webhook-router.ts`) esperando `provider.parseWebhook()` ou o processamento do agente** — o ACK deve sair logo após `validateWebhook`, antes de qualquer I/O caro (download/transcrição de mídia, chamada de LLM). É isso que faz o retry nativo do Evolution Go (5x/~30s) funcionar como rede de segurança em vez de correr risco de timeout. Ver item 25 e seção 5 da skill `evolution-go`.
+- **Não deixe saída de tool chegar ao contexto do LLM por fora do boundary tokenizado das flows** (`vault.tokenize(redactSensitiveFields(...))` em `runAnthropicFlow`/`runDeepSeekFlow`) — qualquer caminho novo que injete `pixKey`/`pixCode` cru no prompt (contexto manual, initialToolLog, pré-chamada) reabre o vazamento que o vault fechou. Os contextos manuais atuais (`buscar_cliente`, `get_fatura_atual` pré-executado — só `{status}` —, `verificar_cobertura`) não carregam PIX; mantenha assim ou tokenize.
 - **Não esvazie `BILLING_ALLOWLIST_CPFS` nem remova o gate `isCpfSendAllowed` em `billing-cadence.ts`/`billing-reminders.ts` sem pedido explícito do Ronald** — rollout de cobrança automática pra base completa de clientes é decisão dele, ainda pendente; ver seção "Allowlist de envio de cobrança" e memória do projeto `project_billing_allowlist_restriction`. Nunca commite CPFs reais em código — a lista vive só na env var do serviço no Railway.
