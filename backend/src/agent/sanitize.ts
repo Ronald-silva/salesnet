@@ -36,7 +36,7 @@ const INJECTION_PATTERNS: RegExp[] = [
   /ignore todas as instru[çc][oõ]es/gi,
   /esquece?\s+(o que|tudo)\s+(te |lhe )?ensinaram/gi,
   // Obfuscação com espaços/separadores
-  /i[\s_\-]*g[\s_\-]*n[\s_\-]*o[\s_\-]*r[\s_\-]*e/gi,
+  /i[\s_-]*g[\s_-]*n[\s_-]*o[\s_-]*r[\s_-]*e/gi,
 ];
 
 export function sanitizeUserInput(input: string): string {

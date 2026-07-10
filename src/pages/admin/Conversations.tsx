@@ -868,7 +868,7 @@ function ChatArea({
       return () => clearTimeout(timer);
     }
     return undefined;
-  }, [detail.messages.length, isHuman, inputFocused, conversationId]);
+  }, [detail.messages, isHuman, inputFocused, conversationId]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

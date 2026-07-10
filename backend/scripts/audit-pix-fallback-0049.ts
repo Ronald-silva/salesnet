@@ -62,14 +62,16 @@ async function main() {
   console.log(`[audit] querying interaction_logs from ${windowStart} to ${windowEnd} (UTC)`);
   console.log('[audit] NOTE: Fortaleza is UTC-3, so this is 21:45-21:55 local time the previous day if the 00:49 reported by the user was already local time. Widening if empty.');
 
-  let { data, error } = await supabase
+  const initialResult = await supabase
     .from('interaction_logs')
     .select('id, phone, tenant_id, session_mode, tool_calls, response, delivery_status, created_at')
     .gte('created_at', windowStart)
     .lte('created_at', windowEnd)
     .order('created_at', { ascending: true });
 
-  if (error) throw new Error(`interaction_logs query failed: ${error.message}`);
+  if (initialResult.error) throw new Error(`interaction_logs query failed: ${initialResult.error.message}`);
+
+  let data = initialResult.data;
 
   if (!data || data.length === 0) {
     console.log('[audit] no rows in UTC 00:45-00:55 window, trying local Fortaleza 00:45-00:55 (UTC 03:45-03:55)...');

@@ -61,7 +61,7 @@ async function main() {
   const systemWithContext = `${systemPrompt}\n\n${modeContext}\n\nContexto do cliente atual: telefone ${TEST_PHONE}, ainda não identificado nesta conversa.`;
 
   console.log('\n[sim] === TURN 1: user gives a CPF, asks about their invoice ===');
-  let messages: DeepSeekMessage[] = [
+  const messages: DeepSeekMessage[] = [
     { role: 'system', content: systemWithContext },
     { role: 'user', content: `Meu CPF é ${TEST_CPF}, quero ver minha fatura` },
   ];

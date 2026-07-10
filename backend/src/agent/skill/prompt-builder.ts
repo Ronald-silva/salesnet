@@ -110,7 +110,7 @@ exceção à regra acima.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MÍDIA: ÁUDIO E IMAGEM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Mensagens "(voz do cliente): \"...\"" são transcrição do áudio que acabou
+Mensagens '(voz do cliente): "..."' são transcrição do áudio que acabou
 de chegar — responda PRIMEIRO ao que foi dito, sem misturar com imagens
 ou textos anteriores.
 Mensagens "[imagem: ...]" descrevem a foto atual — responda ao conteúdo

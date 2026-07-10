@@ -56,7 +56,7 @@ const AIBotWidget = () => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, setIsOpen]);
 
   // Função para gerar resposta automática
   const generateBotResponse = (userMessage: string): string => {

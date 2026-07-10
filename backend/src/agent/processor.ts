@@ -282,7 +282,7 @@ async function runDeepSeekFlow(
     content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
   }));
 
-  let messages: DeepSeekMessage[] = [{ role: 'system', content: systemWithContext }, ...historyMessages];
+  const messages: DeepSeekMessage[] = [{ role: 'system', content: systemWithContext }, ...historyMessages];
   let iterations = 0;
 
   while (iterations < options.maxToolIterations) {

@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 const SESSION_MODES = [
-  { value: null, label: 'Todos' },
+  { value: null, label: 'Todos', color: '' },
   { value: 'billing', label: 'Cobrança 💰', color: 'border-amber-700/40 text-amber-400 data-[active=true]:bg-amber-900/50 data-[active=true]:border-amber-600 data-[active=true]:text-amber-300' },
   { value: 'support', label: 'Suporte 🔧', color: 'border-red-700/40 text-red-400 data-[active=true]:bg-red-900/50 data-[active=true]:border-red-600 data-[active=true]:text-red-300' },
   { value: 'commercial', label: 'Comercial 📈', color: 'border-green-700/40 text-green-400 data-[active=true]:bg-green-900/50 data-[active=true]:border-green-600 data-[active=true]:text-green-300' },

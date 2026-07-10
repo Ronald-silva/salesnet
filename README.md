@@ -71,7 +71,6 @@ npx tsc --noEmit -p tsconfig.json
 - Arquitetura e decisões técnicas da Sofia: [`CLAUDE.md`](./CLAUDE.md)
 - Visão de produto e evolução multi-tenant: [`docs/doc.md`](./docs/doc.md)
 - Checklist de deploy: [`docs/DEPLOY-CHECKLIST.md`](./docs/DEPLOY-CHECKLIST.md)
-- Prompts de implementação: [`docs/IMPLEMENTATION-PROMPTS.md`](./docs/IMPLEMENTATION-PROMPTS.md)
 
 ## Estrutura Rápida
 

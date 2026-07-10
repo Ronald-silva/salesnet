@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,32 +6,35 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AIBotContext } from "./contexts/AIBotContext";
 import AIBotWidget from "./components/AIBotWidget";
-import Home from "./pages/Home";
-import Plans from "./pages/Plans";
-import About from "./pages/About";
-import Contact from "./pages/Contact";
-import Cobertura from "./pages/Cobertura";
-import Suporte from "./pages/Suporte";
-import Hotspots from "./pages/Hotspots";
-import TrabalheConosco from "./pages/TrabalheConosco";
-import NotFound from "./pages/NotFound";
-import ClientLogin from "./pages/ClientLogin";
-import ClientPortal from "./pages/ClientPortal";
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminLayout from "./pages/admin/AdminLayout";
-import Conversations from "./pages/admin/Conversations";
-import Metrics from "./pages/admin/Metrics";
-import CampaignManager from "./pages/admin/CampaignManager";
-import ChurnRiskList from "./pages/admin/ChurnRiskList";
-import Alerts from "./pages/admin/Alerts";
-import { ClientesPage, FinanceiroPage, RedePage } from "./pages/admin/Placeholders";
-import ConfiguracoesPage from "./pages/admin/ConfiguracoesPage";
-import Reports from "./pages/admin/Reports";
-import SchedulesPage from "./pages/admin/Schedules";
-import Leads from "./pages/admin/Leads";
-import Tickets from "./pages/admin/Tickets";
-import Nps from "./pages/admin/Nps";
 import { getAdminToken } from "./lib/adminAuth";
+
+const Home = lazy(() => import("./pages/Home"));
+const Plans = lazy(() => import("./pages/Plans"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Cobertura = lazy(() => import("./pages/Cobertura"));
+const Suporte = lazy(() => import("./pages/Suporte"));
+const Hotspots = lazy(() => import("./pages/Hotspots"));
+const TrabalheConosco = lazy(() => import("./pages/TrabalheConosco"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const ClientLogin = lazy(() => import("./pages/ClientLogin"));
+const ClientPortal = lazy(() => import("./pages/ClientPortal"));
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
+const Conversations = lazy(() => import("./pages/admin/Conversations"));
+const Metrics = lazy(() => import("./pages/admin/Metrics"));
+const CampaignManager = lazy(() => import("./pages/admin/CampaignManager"));
+const ChurnRiskList = lazy(() => import("./pages/admin/ChurnRiskList"));
+const Alerts = lazy(() => import("./pages/admin/Alerts"));
+const ClientesPage = lazy(() => import("./pages/admin/Placeholders").then((module) => ({ default: module.ClientesPage })));
+const FinanceiroPage = lazy(() => import("./pages/admin/Placeholders").then((module) => ({ default: module.FinanceiroPage })));
+const RedePage = lazy(() => import("./pages/admin/Placeholders").then((module) => ({ default: module.RedePage })));
+const ConfiguracoesPage = lazy(() => import("./pages/admin/ConfiguracoesPage"));
+const Reports = lazy(() => import("./pages/admin/Reports"));
+const SchedulesPage = lazy(() => import("./pages/admin/Schedules"));
+const Leads = lazy(() => import("./pages/admin/Leads"));
+const Tickets = lazy(() => import("./pages/admin/Tickets"));
+const Nps = lazy(() => import("./pages/admin/Nps"));
 
 const queryClient = new QueryClient();
 
@@ -49,6 +52,7 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <Suspense fallback={<div className="min-h-screen bg-background" aria-label="Carregando página" />}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/planos" element={<Plans />} />
@@ -81,6 +85,7 @@ const App = () => {
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
             <AIBotWidget />
           </BrowserRouter>
         </TooltipProvider>

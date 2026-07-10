@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "dev": "vite",
     "dev:all": "concurrently -n frontend,backend -c cyan,yellow \"vite\" \"cd backend && npm run dev:watch\"",
@@ -11,6 +14,8 @@
     "test": "npm run test:frontend",
     "test:frontend": "vite build --mode test",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
+    "check:production": "npm run lint && npm run typecheck && npm run build && npm --prefix backend test -- --runInBand && npm --prefix backend run build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -71,7 +76,7 @@
     "@types/node": "^22.16.5",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react-swc": "^3.11.0",
+    "@vitejs/plugin-react-swc": "^4.3.1",
     "autoprefixer": "^10.4.21",
     "concurrently": "^10.0.3",
     "eslint": "^9.32.0",
@@ -82,6 +87,6 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
-    "vite": "^5.4.19"
+    "vite": "^8.1.4"
   }
 }
