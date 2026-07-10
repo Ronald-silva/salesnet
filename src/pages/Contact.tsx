@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useAIBot } from "@/contexts/AIBotContext";
-import { buildWhatsAppLink, buildContactMessage } from "@/lib/whatsapp";
+import { buildWhatsAppLink, buildContactMessage, OFFICIAL_WHATSAPP_DISPLAY, OFFICIAL_WHATSAPP_NUMBER } from "@/lib/whatsapp";
 import { maskPhone } from "@/lib/masks";
 
 const Contact = () => {
@@ -82,8 +82,8 @@ const Contact = () => {
                     </div>
                     <div>
                       <h3 className="font-semibold text-foreground mb-1">Telefone</h3>
-                      <a href="tel:+5585996032957" className="text-muted-foreground hover:text-accent transition-colors">
-                        (85) 9 9603-2957
+                      <a href={`tel:+${OFFICIAL_WHATSAPP_NUMBER}`} className="text-muted-foreground hover:text-accent transition-colors">
+                        {OFFICIAL_WHATSAPP_DISPLAY}
                       </a>
                     </div>
                   </div>

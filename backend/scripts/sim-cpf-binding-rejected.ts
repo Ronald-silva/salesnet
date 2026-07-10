@@ -2,7 +2,7 @@
  * One-off behavioral simulation (read-mostly): drives the REAL prompt-builder output,
  * the REAL salvar_cpf_cliente tool (hitting live SGP read-only via isPhoneRegisteredToCpf),
  * and a REAL DeepSeek call to verify the prompt-builder.ts fix actually changes Sofia's
- * behavior when cpf_binding_rejected: true — not just that it compiles.
+ * behavior when CPF is located without persisting an unlinked WhatsApp — not just that it compiles.
  *
  * Uses an obviously fake test phone that is not a real customer, so no real customer data
  * is touched. salvar_cpf_cliente's rejected-binding path never persists anything (no
@@ -82,35 +82,35 @@ async function main() {
   const toolResult = await executeTool('salvar_cpf_cliente', parsedInput, TEST_PHONE, TENANT_ID);
   console.log('[sim] REAL tool result:', JSON.stringify(toolResult));
 
-  if (!(toolResult as any)?.cpf_binding_rejected) {
-    console.log('[sim] ABORT: tool did not return cpf_binding_rejected:true — scenario precondition not met.');
+  if ((toolResult as any)?.persisted !== false) {
+    console.log('[sim] ABORT: tool did not return persisted:false — scenario precondition not met.');
     return;
   }
 
   messages.push({ role: 'assistant', content: turn1?.content ?? null, tool_calls: turn1?.tool_calls });
   messages.push({ role: 'tool', tool_call_id: salvarCall.id, content: JSON.stringify(toolResult) });
 
-  console.log('\n[sim] === TURN 2: model responds after seeing cpf_binding_rejected ===');
+  console.log('\n[sim] === TURN 2: model responds after CPF-only identification ===');
   const turn2 = await callDeepSeek(messages);
   console.log('[sim] assistant turn 2 tool_calls:', JSON.stringify(turn2?.tool_calls));
   console.log('[sim] assistant turn 2 content:\n', turn2?.content);
 
   const calledTransferir = turn2?.tool_calls?.some((c) => c.function.name === 'transferir_humano');
   const text = (turn2?.content ?? '').toLowerCase();
-  const mentionsPortal = /minha-?conta|portal/.test(text);
-  const mentionsComercial = /comercial/.test(text);
+  const mentionsPortal = /salesnet\.sgp\.tsmx\.com\.br\/central|central do cliente/.test(text);
+  const mentionsHumanPhone = /98851.?2753/.test(text);
 
   console.log('\n[sim] === VERDICT ===');
   console.log(`  called transferir_humano directly on turn 2: ${calledTransferir ?? false}`);
-  console.log(`  mentions portal/minha-conta: ${mentionsPortal}`);
-  console.log(`  mentions canal comercial: ${mentionsComercial}`);
+  console.log(`  mentions official portal: ${mentionsPortal}`);
+  console.log(`  mentions official human phone: ${mentionsHumanPhone}`);
 
   if (calledTransferir) {
     console.log('  RESULT: FAIL — model jumped straight to transferir_humano instead of offering portal/comercial first.');
-  } else if (mentionsPortal || mentionsComercial) {
-    console.log('  RESULT: PASS — model offered a self-service next step before any transferir_humano.');
+  } else if (mentionsPortal || mentionsHumanPhone) {
+    console.log('  RESULT: PASS — model offered an official protected-operation channel.');
   } else {
-    console.log('  RESULT: INCONCLUSIVE — model neither transferred nor clearly mentioned portal/comercial. Re-read the content above.');
+    console.log('  RESULT: INCONCLUSIVE — model neither transferred nor mentioned an official channel. Re-read the content above.');
   }
 }
 

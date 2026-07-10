@@ -2,7 +2,7 @@ import { MessageCircle, X, Send } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useAIBot } from "@/contexts/AIBotContext";
-import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { buildWhatsAppLink, OFFICIAL_WHATSAPP_DISPLAY } from "@/lib/whatsapp";
 import { formatBrl, INSTALLATION_FEE, plansListText, PUBLIC_PLANS, TV_ADDON_PRICE } from "@/data/plans";
 
 interface Message {
@@ -71,11 +71,11 @@ const AIBotWidget = () => {
     }
     
     if (message.includes('suporte') || message.includes('problema') || message.includes('lenta') || message.includes('não funciona')) {
-      return "🔧 **Suporte Técnico:**\n\n1. Reinicie seu roteador (30 segundos)\n2. Teste a velocidade: fast.com\n3. Verifique cabos e conexões\n\nProblema persiste? Fale conosco no WhatsApp: (85) 9 9603-2957";
+      return `🔧 **Suporte Técnico:**\n\n1. Reinicie seu roteador (30 segundos)\n2. Teste a velocidade: fast.com\n3. Verifique cabos e conexões\n\nProblema persiste? Fale conosco no WhatsApp: ${OFFICIAL_WHATSAPP_DISPLAY}`;
     }
     
     if (message.includes('whatsapp') || message.includes('atendente') || message.includes('humano')) {
-      return `📱 **Atendimento Humano:**\n\nWhatsApp: (85) 9 9603-2957\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: ${buildWhatsAppLink()}`;
+      return `📱 **Atendimento Humano:**\n\nWhatsApp: ${OFFICIAL_WHATSAPP_DISPLAY}\nHorário: 8h às 22h (todos os dias)\n\nOu clique aqui para falar direto: ${buildWhatsAppLink()}`;
     }
     
     if (message.includes('oi') || message.includes('olá') || message.includes('bom dia') || message.includes('boa tarde') || message.includes('boa noite')) {
@@ -83,7 +83,7 @@ const AIBotWidget = () => {
     }
     
     if (message.includes('obrigado') || message.includes('valeu') || message.includes('tchau')) {
-      return "Por nada! 😊 Foi um prazer ajudar!\n\nPrecisa de mais alguma coisa? Estou sempre aqui!\n\n📱 WhatsApp: (85) 9 9603-2957";
+      return `Por nada! 😊 Foi um prazer ajudar!\n\nPrecisa de mais alguma coisa? Estou sempre aqui!\n\n📱 WhatsApp: ${OFFICIAL_WHATSAPP_DISPLAY}`;
     }
 
     if (message.includes('desconto') || message.includes('promoção') || message.includes('promocao')) {
@@ -92,7 +92,7 @@ const AIBotWidget = () => {
     }
 
     if (message.includes('instala') || message.includes('agendar') || message.includes('visita')) {
-      return `🔧 **Instalação:**\n\n✅ Taxa única de R$ ${formatBrl(INSTALLATION_FEE)}\n✅ Agendamos no melhor horário para você\n✅ Técnico chega em até 48h úteis\n✅ Equipamentos inclusos\n\nPara agendar, me informe:\n1. Seu endereço completo\n2. Melhor dia e horário\n\nOu fale direto no WhatsApp: (85) 9 9603-2957`;
+      return `🔧 **Instalação:**\n\n✅ Taxa única de R$ ${formatBrl(INSTALLATION_FEE)}\n✅ Agendamos no melhor horário para você\n✅ Técnico chega em até 48h úteis\n✅ Equipamentos inclusos\n\nPara agendar, me informe:\n1. Seu endereço completo\n2. Melhor dia e horário\n\nOu fale direto no WhatsApp: ${OFFICIAL_WHATSAPP_DISPLAY}`;
     }
 
     if (message.includes('pix') || message.includes('pagamento') || message.includes('pagar') || message.includes('boleto')) {
@@ -100,7 +100,7 @@ const AIBotWidget = () => {
     }
 
     if (message.includes('cancelar') || message.includes('cancelamento') || message.includes('sair')) {
-      return "📋 **Cancelamento:**\n\n✅ Sem multa - você cancela quando quiser\n✅ Sem fidelidade\n✅ Processo simples e rápido\n\nPara cancelar, entre em contato:\n📱 WhatsApp: (85) 9 9603-2957\n\nPodemos ajudar com algum problema antes?";
+      return `📋 **Cancelamento:**\n\n✅ Sem multa - você cancela quando quiser\n✅ Sem fidelidade\n✅ Processo simples e rápido\n\nPara cancelar, entre em contato:\n📱 WhatsApp: ${OFFICIAL_WHATSAPP_DISPLAY}\n\nPodemos ajudar com algum problema antes?`;
     }
 
     if (message.includes('upgrade') || message.includes('mudar plano') || message.includes('trocar plano') || message.includes('aumentar')) {
@@ -368,7 +368,7 @@ const AIBotWidget = () => {
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
               >
-                WhatsApp: (85) 9 9603-2957
+                WhatsApp: {OFFICIAL_WHATSAPP_DISPLAY}
               </a>
             </p>
           </div>

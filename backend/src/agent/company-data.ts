@@ -38,4 +38,7 @@ export const BUSINESS_INFO = {
   supportHours:           '24h via WhatsApp',
   humanSupportHours:      'segunda a sexta: 08:00-12:00 e 14:00-18:00',
   popularPlan:            '500 Mega',
+  customerPortalUrl:      'https://salesnet.sgp.tsmx.com.br/central',
+  humanSupportPhone:      '(85) 98851-2753',
+  humanSupportPhoneDigits:'5585988512753',
 };

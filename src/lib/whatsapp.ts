@@ -1,6 +1,7 @@
-const DEFAULT_WHATSAPP_NUMBER = "5585996032957";
+export const OFFICIAL_WHATSAPP_NUMBER = "5585988512753";
+export const OFFICIAL_WHATSAPP_DISPLAY = "(85) 98851-2753";
 
-export function buildWhatsAppLink(message?: string, phone = DEFAULT_WHATSAPP_NUMBER): string {
+export function buildWhatsAppLink(message?: string, phone = OFFICIAL_WHATSAPP_NUMBER): string {
   const base = `https://wa.me/${phone}`;
   const text = message?.trim();
 
@@ -90,4 +91,3 @@ export function buildJobApplicationMessage(input: JobApplicationInput): string {
     `Motivação: ${input.about}`,
   ].join("\n");
 }
-

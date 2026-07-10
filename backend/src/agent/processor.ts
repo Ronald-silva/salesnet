@@ -738,6 +738,15 @@ export async function processMessage(
       r => r.session_mode as SessionMode,
     );
     const customerData = lookupResult.customer;
+    const customerContextData =
+      lookupResult.phoneLinked === false && !('error' in customerData)
+        ? {
+            name: customerData.name,
+            status: customerData.status,
+            authentication_level: 'cpf_only',
+            sensitive_actions_allowed: false,
+          }
+        : customerData;
 
     let invoiceStatus: string | undefined;
     try {
@@ -757,11 +766,11 @@ export async function processMessage(
 
     const baseSessionMode = classifySession(
       clean,
-      customerData as { status?: string; plan?: { downloadMbps?: number } },
+      customerContextData as { status?: string; plan?: { downloadMbps?: number } },
       invoiceStatus,
     );
     const { decision: sessionModeDecision, usage: disambiguationUsage } =
-      await disambiguateSessionMode(clean, customerData, invoiceStatus, baseSessionMode, recentModes);
+      await disambiguateSessionMode(clean, customerContextData, invoiceStatus, baseSessionMode, recentModes);
     const sessionMode = sessionModeDecision.finalMode;
 
     // Few-shot baseado no NPS real do tenant para este modo de sessão.
@@ -780,11 +789,12 @@ export async function processMessage(
           ...(cpfFromMessage ? { cpf: cpfFromMessage } : thread.cpf ? { cpf: thread.cpf } : {}),
         },
         output: redactSensitiveFields({
-          ...customerData,
+          ...customerContextData,
           _lookup: {
             method: lookupResult.method,
             attempts: lookupResult.attempts,
             cpfUsed: lookupResult.cpfUsed ?? null,
+            phoneLinked: lookupResult.phoneLinked,
           },
         }),
       },
@@ -820,7 +830,7 @@ export async function processMessage(
       }
     }
 
-    const safeCustomerData = redactSensitiveFields(customerData as Record<string, unknown>);
+    const safeCustomerData = redactSensitiveFields(customerContextData as Record<string, unknown>);
     const insightsContext = buildInsightsContext(insights);
     const [qualityExamples, knowledgeContext] = await Promise.all([
       qualityExamplesPromise,

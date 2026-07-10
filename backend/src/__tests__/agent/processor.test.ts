@@ -398,6 +398,33 @@ describe('processMessage — invalid CPF in the message', () => {
     expect(firstCallArgs.system).not.toContain('parece inválido');
   });
 
+  it('does not expose financial, address, or portal data to the LLM for cpf-only identification', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce('04976301338');
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: {
+        ...CUSTOMER,
+        phone: '+5585888887777',
+        contratoValorAberto: 987.65,
+        address: { street: 'Rua Sigilosa', number: '123' },
+        contratoCentralLogin: 'vanda.login',
+        contratoCentralSenha: 'senha-secreta',
+      },
+      method: 'cpf',
+      cpfUsed: '04976301338',
+      attempts: ['phone', 'cpf'],
+      phoneLinked: false,
+    });
+
+    await processMessage(PHONE, 'meu cpf é 049.763.013-38');
+
+    const firstCallArgs = (anthropic.messages.create as jest.Mock).mock.calls[0]![0];
+    expect(firstCallArgs.system).toContain('authentication_level');
+    expect(firstCallArgs.system).not.toContain('987.65');
+    expect(firstCallArgs.system).not.toContain('Rua Sigilosa');
+    expect(firstCallArgs.system).not.toContain('vanda.login');
+    expect(firstCallArgs.system).not.toContain('senha-secreta');
+  });
+
   it('forwards a short bare checksum-valid CPF even when Sofia did not ask for CPF first', async () => {
     (extractCpfFromText as jest.Mock).mockReturnValueOnce(null);
     (extractBareCpfWhenAsked as jest.Mock).mockReturnValueOnce('04976301338');

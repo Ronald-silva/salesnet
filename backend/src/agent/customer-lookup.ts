@@ -26,6 +26,8 @@ export interface CustomerLookupResult {
   method: CustomerLookupMethod | null;
   cpfUsed?: string;
   attempts: string[];
+  /** True only when the current WhatsApp number is linked to the CPF/contract. */
+  phoneLinked: boolean;
 }
 
 function isCustomerError(c: Customer | { error: string }): c is { error: string } {
@@ -67,10 +69,12 @@ export async function lookupCustomer(params: {
 
   const messageCpf = params.cpfFromMessage ? normalizeCpf(params.cpfFromMessage) : null;
 
-  async function persistCpfIfVerified(cpf: string): Promise<void> {
-    if (await isPhoneRegisteredToCpf(whatsappPhone, cpf)) {
+  async function persistCpfIfVerified(cpf: string): Promise<boolean> {
+    const verified = await isPhoneRegisteredToCpf(whatsappPhone, cpf);
+    if (verified) {
       await persistThreadCpf(whatsappPhone, tenantId, cpf);
     }
+    return verified;
   }
 
   try {
@@ -79,7 +83,7 @@ export async function lookupCustomer(params: {
     if (customer.document) {
       await persistThreadCpf(whatsappPhone, tenantId, customer.document);
     }
-    return { customer, method: 'phone', attempts };
+    return { customer, method: 'phone', attempts, phoneLinked: true };
   } catch (err) {
     logIfUnexpected(`phone lookup for ${whatsappPhone}`, err);
     // fall through to CPF
@@ -95,20 +99,20 @@ export async function lookupCustomer(params: {
     try {
       attempts.push(`cpf:${cpf.slice(0, 3)}***`);
       const customer = await sgp.getCustomerByCpf(cpf, whatsappPhone);
-      await persistCpfIfVerified(cpf);
-      return { customer, method: 'cpf', cpfUsed: cpf, attempts };
+      const phoneLinked = await persistCpfIfVerified(cpf);
+      return { customer, method: 'cpf', cpfUsed: cpf, attempts, phoneLinked };
     } catch (err) {
       logIfUnexpected(`cpf lookup for ${cpf.slice(0, 3)}***`, err);
       attempts.push(`cpf_stored_phone:${cpf.slice(0, 3)}***`);
       const fromStored = await tryLookupByStoredCpfPhone(cpf, tenantId);
       if (fromStored) {
         await persistThreadCpf(whatsappPhone, tenantId, cpf);
-        return { customer: fromStored, method: 'cpf_stored_phone', cpfUsed: cpf, attempts };
+        return { customer: fromStored, method: 'cpf_stored_phone', cpfUsed: cpf, attempts, phoneLinked: true };
       }
     }
   }
 
-  return { customer: { error: 'Cliente não encontrado' }, method: null, attempts };
+  return { customer: { error: 'Cliente não encontrado' }, method: null, attempts, phoneLinked: false };
 }
 
 export function buildIdentificationContext(
@@ -119,7 +123,10 @@ export function buildIdentificationContext(
     if (lookup.method === 'cpf' || lookup.method === 'cpf_stored_phone') {
       return (
         `\n\n## Identificação` +
-        `\nCliente identificado via CPF. O WhatsApp atual (${whatsappPhone}) pode diferir do telefone cadastrado.`
+        `\nCliente localizado via CPF. Continue normalmente com orientações e atendimento não sensível.` +
+        (lookup.phoneLinked
+          ? `\nO WhatsApp atual está vinculado ao cadastro.`
+          : `\nO WhatsApp atual não está vinculado ao cadastro. Não mencione divergência nem trate isso como inconsistência. Não execute operações protegidas; para elas, oriente a Central do Cliente ou o atendimento humano.`)
       );
     }
     return '';

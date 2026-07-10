@@ -279,7 +279,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'salvar_cpf_cliente',
-    description: 'Registra o CPF informado pelo cliente, associando-o ao telefone atual. Use sempre que o cliente disser o CPF durante a conversa. Isso permite localizar o contrato dele em contatos futuros, mesmo que o SGP não encontre pelo telefone.',
+    description: 'Localiza o CPF informado e só o associa permanentemente ao WhatsApp quando o SGP confirmar o vínculo entre ambos. CPF localizado com telefone diferente permite atendimento comum, mas não autoriza nem persiste acesso a operações protegidas.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -429,6 +429,14 @@ export async function executeTool(
       });
       if ('error' in result.customer && cpfProvidedButInvalid) {
         return { error: 'CPF inválido. Verifique os dígitos e tente novamente.' };
+      }
+      if (!('error' in result.customer) && result.phoneLinked === false) {
+        return {
+          ...result.customer,
+          authentication_level: 'cpf_only',
+          sensitive_actions_allowed: false,
+          guidance: `Cadastro localizado. Continue o atendimento comum sem mencionar divergência de telefone. Para operações protegidas, use ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
+        };
       }
       return result.customer;
     }
@@ -953,7 +961,7 @@ export async function executeTool(
       await setHumanMode(phone, true, tenantId);
       return {
         status: 'transferred',
-        message: 'Atendimento transferido para um agente humano. Aguarde, por favor.',
+        message: `Atendimento transferido para um agente humano. Se preferir falar diretamente pelo WhatsApp, use ${BUSINESS_INFO.humanSupportPhone}.`,
       };
     }
 
@@ -1073,13 +1081,22 @@ export async function executeTool(
       const verified = await isPhoneRegisteredToCpf(phone, cleanCpf);
       if (!verified) {
         console.warn(
-          `[tools] cpf_binding_rejected: phone=${maskPhone(phone)} cpf=${cleanCpf.slice(0, 3)}***`,
+          `[tools] cpf_not_persisted_unlinked_phone: phone=${maskPhone(phone)} cpf=${cleanCpf.slice(0, 3)}***`,
         );
-        return {
-          success: false,
-          cpf_binding_rejected: true,
-          error: 'Não foi possível confirmar que esse CPF pertence a este telefone. Peça para o cliente confirmar por outro meio, ou use transferir_humano se precisar vincular manualmente.',
-        };
+        try {
+          const customer = await sgp.getCustomerByCpf(cleanCpf, phone);
+          return {
+            success: true,
+            customer_found: true,
+            persisted: false,
+            authentication_level: 'cpf_only',
+            sensitive_actions_allowed: false,
+            customer: { id: customer.id, name: customer.name },
+            guidance: `Cadastro localizado. Continue o atendimento comum. Para operações protegidas, oriente ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
+          };
+        } catch {
+          return { success: true, customer_found: false, persisted: false };
+        }
       }
 
       await persistThreadCpf(phone, tenantId, cleanCpf);

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { MapPin, Phone, Clock, Mail, Wifi, MessageCircle } from "lucide-react";
-import { buildWhatsAppLink } from "@/lib/whatsapp";
+import { buildWhatsAppLink, OFFICIAL_WHATSAPP_DISPLAY, OFFICIAL_WHATSAPP_NUMBER } from "@/lib/whatsapp";
 
 const Footer = () => {
   return (
@@ -43,8 +43,8 @@ const Footer = () => {
               <li className="flex items-start space-x-2">
                 <Phone className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
                 <div>
-                  <a href="tel:+5585996032957" className="hover:text-accent transition-colors block">
-                    (85) 9 9603-2957
+                  <a href={`tel:+${OFFICIAL_WHATSAPP_NUMBER}`} className="hover:text-accent transition-colors block">
+                    {OFFICIAL_WHATSAPP_DISPLAY}
                   </a>
                 </div>
               </li>

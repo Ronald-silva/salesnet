@@ -17,6 +17,7 @@ import type { ClientProfile, ScheduledVisit, Ticket } from '@/api/client';
 import { getSession, clearSession } from '@/lib/auth';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { buildWhatsAppLink } from '@/lib/whatsapp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -349,7 +350,7 @@ export default function ClientPortal() {
             {/* CTA WhatsApp */}
             <button
               type="button"
-              onClick={() => window.open('https://wa.me/5585996032957', '_blank')}
+              onClick={() => window.open(buildWhatsAppLink(), '_blank')}
               className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border/50 bg-card hover:bg-muted/40 transition-colors"
             >
               <span className="text-sm text-foreground">Precisa de ajuda? Fale com a Sofia</span>

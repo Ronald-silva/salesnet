@@ -47,6 +47,7 @@ describe('lookupCustomer', () => {
     });
 
     expect(result.method).toBe('phone');
+    expect(result.phoneLinked).toBe(true);
     expect(result.customer).toEqual(CUSTOMER);
     expect(sgp.getCustomerByCpf).not.toHaveBeenCalled();
     expect(persistThreadCpf).toHaveBeenCalledWith(PHONE, TENANT, CUSTOMER.document);
@@ -63,6 +64,7 @@ describe('lookupCustomer', () => {
     });
 
     expect(result.method).toBe('cpf');
+    expect(result.phoneLinked).toBe(true);
     expect(result.cpfUsed).toBe('04976301338');
     expect(sgp.getCustomerByCpf).toHaveBeenCalledWith('04976301338', PHONE);
   });
@@ -80,6 +82,7 @@ describe('lookupCustomer', () => {
 
     expect(result.method).toBe('cpf');
     expect(result.customer).toEqual(CUSTOMER);
+    expect(result.phoneLinked).toBe(false);
     expect(isPhoneRegisteredToCpf).toHaveBeenCalledWith(PHONE, '04976301338');
     expect(persistThreadCpf).not.toHaveBeenCalled();
   });
@@ -109,6 +112,7 @@ describe('lookupCustomer', () => {
     });
 
     expect(result.method).toBeNull();
+    expect(result.phoneLinked).toBe(false);
     expect(result.customer).toEqual({ error: 'Cliente não encontrado' });
     expect(result.attempts).toContain('phone');
   });

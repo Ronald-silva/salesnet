@@ -193,6 +193,7 @@ describe('executeTool — buscar_cliente', () => {
       method: 'cpf',
       cpfUsed: '04976301338',
       attempts: ['phone', 'cpf'],
+      phoneLinked: true,
     });
 
     const result = await executeTool('buscar_cliente', { phone: PHONE, cpf: '049.763.013-38' }, PHONE);
@@ -201,6 +202,26 @@ describe('executeTool — buscar_cliente', () => {
       expect.objectContaining({ cpfFromMessage: '04976301338' }),
     );
     expect(result).toEqual(customer);
+  });
+
+  it('continues common service when CPF is found from an unlinked WhatsApp', async () => {
+    const customer = { id: 'c2', name: 'Vanda', status: 'active' };
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer,
+      method: 'cpf',
+      cpfUsed: '04976301338',
+      attempts: ['phone', 'cpf'],
+      phoneLinked: false,
+    });
+
+    const result = await executeTool('buscar_cliente', { cpf: '049.763.013-38' }, PHONE);
+
+    expect(result).toMatchObject({
+      ...customer,
+      authentication_level: 'cpf_only',
+      sensitive_actions_allowed: false,
+    });
+    expect(JSON.stringify(result)).not.toMatch(/telefone antigo|outro n[uú]mero/i);
   });
 });
 
@@ -474,32 +495,37 @@ describe('executeTool — salvar_cpf_cliente (phone↔CPF binding guard)', () =>
     });
   });
 
-  it('blocks persistence when the session phone has no verified link to the CPF (IDOR guard)', async () => {
+  it('locates by CPF but does not persist it when the WhatsApp is not linked (IDOR guard)', async () => {
     (sgp.getContratoPhonesByCpf as jest.Mock).mockResolvedValue(['+5585997761756']);
+    (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue({ id: 'c2', name: 'Vanda' });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const result = await executeTool('salvar_cpf_cliente', { cpf: '621.478.243-99' }, PHONE);
 
     expect(persistThreadCpf).not.toHaveBeenCalled();
-    expect(sgp.getCustomerByCpf).not.toHaveBeenCalled();
-    expect(result).toEqual({
-      success: false,
-      cpf_binding_rejected: true,
-      error: expect.any(String),
+    expect(sgp.getCustomerByCpf).toHaveBeenCalledWith('62147824399', PHONE);
+    expect(result).toMatchObject({
+      success: true,
+      customer_found: true,
+      persisted: false,
+      authentication_level: 'cpf_only',
+      sensitive_actions_allowed: false,
+      customer: { id: 'c2', name: 'Vanda' },
     });
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cpf_binding_rejected'));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cpf_not_persisted_unlinked_phone'));
     warnSpy.mockRestore();
   });
 
-  it('reproduces the Thiago/*3833 production case: real third-party CPF is rejected, not linked', async () => {
+  it('reproduces the Thiago/*3833 production case: CPF can be located but is never linked', async () => {
     // Thiago's real CPF, registered in the SGP only to his own phone — not *3833's.
     (sgp.getContratoPhonesByCpf as jest.Mock).mockResolvedValue(['+5585997761756']);
+    (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue({ id: 'c2', name: 'Thiago' });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
 
     const result = await executeTool('salvar_cpf_cliente', { cpf: '621.478.243-99' }, '+558591993833');
 
     expect(persistThreadCpf).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ success: false, cpf_binding_rejected: true });
+    expect(result).toMatchObject({ success: true, customer_found: true, persisted: false, sensitive_actions_allowed: false });
     warnSpy.mockRestore();
   });
 
