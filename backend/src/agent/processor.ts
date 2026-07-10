@@ -15,7 +15,7 @@ import { buildMediaMessageContext } from './media-context';
 import { whatsappService } from '../services/whatsapp-service';
 import { classifyMessageComplexity } from './complexity-router';
 import { classifySession, type SessionMode } from './session-classifier';
-import { formatOutgoingWhatsApp, sanitizeUserInput } from './sanitize';
+import { formatOutgoingWhatsApp, sanitizeUserInput, containsUnverifiedPix } from './sanitize';
 import { messageAsksForPlans, quickReply } from './quick-reply';
 import { getCustomerInsights, buildInsightsContext } from './customer-memory';
 import { lookupKnowledge } from './knowledge-lookup';
@@ -25,7 +25,7 @@ import { randomUUID } from 'crypto';
 import { withPhoneLock } from '../utils/phone-mutex';
 import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
 import { warnIfDailyBudgetExceeded } from './llm-budget';
-import { isSendableWhatsAppTarget } from '../lib/phone';
+import { isSendableWhatsAppTarget, maskPhone } from '../lib/phone';
 import { withRetry } from '../utils/retry';
 
 type Provider = 'anthropic' | 'deepseek';
@@ -346,6 +346,9 @@ const DEFAULT_TOOL_ROUNDS = 10;
 
 const LLM_EMPTY_RESPONSE_FALLBACK =
   'Desculpe, não consegui processar sua mensagem. Por favor, tente novamente.';
+
+const PIX_HALLUCINATION_FALLBACK =
+  'Desculpe, tive uma falha técnica gerando seu código PIX agora. Pode repetir o pedido, por favor?';
 
 function defaultRunOptions(): RunOptions {
   return {
@@ -841,13 +844,25 @@ export async function processMessage(
       llmUsage = mergeUsage(llmUsage, result.usage);
     }
 
-    const finalText = formatOutgoingWhatsApp(result.finalText);
+    let finalText = formatOutgoingWhatsApp(result.finalText);
 
     if (finalText === LLM_EMPTY_RESPONSE_FALLBACK) {
       console.warn(
         `[processor] LLM empty response phone=${phone} tenant=${tenantId} tools=${result.toolCallLog.length}`,
         result.toolCallLog.map((t) => t.name).join(','),
       );
+    }
+
+    if (containsUnverifiedPix(finalText, result.toolCallLog)) {
+      console.error(
+        `[security] blocked unverified PIX in outgoing response phone=${maskPhone(phone)} tenant=${tenantId} — text did not match any gerar_pix output from this turn`,
+      );
+      result.toolCallLog.push({
+        name: 'pix_hallucination_blocked',
+        input: {},
+        output: { blocked: true },
+      });
+      finalText = PIX_HALLUCINATION_FALLBACK;
     }
 
     await saveMessage(phone, 'assistant', finalText, tenantId);

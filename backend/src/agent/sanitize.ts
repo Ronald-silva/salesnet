@@ -75,7 +75,8 @@ const CODE_SPAN_RE = new RegExp(`${CODE_SPAN_MARKER}(\\d+)${CODE_SPAN_MARKER}`, 
 // (nem precisa ser) um validador EMV completo — só específico o bastante pra nunca
 // casar com texto normal em português. Não exclui espaço porque o campo de nome do
 // recebedor (tag 59) legitimamente contém espaços (ex.: "NEGOCIARIE COBRANCA E ASS").
-const PIX_EMV_RE = /000201[^\n]{20,600}?6304[0-9A-Fa-f]{4}/g;
+// Exportado para containsUnverifiedPix() abaixo reusar o mesmo reconhecedor.
+export const PIX_EMV_RE = /000201[^\n]{20,600}?6304[0-9A-Fa-f]{4}/g;
 
 function protectCodeSpans(text: string): { protectedText: string; codeSpans: string[] } {
   const codeSpans: string[] = [];
@@ -125,4 +126,34 @@ export function formatOutgoingWhatsApp(text: string): string {
     .trim();
 
   return stripped.replace(CODE_SPAN_RE, (_, i: string) => codeSpans[Number(i)]!);
+}
+
+/**
+ * Última rede de segurança contra PIX fabricado/alucinado pelo LLM: todo trecho da
+ * resposta que bate PIX_EMV_RE precisa corresponder EXATAMENTE a um pixKey devolvido
+ * por uma chamada real de gerar_pix nesta mesma interação (toolCallLog do turno
+ * atual — nunca histórico persistido). Sem isso, um LLM que "lembra" um código PIX
+ * de uma mensagem anterior da conversa (em vez de rechamar a tool) pode reproduzi-lo
+ * com corrupção sutil — checksum quebrado, sem erro visível até o cliente tentar
+ * pagar — ou inventar um código para uma fatura que nunca existiu. Confirmado em
+ * produção: código com estrutura EMV inválida (asterisco único onde deveria haver
+ * três) e PIX gerado para uma fatura fictícia ("Março/2027") fora da lista real do
+ * cliente. Fail-safe: se algo parece PIX e não bate com nenhuma saída real de tool
+ * deste turno, o chamador deve bloquear o envio — nunca deixar passar sem certeza.
+ */
+export function containsUnverifiedPix(
+  text: string,
+  toolCallLog: ReadonlyArray<{ name: string; output: unknown }>,
+): boolean {
+  const matches = text.match(PIX_EMV_RE);
+  if (!matches) return false;
+
+  const verifiedPixKeys = new Set(
+    toolCallLog
+      .filter((call) => call.name === 'gerar_pix')
+      .map((call) => (call.output as { pixKey?: unknown } | null)?.pixKey)
+      .filter((key): key is string => typeof key === 'string' && key.length > 0),
+  );
+
+  return matches.some((match) => !verifiedPixKeys.has(match));
 }
