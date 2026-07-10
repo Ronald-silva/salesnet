@@ -37,25 +37,40 @@ function buildApp() {
   return app;
 }
 
+type OtpRow = { code: string; expires_at: string; attempts: number };
+
 function mockSupabase(
   upsertResult = { error: null },
-  singleResult: { data: { code: string; expires_at: string } | null; error: unknown } = { data: null, error: { code: 'PGRST116' } }
+  singleResult: { data: OtpRow | null; error: unknown } = { data: null, error: { code: 'PGRST116' } }
 ) {
+  const otpBuilder = {
+    upsert: jest.fn().mockResolvedValue(upsertResult),
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    gte: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue(singleResult),
+    update: jest.fn().mockReturnThis(),
+    delete: jest.fn().mockReturnThis(),
+  };
   (supabase.from as jest.Mock).mockImplementation((table: string) => {
     if (table === 'otp_codes') {
-      return {
-        upsert: jest.fn().mockResolvedValue(upsertResult),
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockReturnThis(),
-        single: jest.fn().mockResolvedValue(singleResult),
-      };
+      return otpBuilder;
     }
     if (table === 'client_sessions') {
       return { insert: jest.fn().mockResolvedValue({ error: null }) };
     }
     return {};
   });
+  return otpBuilder;
+}
+
+function validOtpRow(overrides: Partial<OtpRow> = {}): OtpRow {
+  return {
+    code: '123456',
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    attempts: 0,
+    ...overrides,
+  };
 }
 
 const mockCustomer = {
@@ -107,12 +122,9 @@ describe('POST /api/auth/request-otp', () => {
 });
 
 describe('POST /api/auth/verify-otp', () => {
-  it('returns session token when OTP is valid', async () => {
+  it('returns session token and deletes the OTP when code is valid', async () => {
     (getCustomerByPhone as jest.Mock).mockResolvedValue(mockCustomer);
-    mockSupabase(
-      { error: null },
-      { data: { code: '123456', expires_at: new Date(Date.now() + 60000).toISOString() }, error: null }
-    );
+    const otp = mockSupabase({ error: null }, { data: validOtpRow(), error: null });
 
     const res = await request(buildApp())
       .post('/api/auth/verify-otp')
@@ -121,6 +133,8 @@ describe('POST /api/auth/verify-otp', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
     expect(typeof res.body.token).toBe('string');
+    // OTP é de uso único — reuso do mesmo código deve ser impossível
+    expect(otp.delete).toHaveBeenCalled();
   });
 
   it('returns 401 when OTP is wrong or expired', async () => {
@@ -131,6 +145,62 @@ describe('POST /api/auth/verify-otp', () => {
       .send({ phone: '85999990001', code: '000000' });
 
     expect(res.status).toBe(401);
+  });
+
+  describe('brute-force lockout (migration 035)', () => {
+    it('increments attempts on a wrong code below the limit', async () => {
+      const otp = mockSupabase({ error: null }, { data: validOtpRow({ attempts: 1 }), error: null });
+
+      const res = await request(buildApp())
+        .post('/api/auth/verify-otp')
+        .send({ phone: '85999990001', code: '999999' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error).toBe('invalid code');
+      expect(otp.update).toHaveBeenCalledWith({ attempts: 2 });
+      expect(otp.delete).not.toHaveBeenCalled();
+    });
+
+    it('invalidates the OTP immediately on the 5th wrong attempt', async () => {
+      const otp = mockSupabase({ error: null }, { data: validOtpRow({ attempts: 4 }), error: null });
+
+      const res = await request(buildApp())
+        .post('/api/auth/verify-otp')
+        .send({ phone: '85999990001', code: '999999' });
+
+      expect(res.status).toBe(401);
+      expect(otp.update).toHaveBeenCalledWith({
+        attempts: 5,
+        expires_at: new Date(0).toISOString(),
+      });
+    });
+
+    it('returns 429 when attempts already reached the limit, even with the correct code', async () => {
+      const otp = mockSupabase({ error: null }, { data: validOtpRow({ attempts: 5 }), error: null });
+
+      const res = await request(buildApp())
+        .post('/api/auth/verify-otp')
+        .send({ phone: '85999990001', code: '123456' });
+
+      expect(res.status).toBe(429);
+      expect(res.body.error).toContain('too many attempts');
+      expect(otp.update).not.toHaveBeenCalled();
+      expect(otp.delete).not.toHaveBeenCalled();
+      expect(getCustomerByPhone).not.toHaveBeenCalled();
+    });
+
+    it('request-otp resets attempts to 0 in the upsert', async () => {
+      (getCustomerByPhone as jest.Mock).mockResolvedValue(mockCustomer);
+      (whatsappService.sendText as jest.Mock).mockResolvedValue(undefined);
+      const otp = mockSupabase();
+
+      const res = await request(buildApp())
+        .post('/api/auth/request-otp')
+        .send({ phone: '85999990001' });
+
+      expect(res.status).toBe(200);
+      expect(otp.upsert).toHaveBeenCalledWith(expect.objectContaining({ attempts: 0 }));
+    });
   });
 
   it('returns 400 when phone or code is missing', async () => {

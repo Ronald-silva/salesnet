@@ -13,9 +13,9 @@ jest.mock('../../integrations/sgp', () => ({
   getCurrentInvoice: jest.fn(),
   generatePixKey: jest.fn(),
   getConnectionStatus: jest.fn(),
-  getCustomerTickets: jest.fn(),
   openTicket: jest.fn(),
   getCustomerInvoices: jest.fn(),
+  getCustomerById: jest.fn(),
 }));
 jest.mock('../../config/supabase', () => ({
   supabase: { from: jest.fn() },
@@ -25,13 +25,43 @@ import {
   getCurrentInvoice,
   generatePixKey,
   getConnectionStatus,
-  getCustomerTickets,
   openTicket,
   getCustomerInvoices,
 } from '../../integrations/sgp';
 import { supabase } from '../../config/supabase';
 
 beforeEach(() => jest.clearAllMocks());
+
+type SofiaTicketRow = {
+  id: string;
+  tipo: string;
+  descricao: string;
+  status: string;
+  sgp_chamado_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+// Tickets vivem em sofia_tickets (Supabase); SGP getCustomerTickets é stub
+function mockSofiaTickets(
+  listResult: { data: SofiaTicketRow[] | null; error: unknown } = { data: [], error: null },
+  insertResult: { data: SofiaTicketRow | null; error: unknown } = { data: null, error: null },
+) {
+  const insert = jest.fn().mockReturnThis();
+  const builder = {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue(listResult),
+    insert,
+    single: jest.fn().mockResolvedValue(insertResult),
+  };
+  (supabase.from as jest.Mock).mockImplementation((table: string) => {
+    if (table === 'sofia_tickets') return builder;
+    return {};
+  });
+  return builder;
+}
 
 function buildApp() {
   const app = express();
@@ -64,28 +94,96 @@ describe('GET /api/client/connection', () => {
 });
 
 describe('GET /api/client/tickets', () => {
-  it('returns list of tickets', async () => {
-    (getCustomerTickets as jest.Mock).mockResolvedValue([
-      { id: 't1', customerId: 'cust1', type: 'technical', description: 'no signal', status: 'open', createdAt: '' },
-    ]);
+  it('returns tickets from sofia_tickets mapped to the API shape', async () => {
+    mockSofiaTickets({
+      data: [{
+        id: 't1',
+        tipo: 'technical',
+        descricao: 'no signal',
+        status: 'aberto',
+        sgp_chamado_id: 'SGP-77',
+        created_at: '2026-07-01T10:00:00Z',
+        updated_at: '2026-07-01T10:00:00Z',
+      }],
+      error: null,
+    });
 
     const res = await request(buildApp()).get('/api/client/tickets');
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
+    expect(res.body[0]).toMatchObject({
+      id: 't1',
+      type: 'technical',
+      description: 'no signal',
+      status: 'open',
+      protocol: 'SGP-77',
+    });
+  });
+
+  it('returns 500 when the sofia_tickets query fails', async () => {
+    mockSofiaTickets({ data: null, error: new Error('permission denied') });
+
+    const res = await request(buildApp()).get('/api/client/tickets');
+
+    expect(res.status).toBe(500);
   });
 });
 
 describe('POST /api/client/tickets', () => {
-  it('creates a new ticket', async () => {
-    (openTicket as jest.Mock).mockResolvedValue({ ticketId: 't2', status: 'open', createdAt: '' });
+  const insertedRow: SofiaTicketRow = {
+    id: 't2',
+    tipo: 'technical',
+    descricao: 'no internet',
+    status: 'aberto',
+    sgp_chamado_id: 'SGP-123',
+    created_at: '2026-07-01T10:00:00Z',
+    updated_at: '2026-07-01T10:00:00Z',
+  };
+
+  it('opens the ticket in SGP and persists it in sofia_tickets', async () => {
+    (openTicket as jest.Mock).mockResolvedValue({ protocolo: 'SGP-123' });
+    const builder = mockSofiaTickets(undefined, { data: insertedRow, error: null });
 
     const res = await request(buildApp())
       .post('/api/client/tickets')
       .send({ type: 'technical', description: 'no internet' });
 
     expect(res.status).toBe(201);
-    expect(res.body.ticketId).toBe('t2');
+    expect(res.body).toMatchObject({
+      id: 't2',
+      type: 'technical',
+      description: 'no internet',
+      status: 'open',
+      protocol: 'SGP-123',
+    });
+    expect(openTicket).toHaveBeenCalledWith('cust1', 'technical', 'no internet');
+    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({
+      contrato: 'cust1',
+      phone: '+5585999990001',
+      tipo: 'technical',
+      descricao: 'no internet',
+      status: 'aberto',
+      sgp_chamado_id: 'SGP-123',
+    }));
+  });
+
+  it('still creates the ticket when SGP openTicket fails (best-effort)', async () => {
+    (openTicket as jest.Mock).mockRejectedValue(new Error('SGP timeout'));
+    const builder = mockSofiaTickets(undefined, {
+      data: { ...insertedRow, sgp_chamado_id: null },
+      error: null,
+    });
+
+    const res = await request(buildApp())
+      .post('/api/client/tickets')
+      .send({ type: 'technical', description: 'no internet' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.protocol).toBeNull();
+    expect(builder.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ sgp_chamado_id: null }),
+    );
   });
 
   it('returns 400 when type or description is missing', async () => {
