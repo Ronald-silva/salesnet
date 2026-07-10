@@ -54,7 +54,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
   },
   {
     name: 'gerar_pix',
-    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP.',
+    description: 'Gera código PIX copia-e-cola para pagamento. Omita invoice_id para deixar a tool resolver: com 1-2 faturas em aberto, gera direto para a mais próxima do vencimento; com 3+ faturas, NÃO gera — retorna total devido e fatura sugerida para você perguntar ao cliente antes de chamar de novo com invoice_id explícito. Use invoice_id apenas quando o cliente já mencionou o mês/fatura específica. Use force_new=true quando o cliente relatar que o código anterior não funcionou (expirado, inválido, "chave inexistente") para forçar geração de um código novo no SGP. Resposta traz pixKeyFormatted (código já entre crase simples, ex.: `codigo`) — copie esse campo LITERALMENTE na sua resposta ao cliente, sem reescrever, resumir ou remover as crases; nunca digite o pixKey cru por conta própria.',
     input_schema: {
       type: 'object' as const,
       properties: {
@@ -479,11 +479,17 @@ export async function executeTool(
       if (!ownsInvoice) {
         return { error: 'Fatura não encontrada para o contrato confirmado nesta sessão.' };
       }
-      return sgp.generatePixKey(
+      const pix = await sgp.generatePixKey(
         invoiceId,
         customerId,
         input.force_new === true,
       );
+      // pixKeyFormatted já vem entre crase simples — a Sofia deve usar esse campo
+      // direto na resposta em vez de reconstruir a formatação sozinha. Isso não
+      // depende do LLM lembrar de envolver o código; é a mesma proteção que
+      // formatOutgoingWhatsApp (sanitize.ts) espera encontrar para nunca tocar
+      // no payload EMV ao remover markdown de negrito.
+      return { ...pix, pixKeyFormatted: `\`${pix.pixKey}\`` };
     }
 
     case 'confirmar_pagamento': {
