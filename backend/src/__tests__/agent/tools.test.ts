@@ -22,6 +22,8 @@ jest.mock('../../agent/memory', () => ({
   setHumanMode:      jest.fn(),
   getThreadCpf:      jest.fn().mockResolvedValue(null),
   persistThreadCpf:  jest.fn().mockResolvedValue(undefined),
+  getTemporaryFinancialCustomerId: jest.fn().mockResolvedValue(null),
+  grantTemporaryFinancialAccess: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../agent/customer-lookup', () => ({
@@ -36,7 +38,12 @@ jest.mock('../../config/supabase', () => ({
 
 import { executeTool, TOOL_DEFINITIONS } from '../../agent/tools';
 import * as sgp from '../../integrations/sgp';
-import { setHumanMode, persistThreadCpf } from '../../agent/memory';
+import {
+  setHumanMode,
+  persistThreadCpf,
+  getTemporaryFinancialCustomerId,
+  grantTemporaryFinancialAccess,
+} from '../../agent/memory';
 import { lookupCustomer } from '../../agent/customer-lookup';
 
 const PHONE = '+5585999990000';
@@ -474,6 +481,21 @@ describe('executeTool — sensitive customer_id tools are session-scoped', () =>
     expect(sgp.getCurrentInvoice).not.toHaveBeenCalled();
     expect(result).toEqual({ error: expect.stringContaining('Não foi possível confirmar') });
   });
+
+  it('allows invoice lookup with an active temporary financial authorization', async () => {
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: { error: 'Cliente não encontrado' },
+      method: null,
+      attempts: ['phone'],
+    });
+    (getTemporaryFinancialCustomerId as jest.Mock).mockResolvedValueOnce('cpf-customer');
+    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv-1', status: 'open' });
+
+    const result = await executeTool('get_fatura_atual', {}, PHONE);
+
+    expect(sgp.getCurrentInvoice).toHaveBeenCalledWith('cpf-customer');
+    expect(result).toEqual({ id: 'inv-1', status: 'open' });
+  });
 });
 
 describe('executeTool — salvar_cpf_cliente (phone↔CPF binding guard)', () => {
@@ -504,12 +526,14 @@ describe('executeTool — salvar_cpf_cliente (phone↔CPF binding guard)', () =>
 
     expect(persistThreadCpf).not.toHaveBeenCalled();
     expect(sgp.getCustomerByCpf).toHaveBeenCalledWith('62147824399', PHONE);
+    expect(grantTemporaryFinancialAccess).toHaveBeenCalledWith(PHONE, expect.any(String), 'c2');
     expect(result).toMatchObject({
       success: true,
       customer_found: true,
       persisted: false,
       authentication_level: 'cpf_only',
       sensitive_actions_allowed: false,
+      financial_actions_allowed: true,
       customer: { id: 'c2', name: 'Vanda' },
     });
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('cpf_not_persisted_unlinked_phone'));

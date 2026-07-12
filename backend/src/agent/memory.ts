@@ -13,6 +13,8 @@ export interface ThreadRow {
   phone: string;
   tenant_id?: string;
   cpf?: string | null;
+  financial_customer_id?: string | null;
+  financial_access_expires_at?: string | null;
   messages: MessageEntry[];
   human_mode: boolean;
   churn_risk: boolean;
@@ -133,4 +135,46 @@ export async function persistThreadCpf(
     );
 
   if (error) console.warn('[memory] persistThreadCpf failed:', error.message);
+}
+
+const FINANCIAL_ACCESS_TTL_MS = 30 * 60 * 1000;
+
+export async function grantTemporaryFinancialAccess(
+  phone: string,
+  tenantId: string | undefined,
+  customerId: string,
+): Promise<void> {
+  const tid = resolveTenantId(tenantId);
+  const expiresAt = new Date(Date.now() + FINANCIAL_ACCESS_TTL_MS).toISOString();
+  const { error } = await supabase
+    .from('conversation_threads')
+    .upsert(
+      {
+        phone,
+        tenant_id: tid,
+        financial_customer_id: customerId,
+        financial_access_expires_at: expiresAt,
+      },
+      { onConflict: 'tenant_id,phone' },
+    );
+
+  if (error) throw new Error(`Failed to grant temporary financial access: ${error.message}`);
+}
+
+export async function getTemporaryFinancialCustomerId(
+  phone: string,
+  tenantId?: string,
+): Promise<string | null> {
+  const tid = resolveTenantId(tenantId);
+  const { data } = await supabase
+    .from('conversation_threads')
+    .select('financial_customer_id, financial_access_expires_at')
+    .eq('phone', phone)
+    .eq('tenant_id', tid)
+    .maybeSingle();
+
+  const customerId = data?.financial_customer_id as string | null | undefined;
+  const expiresAt = data?.financial_access_expires_at as string | null | undefined;
+  if (!customerId || !expiresAt || Date.parse(expiresAt) <= Date.now()) return null;
+  return customerId;
 }

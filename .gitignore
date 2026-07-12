@@ -28,5 +28,7 @@ bun.lockb
 
 # Local environment and agent artifacts
 .env
+.supabase/
+supabase/.temp/
 .superpowers/
 docs/superpowers/

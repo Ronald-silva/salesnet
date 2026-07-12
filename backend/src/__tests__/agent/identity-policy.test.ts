@@ -19,15 +19,16 @@ describe('Sofia identity and official-channel policy', () => {
   it('continues common service after locating a CPF from a different WhatsApp', () => {
     const context = buildIdentificationContext(unlinkedCpfLookup, '+5585988887777');
 
-    expect(context).toContain('Continue normalmente com orientações e atendimento não sensível');
+    expect(context).toContain('Continue normalmente com orientações e atendimento');
+    expect(context).toContain('Faturas, PIX e confirmação de pagamento estão autorizados temporariamente');
     expect(context).not.toMatch(/pertence a outro n[uú]mero|telefone antigo|atendimento bloqueado/i);
   });
 
-  it('keeps protected operations blocked for cpf-only identification', () => {
+  it('allows financial service but keeps account changes blocked for cpf-only identification', () => {
     const prompt = buildSystemPrompt(salesnetConfig);
 
-    expect(prompt).toContain('não podem ser executadas apenas com a posse do CPF');
-    expect(prompt).toContain('faturas/PIX');
+    expect(prompt).toContain('faturas, PIX e confirmação de pagamento ficam autorizados temporariamente');
+    expect(prompt).toContain('Continuam protegidos apenas com a posse do CPF');
     expect(prompt).toContain('alteração cadastral/telefone/titularidade/endereço');
   });
 

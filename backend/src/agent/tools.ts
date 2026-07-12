@@ -1,6 +1,12 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import * as sgp from '../integrations/sgp';
-import { setHumanMode, getThreadCpf, persistThreadCpf } from './memory';
+import {
+  setHumanMode,
+  getThreadCpf,
+  persistThreadCpf,
+  getTemporaryFinancialCustomerId,
+  grantTemporaryFinancialAccess,
+} from './memory';
 import { lookupCustomer } from './customer-lookup';
 import { normalizeCpf, isValidCpf } from '../lib/cpf';
 import { normalizePhone, maskPhone } from '../lib/phone';
@@ -359,6 +365,15 @@ async function requireSessionCustomerId(phone: string, tenantId: string): Promis
   return customerId;
 }
 
+async function requireFinancialCustomerId(phone: string, tenantId: string): Promise<string | { error: string }> {
+  const customerId = await resolveSessionCustomerId(phone, tenantId)
+    ?? await getTemporaryFinancialCustomerId(phone, tenantId);
+  if (!customerId) {
+    return { error: 'Não foi possível confirmar o contrato desta sessão. Peça o CPF do titular antes de continuar.' };
+  }
+  return customerId;
+}
+
 export async function markChurnRiskByPhone(phone: string, tenantId: string): Promise<void> {
   const { error } = await supabase
     .from('conversation_threads')
@@ -435,26 +450,27 @@ export async function executeTool(
           ...result.customer,
           authentication_level: 'cpf_only',
           sensitive_actions_allowed: false,
-          guidance: `Cadastro localizado. Continue o atendimento comum sem mencionar divergência de telefone. Para operações protegidas, use ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
+          financial_actions_allowed: true,
+          guidance: `Cadastro localizado. Faturas, PIX e confirmação de pagamento estão autorizados por 30 minutos. Para alterações cadastrais ou contratuais, use ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
         };
       }
       return result.customer;
     }
 
     case 'get_fatura_atual': {
-      const customerId = await requireSessionCustomerId(phone, tenantId);
+      const customerId = await requireFinancialCustomerId(phone, tenantId);
       if (typeof customerId !== 'string') return customerId;
       return sgp.getCurrentInvoice(customerId);
     }
 
     case 'listar_faturas': {
-      const customerId = await requireSessionCustomerId(phone, tenantId);
+      const customerId = await requireFinancialCustomerId(phone, tenantId);
       if (typeof customerId !== 'string') return customerId;
       return sgp.getCustomerInvoices(customerId);
     }
 
     case 'gerar_pix': {
-      const customerId = await requireSessionCustomerId(phone, tenantId);
+      const customerId = await requireFinancialCustomerId(phone, tenantId);
       if (typeof customerId !== 'string') return customerId;
 
       const invoices = await sgp.getCustomerInvoices(customerId);
@@ -499,7 +515,7 @@ export async function executeTool(
     }
 
     case 'confirmar_pagamento': {
-      const customerId = await requireSessionCustomerId(phone, tenantId);
+      const customerId = await requireFinancialCustomerId(phone, tenantId);
       if (typeof customerId !== 'string') return customerId;
       try {
         const invoices = await sgp.getCustomerInvoices(customerId);
@@ -1085,14 +1101,20 @@ export async function executeTool(
         );
         try {
           const customer = await sgp.getCustomerByCpf(cleanCpf, phone);
+          try {
+            await grantTemporaryFinancialAccess(phone, tenantId, customer.id);
+          } catch (err) {
+            console.error('[tools] temporary financial authorization failed:', err);
+          }
           return {
             success: true,
             customer_found: true,
             persisted: false,
             authentication_level: 'cpf_only',
             sensitive_actions_allowed: false,
+            financial_actions_allowed: true,
             customer: { id: customer.id, name: customer.name },
-            guidance: `Cadastro localizado. Continue o atendimento comum. Para operações protegidas, oriente ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
+            guidance: `Cadastro localizado. Faturas, PIX e confirmação de pagamento estão autorizados por 30 minutos. Para alterações cadastrais ou contratuais, oriente ${BUSINESS_INFO.customerPortalUrl} ou ${BUSINESS_INFO.humanSupportPhone}.`,
           };
         } catch {
           return { success: true, customer_found: false, persisted: false };

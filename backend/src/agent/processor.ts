@@ -745,6 +745,7 @@ export async function processMessage(
             status: customerData.status,
             authentication_level: 'cpf_only',
             sensitive_actions_allowed: false,
+            financial_actions_allowed: true,
           }
         : customerData;
 

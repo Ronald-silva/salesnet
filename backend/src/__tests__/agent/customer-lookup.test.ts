@@ -17,6 +17,7 @@ jest.mock('../../config/supabase', () => ({
 
 jest.mock('../../agent/memory', () => ({
   persistThreadCpf: jest.fn().mockResolvedValue(undefined),
+  grantTemporaryFinancialAccess: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('../../agent/identity-verification', () => ({
@@ -25,7 +26,7 @@ jest.mock('../../agent/identity-verification', () => ({
 
 import { lookupCustomer } from '../../agent/customer-lookup';
 import * as sgp from '../../integrations/sgp';
-import { persistThreadCpf } from '../../agent/memory';
+import { grantTemporaryFinancialAccess, persistThreadCpf } from '../../agent/memory';
 import { isPhoneRegisteredToCpf } from '../../agent/identity-verification';
 
 const PHONE = '+5585999990000';
@@ -85,6 +86,7 @@ describe('lookupCustomer', () => {
     expect(result.phoneLinked).toBe(false);
     expect(isPhoneRegisteredToCpf).toHaveBeenCalledWith(PHONE, '04976301338');
     expect(persistThreadCpf).not.toHaveBeenCalled();
+    expect(grantTemporaryFinancialAccess).toHaveBeenCalledWith(PHONE, TENANT, CUSTOMER.id);
   });
 
   it('uses CPF from thread when phone fails', async () => {

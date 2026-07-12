@@ -1,6 +1,6 @@
 import * as sgp from '../integrations/sgp';
 import { supabase } from '../config/supabase';
-import { persistThreadCpf } from './memory';
+import { grantTemporaryFinancialAccess, persistThreadCpf } from './memory';
 import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../lib/cpf';
 import { isPhoneRegisteredToCpf } from './identity-verification';
 import type { Customer } from '../integrations/sgp/types';
@@ -100,6 +100,13 @@ export async function lookupCustomer(params: {
       attempts.push(`cpf:${cpf.slice(0, 3)}***`);
       const customer = await sgp.getCustomerByCpf(cpf, whatsappPhone);
       const phoneLinked = await persistCpfIfVerified(cpf);
+      if (!phoneLinked && cpf === messageCpf) {
+        try {
+          await grantTemporaryFinancialAccess(whatsappPhone, tenantId, customer.id);
+        } catch (err) {
+          console.error('[customer-lookup] temporary financial authorization failed:', err);
+        }
+      }
       return { customer, method: 'cpf', cpfUsed: cpf, attempts, phoneLinked };
     } catch (err) {
       logIfUnexpected(`cpf lookup for ${cpf.slice(0, 3)}***`, err);
@@ -123,10 +130,10 @@ export function buildIdentificationContext(
     if (lookup.method === 'cpf' || lookup.method === 'cpf_stored_phone') {
       return (
         `\n\n## Identificação` +
-        `\nCliente localizado via CPF. Continue normalmente com orientações e atendimento não sensível.` +
+        `\nCliente localizado via CPF. Continue normalmente com orientações e atendimento.` +
         (lookup.phoneLinked
           ? `\nO WhatsApp atual está vinculado ao cadastro.`
-          : `\nO WhatsApp atual não está vinculado ao cadastro. Não mencione divergência nem trate isso como inconsistência. Não execute operações protegidas; para elas, oriente a Central do Cliente ou o atendimento humano.`)
+          : `\nO WhatsApp atual não está vinculado ao cadastro. Não mencione divergência nem trate isso como inconsistência. Faturas, PIX e confirmação de pagamento estão autorizados temporariamente pelo CPF informado. Não execute alterações cadastrais ou contratuais; para elas, oriente a Central do Cliente ou o atendimento humano.`)
       );
     }
     return '';
