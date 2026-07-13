@@ -89,6 +89,58 @@ describe('lookupCustomer', () => {
     expect(grantTemporaryFinancialAccess).toHaveBeenCalledWith(PHONE, TENANT, CUSTOMER.id);
   });
 
+  it('message CPF takes precedence over phone identification (different contract)', async () => {
+    const OTHER_CUSTOMER = { id: 'c2', name: 'Maria', document: '61721658360', status: 'active' };
+    (sgp.getCustomerByPhone as jest.Mock).mockResolvedValue(CUSTOMER);
+    (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue(OTHER_CUSTOMER);
+    (isPhoneRegisteredToCpf as jest.Mock).mockResolvedValue(false);
+
+    const result = await lookupCustomer({
+      whatsappPhone: PHONE,
+      tenantId: TENANT,
+      cpfFromMessage: '61721658360',
+    });
+
+    expect(result.method).toBe('cpf');
+    expect(result.customer).toEqual(OTHER_CUSTOMER);
+    expect(result.phoneLinked).toBe(false);
+    expect(sgp.getCustomerByCpf).toHaveBeenCalledWith('61721658360', PHONE);
+    expect(grantTemporaryFinancialAccess).toHaveBeenCalledWith(PHONE, TENANT, OTHER_CUSTOMER.id);
+    expect(persistThreadCpf).not.toHaveBeenCalled();
+  });
+
+  it('message CPF matching the phone-linked contract keeps the verified flow (no temporary grant)', async () => {
+    (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue(CUSTOMER);
+    (isPhoneRegisteredToCpf as jest.Mock).mockResolvedValue(true);
+
+    const result = await lookupCustomer({
+      whatsappPhone: PHONE,
+      tenantId: TENANT,
+      cpfFromMessage: '04976301338',
+    });
+
+    expect(result.method).toBe('cpf');
+    expect(result.customer).toEqual(CUSTOMER);
+    expect(result.phoneLinked).toBe(true);
+    expect(persistThreadCpf).toHaveBeenCalledWith(PHONE, TENANT, '04976301338');
+    expect(grantTemporaryFinancialAccess).not.toHaveBeenCalled();
+  });
+
+  it('falls back to phone identification when the message CPF finds nothing', async () => {
+    (sgp.getCustomerByPhone as jest.Mock).mockResolvedValue(CUSTOMER);
+    (sgp.getCustomerByCpf as jest.Mock).mockRejectedValue(new Error('não encontrado'));
+
+    const result = await lookupCustomer({
+      whatsappPhone: PHONE,
+      tenantId: TENANT,
+      cpfFromMessage: '61721658360',
+    });
+
+    expect(result.method).toBe('phone');
+    expect(result.customer).toEqual(CUSTOMER);
+    expect(result.phoneLinked).toBe(true);
+  });
+
   it('uses CPF from thread when phone fails', async () => {
     (sgp.getCustomerByPhone as jest.Mock).mockRejectedValue(new Error('not found'));
     (sgp.getCustomerByCpf as jest.Mock).mockResolvedValue(CUSTOMER);

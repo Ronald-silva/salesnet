@@ -366,8 +366,11 @@ async function requireSessionCustomerId(phone: string, tenantId: string): Promis
 }
 
 async function requireFinancialCustomerId(phone: string, tenantId: string): Promise<string | { error: string }> {
-  const customerId = await resolveSessionCustomerId(phone, tenantId)
-    ?? await getTemporaryFinancialCustomerId(phone, tenantId);
+  // O grant temporário reflete o CPF que o cliente acabou de informar (janela de 30min)
+  // e vence o contrato amarrado ao número — senão uma linha cadastrada como contato de
+  // outro contrato no SGP nunca consegue consultar/pagar as faturas do CPF informado.
+  const customerId = await getTemporaryFinancialCustomerId(phone, tenantId)
+    ?? await resolveSessionCustomerId(phone, tenantId);
   if (!customerId) {
     return { error: 'Não foi possível confirmar o contrato desta sessão. Peça o CPF do titular antes de continuar.' };
   }

@@ -482,6 +482,20 @@ describe('executeTool — sensitive customer_id tools are session-scoped', () =>
     expect(result).toEqual({ error: expect.stringContaining('Não foi possível confirmar') });
   });
 
+  it('prefers an active temporary financial authorization over the phone-bound session contract', async () => {
+    // Caso Fernando: telefone amarrado a um contrato no SGP, mas o CPF recém-informado
+    // concedeu acesso temporário a OUTRO contrato — faturas/PIX devem atuar no contrato do CPF.
+    mockResolvedSession();
+    (getTemporaryFinancialCustomerId as jest.Mock).mockResolvedValueOnce('cpf-customer');
+    (sgp.getCurrentInvoice as jest.Mock).mockResolvedValue({ id: 'inv-9', status: 'open' });
+
+    const result = await executeTool('get_fatura_atual', {}, PHONE);
+
+    expect(sgp.getCurrentInvoice).toHaveBeenCalledWith('cpf-customer');
+    expect(sgp.getCurrentInvoice).not.toHaveBeenCalledWith(SESSION_CUSTOMER.id);
+    expect(result).toEqual({ id: 'inv-9', status: 'open' });
+  });
+
   it('allows invoice lookup with an active temporary financial authorization', async () => {
     (lookupCustomer as jest.Mock).mockResolvedValue({
       customer: { error: 'Cliente não encontrado' },

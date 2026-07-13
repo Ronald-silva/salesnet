@@ -263,18 +263,20 @@ Mídia recebida **não vem em claro** (a menos que `WEBHOOK_FILES=true` no Evolu
 
 ## Identificação do cliente — telefone e CPF (`customer-lookup.ts`)
 
-Ordem automática em **toda mensagem** (`processor.ts` passo 8):
+Ordem automática em **toda mensagem** (`processor.ts` passo 8; precedência alterada em 2026-07-13):
 
 ```
-1. getCustomerByPhone(whatsappPhone)     → SGP consultacliente?telefone=
-2. Se falhar → getCustomerByCpf(cpf)     → SGP consultacliente?cpf=
-3. Se falhar → tryLookupByStoredCpfPhone → outro phone na thread com mesmo CPF
+1. CPF explícito na mensagem → getCustomerByCpf(cpf)  → SGP consultacliente?cpfcnpj=
+2. Se falhar → getCustomerByPhone(whatsappPhone)      → SGP consultacliente?telefone=
+3. Se falhar → CPF do thread → getCustomerByCpf(cpf)
+4. Se falhar → tryLookupByStoredCpfPhone              → outro phone na thread com mesmo CPF
 ```
+
+**CPF explícito vence o telefone (fix 2026-07-13, caso Fernando/HOME):** um número cadastrado como contato de outro contrato no SGP (ex.: o telefone do dono está em 9 contratos de clientes) ficava permanentemente identificado como aquele cliente e o fluxo de acesso financeiro por CPF nunca ativava. Agora o CPF da mensagem re-identifica mesmo quando o telefone já bate com um contrato; se o telefone não for vinculado ao CPF (`isPhoneRegisteredToCpf`), aplica-se o nível `cpf_only` com acesso financeiro temporário de 30min (`grantTemporaryFinancialAccess`). Na mesma mudança, `requireFinancialCustomerId` (tools financeiras: `get_fatura_atual`/`listar_faturas`/`gerar_pix`/`confirmar_pagamento`) passou a preferir o grant temporário sobre o contrato resolvido da sessão — senão o PIX sairia do contrato amarrado ao número, não do CPF recém-informado. Limitação aceita: cliente identificado que consulta CPF de terceiro e pede "minha fatura" dentro dos 30min recebe a fatura do CPF consultado (a Sofia nomeia o titular na resposta, mitigando).
 
 **Fontes de CPF:** `extractCpfFromText(message)` (formatado `049.763.013-38` ou `cpf: 04976301338`) + `conversation_threads.cpf` (migration `023`).
 
 **Limitações intencionais:**
-- Se telefone **já encontra** cliente, CPF na mesma mensagem **não** re-identifica.
 - 11 dígitos soltos **não** são extraídos automaticamente (overlap com telefone BR) — Sofia deve usar `buscar_cliente(cpf=...)` ou `salvar_cpf_cliente`.
 - Contato `@lid` sem telefone no payload depende de CPF informado ou salvo na thread.
 

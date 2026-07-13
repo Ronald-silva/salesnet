@@ -77,30 +77,12 @@ export async function lookupCustomer(params: {
     return verified;
   }
 
-  try {
-    attempts.push('phone');
-    const customer = await sgp.getCustomerByPhone(whatsappPhone);
-    if (customer.document) {
-      await persistThreadCpf(whatsappPhone, tenantId, customer.document);
-    }
-    return { customer, method: 'phone', attempts, phoneLinked: true };
-  } catch (err) {
-    logIfUnexpected(`phone lookup for ${whatsappPhone}`, err);
-    // fall through to CPF
-  }
-
-  const cpfCandidates = [
-    messageCpf,
-    params.cpfFromThread ? normalizeCpf(params.cpfFromThread) : null,
-  ].filter((c): c is string => !!c && c.length === 11);
-  const uniqueCpfs = [...new Set(cpfCandidates)];
-
-  for (const cpf of uniqueCpfs) {
+  async function tryResolveByCpf(cpf: string, fromMessage: boolean): Promise<CustomerLookupResult | null> {
     try {
       attempts.push(`cpf:${cpf.slice(0, 3)}***`);
       const customer = await sgp.getCustomerByCpf(cpf, whatsappPhone);
       const phoneLinked = await persistCpfIfVerified(cpf);
-      if (!phoneLinked && cpf === messageCpf) {
+      if (!phoneLinked && fromMessage) {
         try {
           await grantTemporaryFinancialAccess(whatsappPhone, tenantId, customer.id);
         } catch (err) {
@@ -116,7 +98,34 @@ export async function lookupCustomer(params: {
         await persistThreadCpf(whatsappPhone, tenantId, cpf);
         return { customer: fromStored, method: 'cpf_stored_phone', cpfUsed: cpf, attempts, phoneLinked: true };
       }
+      return null;
     }
+  }
+
+  // CPF explícito na mensagem vence a identificação por telefone: um número cadastrado
+  // como contato de outro contrato no SGP (ex.: mesmo telefone em vários cadastros)
+  // ficaria preso àquele cliente e nunca alcançaria o contrato do CPF informado.
+  if (messageCpf && messageCpf.length === 11) {
+    const byMessageCpf = await tryResolveByCpf(messageCpf, true);
+    if (byMessageCpf) return byMessageCpf;
+  }
+
+  try {
+    attempts.push('phone');
+    const customer = await sgp.getCustomerByPhone(whatsappPhone);
+    if (customer.document) {
+      await persistThreadCpf(whatsappPhone, tenantId, customer.document);
+    }
+    return { customer, method: 'phone', attempts, phoneLinked: true };
+  } catch (err) {
+    logIfUnexpected(`phone lookup for ${whatsappPhone}`, err);
+    // fall through to thread CPF
+  }
+
+  const threadCpf = params.cpfFromThread ? normalizeCpf(params.cpfFromThread) : null;
+  if (threadCpf && threadCpf.length === 11 && threadCpf !== messageCpf) {
+    const byThreadCpf = await tryResolveByCpf(threadCpf, false);
+    if (byThreadCpf) return byThreadCpf;
   }
 
   return { customer: { error: 'Cliente não encontrado' }, method: null, attempts, phoneLinked: false };
