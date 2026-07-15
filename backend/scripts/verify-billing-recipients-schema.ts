@@ -47,7 +47,11 @@ async function main() {
     .single();
 
   if (dup.error) {
-    console.log('[verify] PASS: duplicate active (tenant_id, contract_id) correctly rejected —', dup.error.code);
+    if (dup.error.code === '23505') {
+      console.log('[verify] PASS: duplicate active (tenant_id, contract_id) correctly rejected —', dup.error.code);
+    } else {
+      console.error('[verify] FAIL: duplicate active check got unexpected error —', dup.error.code, dup.error.message);
+    }
   } else {
     console.error('[verify] FAIL: duplicate active recipient was NOT rejected — partial unique index missing or wrong.');
     await supabase.from('billing_recipients').delete().eq('id', dup.data.id);
@@ -85,7 +89,11 @@ async function main() {
       .single();
 
     if (job2.error) {
-      console.log('[verify] PASS: duplicate idempotency_key correctly rejected —', job2.error.code);
+      if (job2.error.code === '23505') {
+        console.log('[verify] PASS: duplicate idempotency_key correctly rejected —', job2.error.code);
+      } else {
+        console.error('[verify] FAIL: duplicate idempotency_key check got unexpected error —', job2.error.code, job2.error.message);
+      }
     } else {
       console.error('[verify] FAIL: duplicate idempotency_key was NOT rejected — unique index missing.');
       await supabase.from('billing_dispatch_jobs').delete().eq('id', job2.data.id);
