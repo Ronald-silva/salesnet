@@ -5,6 +5,7 @@
  * Run: npx ts-node --project tsconfig.json scripts/billing-recipients-live-test.ts
  */
 import { env } from '../src/config/env';
+import { bootstrapProviders, ensureDefaultInstance } from '../src/bootstrap';
 import { createPendingJob } from '../src/lib/billing-dispatch-jobs';
 import { createBillingRecipient, listBillingRecipients } from '../src/lib/billing-recipients';
 import { normalizePhone } from '../src/lib/phone';
@@ -19,6 +20,8 @@ async function main(): Promise<void> {
     throw new Error('TEST_SANDBOX_PHONE não configurado; nenhum teste ao vivo será executado.');
   }
   assertSandboxNumber(phone);
+  bootstrapProviders();
+  await ensureDefaultInstance();
 
   const normalizedPhone = normalizePhone(phone);
   const existing = (await listBillingRecipients(env.DEFAULT_TENANT_ID, 'all')).find(
