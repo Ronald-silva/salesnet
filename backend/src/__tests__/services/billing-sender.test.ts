@@ -43,4 +43,14 @@ describe('sendDispatchJob', () => {
     expect(markJobFailed).toHaveBeenCalledWith('j3', 'provider down');
     expect(markJobSent).not.toHaveBeenCalled();
   });
+
+  it('resolves with failed status when markJobProcessing throws (never leaves job stuck)', async () => {
+    markJobProcessing.mockRejectedValueOnce(new Error('db connection down'));
+
+    const result = await sendDispatchJob('j4', 'tenant-1', '+5585999990000', 'olá');
+
+    expect(result).toEqual({ status: 'failed', error: 'db connection down' });
+    expect(markJobFailed).toHaveBeenCalledWith('j4', 'db connection down');
+    expect(sendTextMock).not.toHaveBeenCalled();
+  });
 });

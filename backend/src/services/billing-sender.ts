@@ -14,9 +14,8 @@ export async function sendDispatchJob(
   phone: string,
   message: string,
 ): Promise<{ status: 'sent'; providerMessageId: string } | { status: 'failed'; error: string }> {
-  await markJobProcessing(jobId);
-
   try {
+    await markJobProcessing(jobId);
     const result = await withRetry(() => whatsappService.sendText(tenantId, phone, message), {
       delaysMs: [1000, 3000],
     });
