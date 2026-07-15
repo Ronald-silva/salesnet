@@ -77,7 +77,7 @@ describe('runBillingJobD3', () => {
     (billingAllowlist.resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
       { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '99999999999' },
     ]);
-    (billingAllowlist.isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    (billingAllowlist.isCpfSendAllowed as jest.Mock).mockReturnValueOnce(false);
 
     await runBillingJobD3();
 
@@ -193,7 +193,7 @@ describe('runBillingJobSuspendD5', () => {
     (billingAllowlist.resolveOverdueCustomers as jest.Mock).mockResolvedValue([
       { customerId: 'c4', recipientId: 'r4', name: 'Bruno', phone: '+5585999990004', amountDue: 200, document: '99999999999' },
     ]);
-    (billingAllowlist.isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    (billingAllowlist.isCpfSendAllowed as jest.Mock).mockReturnValueOnce(false);
 
     await runBillingJobSuspendD5();
 

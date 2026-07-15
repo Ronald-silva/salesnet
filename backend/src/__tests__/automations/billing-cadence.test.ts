@@ -1,6 +1,5 @@
 jest.mock('../../config/env', () => ({ env: { DEFAULT_TENANT_ID: 'salesnet-default' } }));
 jest.mock('../../integrations/sgp/billing', () => ({
-  getHabitualLatePayerContractIds: jest.fn(),
   hasOpenInvoice: jest.fn(),
 }));
 jest.mock('../../automations/billing-allowlist', () => ({
@@ -9,6 +8,7 @@ jest.mock('../../automations/billing-allowlist', () => ({
   logSkippedOutsideAllowlist: jest.fn(),
 }));
 jest.mock('../../lib/billing-dispatch-jobs', () => ({
+  getHabitualLatePayerContractIds: jest.fn(),
   createPendingJob: jest.fn(),
   markJobPaid: jest.fn(),
   buildIdempotencyKey: jest.fn((c, s, d) => `${c}:${s}:${d}`),
@@ -16,9 +16,9 @@ jest.mock('../../lib/billing-dispatch-jobs', () => ({
 jest.mock('../../services/billing-sender', () => ({ sendDispatchJob: jest.fn() }));
 
 // Import and get mocked functions via require to avoid TypeScript issues
-const { getHabitualLatePayerContractIds, hasOpenInvoice } = require('../../integrations/sgp/billing');
+const { hasOpenInvoice } = require('../../integrations/sgp/billing');
 const { resolveDueSoonCustomers } = require('../../automations/billing-allowlist');
-const { createPendingJob, markJobPaid } = require('../../lib/billing-dispatch-jobs');
+const { getHabitualLatePayerContractIds, createPendingJob, markJobPaid } = require('../../lib/billing-dispatch-jobs');
 const { sendDispatchJob } = require('../../services/billing-sender');
 const { runBillingCadenceD5 } = require('../../automations/billing-cadence');
 
