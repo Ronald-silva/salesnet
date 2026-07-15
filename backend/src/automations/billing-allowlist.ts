@@ -57,7 +57,7 @@ export async function resolveDueSoonCustomers(days: number): Promise<DueSoonCust
   if (recipients.length === 0) return [];
 
   const cpfs = recipients.map((r) => r.cpf);
-  const recipientByCpf = new Map(recipients.map((r) => [r.cpf, r.id]));
+  const recipientByCpf = new Map(recipients.map((r) => [normalizeCpf(r.cpf), r.id]));
   const entries = await getBillingStatusForAllowlist(cpfs);
 
   return entries
@@ -83,7 +83,7 @@ export async function resolveOverdueCustomers(daysOverdue: number): Promise<Over
   if (recipients.length === 0) return [];
 
   const cpfs = recipients.map((r) => r.cpf);
-  const recipientByCpf = new Map(recipients.map((r) => [r.cpf, r.id]));
+  const recipientByCpf = new Map(recipients.map((r) => [normalizeCpf(r.cpf), r.id]));
   const entries = await getBillingStatusForAllowlist(cpfs);
 
   return entries

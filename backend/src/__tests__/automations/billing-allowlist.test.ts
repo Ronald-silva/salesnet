@@ -61,6 +61,21 @@ describe('resolveDueSoonCustomers', () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.recipientId).toBe('r1');
   });
+
+  it('normalizes CPF when matching formatted recipient CPF to normalized SGP document', async () => {
+    (listActiveEligibleRecipients as jest.Mock).mockResolvedValue([
+      { id: 'r-fmt', contract_id: 'c-fmt', cpf: '123.456.789-09', phone: '+5585999990099', customer_name: 'Ana' },
+    ]);
+    (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
+      { customerId: 'c-fmt', document: '12345678909', name: 'Ana', phone: '+5585999990099', dueDate: '2026-07-20', amount: 75, daysUntilDue: 0, stage: 'd0' },
+    ]);
+
+    const result = await resolveDueSoonCustomers(0);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.recipientId).toBe('r-fmt');
+    expect(result[0]!.document).toBe('12345678909');
+  });
 });
 
 describe('resolveOverdueCustomers', () => {
