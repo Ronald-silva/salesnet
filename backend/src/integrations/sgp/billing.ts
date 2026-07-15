@@ -206,30 +206,3 @@ export async function reactivateCustomer(contratoId: string): Promise<SuspendRea
   console.warn('[SGP] reactivateCustomer not implemented:', contratoId);
   return { customerId: contratoId, status: 'active', updatedAt: new Date().toISOString() };
 }
-
-export async function getHabitualLatePayerIds(
-  minOverdueCount = 2,
-  monthsBack = 6,
-): Promise<Set<string>> {
-  const { supabase } = await import('../../config/supabase');
-
-  const since = new Date();
-  since.setMonth(since.getMonth() - monthsBack);
-
-  const { data } = await supabase
-    .from('billing_notifications')
-    .select('customer_id')
-    .in('type', ['overdue_d3', 'suspended_d5'])
-    .gte('sent_at', since.toISOString());
-
-  const counts = new Map<string, number>();
-  for (const row of (data ?? []) as Array<{ customer_id: string }>) {
-    counts.set(row.customer_id, (counts.get(row.customer_id) ?? 0) + 1);
-  }
-
-  const ids = new Set<string>();
-  for (const [id, count] of counts) {
-    if (count >= minOverdueCount) ids.add(id);
-  }
-  return ids;
-}
