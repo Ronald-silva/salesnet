@@ -72,6 +72,15 @@ describe('SGP customers — contract test with real-shaped payload', () => {
     expect(phones).toEqual(['+5585900000000']);
   });
 
+  it('exposes the raw SGP clienteId, distinct from contratoId', async () => {
+    postSpy.mockResolvedValue({ data: realShapeResponse });
+
+    const customer = await getCustomerByCpf('11144477735');
+
+    expect(customer.id).toBe('41'); // contratoId
+    expect(customer.sgpClienteId).toBe('900001'); // clienteId — pessoa distinta do contrato
+  });
+
   it('never logs contratoCentralLogin/contratoCentralSenha when a malformed contrato fails to parse', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     // A contrato that fails ContratoSchema (bad contratoId) but still carries real

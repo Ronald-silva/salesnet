@@ -81,6 +81,7 @@ export const CustomerSchema = z.object({
   name:   z.string(),
   phone:  z.string(),
   document: z.string().optional(),
+  sgpClienteId: z.string().optional(),
   status: z.enum(['active', 'suspended', 'cancelled']),
   plan: z.object({
     name:        z.string(),
