@@ -10,12 +10,13 @@ import {
 } from '../../lib/billing-recipients';
 
 function chain(result: { data: unknown; error: unknown }) {
-  const q: Record<string, any> = {};
+  const q: Record<string, unknown> = {};
+  const qBuilder = q as Record<string, (arg?: unknown) => unknown>;
   ['select', 'insert', 'update', 'eq', 'is', 'lte', 'contains', 'order'].forEach((m) => {
-    q[m] = jest.fn(() => q);
+    qBuilder[m] = jest.fn(() => q);
   });
-  q['single'] = jest.fn(() => Promise.resolve(result));
-  q['then'] = (resolve: (r: unknown) => unknown) => Promise.resolve(result).then(resolve);
+  qBuilder['single'] = jest.fn(() => Promise.resolve(result));
+  (q as Record<string, unknown>)['then'] = (resolve: (r: unknown) => unknown) => Promise.resolve(result).then(resolve);
   return q;
 }
 
