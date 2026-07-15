@@ -33,6 +33,7 @@ export async function createPendingJob(input: {
   stage: string;
   scheduledFor: string;
   phone: string;
+  idempotencyKey?: string;
 }): Promise<DispatchJobRow | null> {
   const { data, error } = await supabase
     .from('billing_dispatch_jobs')
@@ -42,7 +43,7 @@ export async function createPendingJob(input: {
       stage: input.stage,
       scheduled_for: input.scheduledFor,
       phone: input.phone,
-      idempotency_key: buildIdempotencyKey(input.contractId, input.stage, input.scheduledFor),
+      idempotency_key: input.idempotencyKey ?? buildIdempotencyKey(input.contractId, input.stage, input.scheduledFor),
     })
     .select('*')
     .single();

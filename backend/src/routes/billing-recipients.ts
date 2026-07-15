@@ -179,13 +179,14 @@ billingRecipientsRouter.post('/:id/test-send', async (req: AdminRequest, res: Re
     return;
   }
 
-  const scheduledFor = `${new Date().toISOString().split('T')[0]!}T${Date.now()}`;
+  const scheduledFor = new Date().toISOString().split('T')[0]!;
   const job = await createPendingJob({
     billingRecipientId: recipient.id,
     contractId: recipient.contract_id,
     stage: 'test',
     scheduledFor,
     phone: recipient.phone,
+    idempotencyKey: `${recipient.contract_id}:test:${scheduledFor}:${Date.now()}`,
   });
   if (!job) {
     testSendLocks.delete(id);

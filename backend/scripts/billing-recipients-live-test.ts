@@ -30,8 +30,9 @@ async function main(): Promise<void> {
     billingRecipientId: recipient.id,
     contractId: recipient.contract_id,
     stage: 'test',
-    scheduledFor: `${new Date().toISOString().split('T')[0]!}T${Date.now()}`,
+    scheduledFor: new Date().toISOString().split('T')[0]!,
     phone: normalizedPhone,
+    idempotencyKey: `${recipient.contract_id}:test:${Date.now()}`,
   });
   if (!job) throw new Error('falha ao criar job de teste');
 
