@@ -256,7 +256,7 @@ export type SuspendReactivateResponse = z.infer<typeof SuspendReactivateResponse
 
 // ── Billing status by CPF (targeted allowlist lookup, no bulk endpoint needed) ─
 
-export const BillingStageSchema = z.enum(['d5', 'd2', 'd0', 'd3_overdue', 'd5_overdue']);
+export const BillingStageSchema = z.enum(['d5', 'd3', 'd2', 'd0', 'd3_overdue', 'd5_overdue']);
 export type BillingStage = z.infer<typeof BillingStageSchema>;
 
 export const BillingStatusEntrySchema = z.object({
