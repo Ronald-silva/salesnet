@@ -397,7 +397,99 @@ export const adminApi = {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
+
+  lookupBillingRecipient: (query: string) =>
+    request<BillingRecipientLookup>(`/billing-recipients/lookup?q=${encodeURIComponent(query)}`),
+  listBillingRecipients: (status: BillingRecipientStatus = 'active') =>
+    request<{ data: BillingRecipient[] }>(`/billing-recipients?status=${status}`),
+  createBillingRecipient: (input: CreateBillingRecipientInput) =>
+    request<{ data: BillingRecipient }>('/billing-recipients', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  pauseBillingRecipient: (id: string) =>
+    request<{ ok: true }>(`/billing-recipients/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ paused: true }),
+    }),
+  reactivateBillingRecipient: (id: string) =>
+    request<{ ok: true }>(`/billing-recipients/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ paused: false }),
+    }),
+  removeBillingRecipient: (id: string) =>
+    request<{ ok: true }>(`/billing-recipients/${id}`, { method: 'DELETE' }),
+  getBillingRecipientHistory: (id: string) =>
+    request<{ data: BillingDispatchJob[] }>(`/billing-recipients/${id}/history`),
+  testSendBillingRecipient: (id: string, message: string) =>
+    request<{ data: BillingTestSendResult }>(`/billing-recipients/${id}/test-send`, {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true, message }),
+    }),
 };
+
+export type BillingRecipientStatus = 'active' | 'paused' | 'removed' | 'all';
+
+export interface BillingRecipient {
+  id: string;
+  contract_id: string;
+  sgp_cliente_id: string | null;
+  cpf: string;
+  customer_name: string;
+  phone: string;
+  active: boolean;
+  paused: boolean;
+  stages_enabled: string[];
+  channel: string;
+  cadence_start_date: string;
+  next_dispatch_at: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  paused_at: string | null;
+  removed_at: string | null;
+}
+
+export interface CreateBillingRecipientInput {
+  contractId: string;
+  sgpClienteId?: string | null;
+  cpf: string;
+  customerName: string;
+  phone: string;
+  stagesEnabled?: string[];
+  cadenceStartDate?: string;
+  notes?: string;
+}
+
+export interface BillingRecipientLookup {
+  contractId: string;
+  sgpClienteId: string | null;
+  cpf: string | null;
+  customerName: string;
+  phone: string;
+  phoneFormatValid: boolean;
+  financialStatus: { hasOpenInvoice: boolean; dueDate: string; amount: number } | null;
+  source: string;
+}
+
+export interface BillingDispatchJob {
+  id: string;
+  stage: string;
+  scheduled_for: string;
+  status: string;
+  attempt_count: number;
+  sent_at: string | null;
+  failed_at: string | null;
+  error_message: string | null;
+  message: string | null;
+  phone: string;
+  provider_message_id: string | null;
+  created_at: string;
+}
+
+export type BillingTestSendResult =
+  | { status: 'sent'; providerMessageId: string }
+  | { status: 'failed'; error: string };
 
 export type SchedulePeriod = 'morning' | 'afternoon';
 export type ScheduleStatus = 'scheduled' | 'done' | 'cancelled';
