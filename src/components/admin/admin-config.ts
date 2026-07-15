@@ -14,6 +14,7 @@ import {
   Siren,
   BarChart2,
   Star,
+  Send,
 } from 'lucide-react';
 
 export interface AdminNavItem {
@@ -45,6 +46,7 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
       { to: '/admin/clientes', label: 'Clientes', icon: Users },
       { to: '/admin/campanhas', label: 'Campanhas', icon: Megaphone },
       { to: '/admin/financeiro', label: 'Financeiro', icon: DollarSign },
+      { to: '/admin/regua-cobranca', label: 'Régua de Cobrança', shortLabel: 'Cobrança', icon: Send },
       { to: '/admin/rede', label: 'Rede', icon: Wifi },
       { to: '/admin/churn-risks', label: 'Churn Risks', icon: AlertTriangle },
       { to: '/admin/nps', label: 'NPS', icon: Star },
@@ -76,6 +78,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/admin/clientes': 'Clientes',
   '/admin/campanhas': 'Campanhas',
   '/admin/financeiro': 'Financeiro',
+  '/admin/regua-cobranca': 'Régua de Cobrança',
   '/admin/rede': 'Rede',
   '/admin/churn-risks': 'Churn Risks',
   '/admin/nps': 'NPS',
