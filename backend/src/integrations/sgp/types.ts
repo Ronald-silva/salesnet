@@ -224,6 +224,7 @@ export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 
 export const OverdueCustomerSchema = z.object({
   customerId:  z.string(),
+  recipientId: z.string(),
   name:        z.string(),
   phone:       z.string(),
   daysOverdue: z.number(),
@@ -235,13 +236,14 @@ export const OverdueCustomerSchema = z.object({
 });
 
 export const DueSoonCustomerSchema = z.object({
-  customerId: z.string(),
-  name:       z.string(),
-  phone:      z.string(),
-  dueDate:    z.string(),
-  amount:     z.number(),
-  document:   z.string().optional(),
-  pixCode:    z.string().optional(),
+  customerId:  z.string(),
+  recipientId: z.string(),
+  name:        z.string(),
+  phone:       z.string(),
+  dueDate:     z.string(),
+  amount:      z.number(),
+  document:    z.string().optional(),
+  pixCode:     z.string().optional(),
 });
 
 export const SuspendReactivateResponseSchema = z.object({

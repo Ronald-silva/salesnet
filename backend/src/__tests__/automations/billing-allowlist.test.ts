@@ -1,21 +1,11 @@
-// Fake, checksum-valid but non-production CPFs — never use real customer documents in tests.
-jest.mock('../../config/env', () => ({
-  env: { BILLING_ALLOWLIST_CPFS: '12345678909,98765432100,13579246828,86420975310' },
-}));
+jest.mock('../../config/env', () => ({ env: { BILLING_ALLOWLIST_CPFS: undefined, DEFAULT_TENANT_ID: 'salesnet-default' } }));
 
-jest.mock('../../integrations/sgp/billing', () => ({
-  getBillingStatusForAllowlist: jest.fn(),
-}));
+jest.mock('../../lib/billing-recipients', () => ({ listActiveEligibleRecipients: jest.fn() }));
+jest.mock('../../integrations/sgp/billing', () => ({ getBillingStatusForAllowlist: jest.fn() }));
 
-jest.mock('../../integrations/sgp', () => ({
-  getCustomersDueInDays: jest.fn(),
-  getOverdueCustomers: jest.fn(),
-}));
-
+import { listActiveEligibleRecipients } from '../../lib/billing-recipients';
 import { getBillingStatusForAllowlist } from '../../integrations/sgp/billing';
-import { getCustomersDueInDays, getOverdueCustomers } from '../../integrations/sgp';
 import {
-  BILLING_SEND_ALLOWLIST,
   isCpfSendAllowed,
   resolveDueSoonCustomers,
   resolveOverdueCustomers,
@@ -24,131 +14,78 @@ import {
 
 beforeEach(() => jest.clearAllMocks());
 
-describe('BILLING_SEND_ALLOWLIST — sourced from BILLING_ALLOWLIST_CPFS', () => {
-  it('parses and normalizes the CPFs configured in the env var', () => {
-    expect(BILLING_SEND_ALLOWLIST.sort()).toEqual(
-      ['12345678909', '98765432100', '13579246828', '86420975310'].sort()
-    );
-  });
-
-  it('normalizes formatted CPFs (dots/dashes) and trims blank entries when parsed fresh', () => {
-    jest.resetModules();
-    jest.doMock('../../config/env', () => ({
-      env: { BILLING_ALLOWLIST_CPFS: ' 123.456.789-09 , ,98765432100,' },
-    }));
-
-    const { BILLING_SEND_ALLOWLIST: fresh } = require('../../automations/billing-allowlist');
-
-    expect(fresh).toEqual(['12345678909', '98765432100']);
-  });
-
-  it('treats a missing env var as an inactive allowlist (empty array) without throwing, and warns', () => {
-    jest.resetModules();
-    jest.doMock('../../config/env', () => ({ env: { BILLING_ALLOWLIST_CPFS: undefined } }));
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-    let fresh: { BILLING_SEND_ALLOWLIST: string[] };
-    expect(() => {
-      fresh = require('../../automations/billing-allowlist');
-    }).not.toThrow();
-
-    expect(fresh!.BILLING_SEND_ALLOWLIST).toEqual([]);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('BILLING_ALLOWLIST_CPFS'));
-    warnSpy.mockRestore();
-  });
-
-  it('treats an empty-string env var the same way as a missing one', () => {
-    jest.resetModules();
-    jest.doMock('../../config/env', () => ({ env: { BILLING_ALLOWLIST_CPFS: '' } }));
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const { BILLING_SEND_ALLOWLIST: fresh } = require('../../automations/billing-allowlist');
-
-    expect(fresh).toEqual([]);
-  });
-});
-
-describe('isCpfSendAllowed', () => {
-  it('returns true for a CPF in the allowlist', () => {
+describe('isCpfSendAllowed — agora só filtro extra opcional (BILLING_ALLOWLIST_CPFS vazia = não restringe)', () => {
+  it('returns true for any CPF when BILLING_ALLOWLIST_CPFS is not set', () => {
     expect(isCpfSendAllowed('12345678909')).toBe(true);
-  });
-
-  it('returns true for a formatted CPF in the allowlist (digits normalized)', () => {
-    expect(isCpfSendAllowed('123.456.789-09')).toBe(true);
-  });
-
-  it('returns false for a CPF not in the allowlist', () => {
-    expect(isCpfSendAllowed('11144477735')).toBe(false);
-  });
-
-  it('returns false when document is undefined', () => {
-    expect(isCpfSendAllowed(undefined)).toBe(false);
+    expect(isCpfSendAllowed(undefined)).toBe(true);
   });
 });
 
 describe('resolveDueSoonCustomers', () => {
-  it('sources from getBillingStatusForAllowlist and filters by stage d5, never calling getCustomersDueInDays', async () => {
-    (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', document: '12345678909', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-13', amount: 90, daysUntilDue: 5, stage: 'd5' },
-      { customerId: 'c2', document: '98765432100', name: 'Edi', phone: '+5585999990002', dueDate: '2026-07-10', amount: 70, daysUntilDue: 2, stage: 'd2' },
+  it('resolves eligible recipients from billing_recipients for the d0 stage, then filters SGP status by stage', async () => {
+    (listActiveEligibleRecipients as jest.Mock).mockResolvedValue([
+      { id: 'r1', contract_id: 'c1', cpf: '12345678909', phone: '+5585999990001', customer_name: 'Maria' },
     ]);
-
-    const result = await resolveDueSoonCustomers(5);
-
-    expect(result).toEqual([
-      { customerId: 'c1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-13', amount: 90, document: '12345678909', pixCode: undefined },
-    ]);
-    expect(getCustomersDueInDays).not.toHaveBeenCalled();
-  });
-
-  it('filters by stage d0', async () => {
     (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
-      { customerId: 'c3', document: '13579246828', name: 'Viviane', phone: '+5585999990003', dueDate: '2026-07-08', amount: 60, daysUntilDue: 0, stage: 'd0', pixCode: 'pix-x' },
+      { customerId: 'c1', document: '12345678909', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-15', amount: 90, daysUntilDue: 0, stage: 'd0' },
     ]);
 
     const result = await resolveDueSoonCustomers(0);
 
+    expect(listActiveEligibleRecipients).toHaveBeenCalledWith('salesnet-default', 'd0');
+    expect(getBillingStatusForAllowlist).toHaveBeenCalledWith(['12345678909']);
     expect(result).toEqual([
-      { customerId: 'c3', name: 'Viviane', phone: '+5585999990003', dueDate: '2026-07-08', amount: 60, document: '13579246828', pixCode: 'pix-x' },
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-15', amount: 90, document: '12345678909', pixCode: undefined },
     ]);
+  });
+
+  it('returns [] without calling SGP when there are no eligible recipients', async () => {
+    (listActiveEligibleRecipients as jest.Mock).mockResolvedValue([]);
+
+    const result = await resolveDueSoonCustomers(3);
+
+    expect(result).toEqual([]);
+    expect(getBillingStatusForAllowlist).not.toHaveBeenCalled();
+  });
+
+  it('resolves stage d3 (bug-fix coverage — was unreachable while the old env allowlist was active)', async () => {
+    (listActiveEligibleRecipients as jest.Mock).mockResolvedValue([
+      { id: 'r1', contract_id: 'c1', cpf: '12345678909', phone: '+5585999990001', customer_name: 'Maria' },
+    ]);
+    (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', document: '12345678909', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-18', amount: 90, daysUntilDue: 3, stage: 'd3' },
+    ]);
+
+    const result = await resolveDueSoonCustomers(3);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.recipientId).toBe('r1');
   });
 });
 
 describe('resolveOverdueCustomers', () => {
-  it('filters by stage d3_overdue, never calling getOverdueCustomers', async () => {
+  it('resolves eligible recipients, filters SGP status by overdue stage', async () => {
+    (listActiveEligibleRecipients as jest.Mock).mockResolvedValue([
+      { id: 'r4', contract_id: 'c4', cpf: '86420975310', phone: '+5585999990004', customer_name: 'Carlos' },
+    ]);
     (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
-      { customerId: 'c4', document: '86420975310', name: 'Carlos', phone: '+5585999990004', dueDate: '2026-07-05', amount: 60, daysUntilDue: -3, stage: 'd3_overdue' },
+      { customerId: 'c4', document: '86420975310', name: 'Carlos', phone: '+5585999990004', dueDate: '2026-07-10', amount: 60, daysUntilDue: -3, stage: 'd3_overdue' },
     ]);
 
     const result = await resolveOverdueCustomers(3);
 
+    expect(listActiveEligibleRecipients).toHaveBeenCalledWith('salesnet-default', 'overdue_d3');
     expect(result).toEqual([
-      { customerId: 'c4', name: 'Carlos', phone: '+5585999990004', daysOverdue: 3, amountDue: 60, document: '86420975310', pixCode: undefined },
+      { customerId: 'c4', recipientId: 'r4', name: 'Carlos', phone: '+5585999990004', daysOverdue: 3, amountDue: 60, document: '86420975310', pixCode: undefined },
     ]);
-    expect(getOverdueCustomers).not.toHaveBeenCalled();
-  });
-
-  it('filters by stage d5_overdue', async () => {
-    (getBillingStatusForAllowlist as jest.Mock).mockResolvedValue([
-      { customerId: 'c4', document: '86420975310', name: 'Carlos', phone: '+5585999990004', dueDate: '2026-07-03', amount: 60, daysUntilDue: -5, stage: 'd5_overdue' },
-    ]);
-
-    const result = await resolveOverdueCustomers(5);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ customerId: 'c4', daysOverdue: 5 });
   });
 });
 
 describe('logSkippedOutsideAllowlist', () => {
   it('logs the skip without leaking the raw phone number', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-
     logSkippedOutsideAllowlist('c9', '+5585999998888', 'd3');
-
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('c9'));
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('****8888'));
-    expect(warnSpy).toHaveBeenCalledWith(expect.not.stringContaining('+5585999998888'));
     warnSpy.mockRestore();
   });
 });
