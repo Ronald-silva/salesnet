@@ -1,159 +1,182 @@
-jest.mock('../../config/supabase', () => ({
-  supabase: { from: jest.fn() },
-}));
-
+jest.mock('../../config/env', () => ({ env: { DEFAULT_TENANT_ID: 'salesnet-default' } }));
 jest.mock('../../integrations/sgp/billing', () => ({
-  getHabitualLatePayerIds: jest.fn(),
+  hasOpenInvoice: jest.fn(),
 }));
-
 jest.mock('../../automations/billing-allowlist', () => ({
   resolveDueSoonCustomers: jest.fn(),
-  isCpfSendAllowed: jest.fn(),
+  isCpfSendAllowed: jest.fn(() => true),
   logSkippedOutsideAllowlist: jest.fn(),
 }));
-
-jest.mock('../../services/whatsapp-service', () => ({
-  whatsappService: { sendText: jest.fn() },
+jest.mock('../../lib/billing-dispatch-jobs', () => ({
+  getHabitualLatePayerContractIds: jest.fn(),
+  createPendingJob: jest.fn(),
+  markJobPaid: jest.fn(),
+  buildIdempotencyKey: jest.fn((c, s, d) => `${c}:${s}:${d}`),
 }));
+jest.mock('../../services/billing-sender', () => ({ sendDispatchJob: jest.fn() }));
 
-jest.mock('../../config/env', () => ({
-  env: { DEFAULT_TENANT_ID: 'default' },
-}));
+// Import and get mocked functions via require to avoid TypeScript issues
+const { hasOpenInvoice } = require('../../integrations/sgp/billing');
+const { resolveDueSoonCustomers, isCpfSendAllowed, logSkippedOutsideAllowlist } = require('../../automations/billing-allowlist');
+const { getHabitualLatePayerContractIds, createPendingJob, markJobPaid } = require('../../lib/billing-dispatch-jobs');
+const { sendDispatchJob } = require('../../services/billing-sender');
+const { runBillingCadenceD5, runBillingCadenceD2 } = require('../../automations/billing-cadence');
 
-import { supabase } from '../../config/supabase';
-import * as sgpBilling from '../../integrations/sgp/billing';
-import { resolveDueSoonCustomers, isCpfSendAllowed, logSkippedOutsideAllowlist } from '../../automations/billing-allowlist';
-import { whatsappService } from '../../services/whatsapp-service';
-import { runBillingCadenceD5, runBillingCadenceD2 } from '../../automations/billing-cadence';
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  (isCpfSendAllowed as jest.Mock).mockReturnValue(true); // allowlist inactive by default in these tests
-});
-
-function mockHabituals(customerIds: string[]) {
-  const habSet = new Set(customerIds);
-  (sgpBilling.getHabitualLatePayerIds as jest.Mock).mockResolvedValue(habSet);
-
-  (supabase.from as jest.Mock).mockReturnValue({
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    gte: jest.fn().mockReturnThis(),
-    single: jest.fn().mockResolvedValue({ data: null }),
-    insert: jest.fn().mockResolvedValue({ error: null }),
-  });
-}
+beforeEach(() => jest.clearAllMocks());
 
 describe('runBillingCadenceD5', () => {
-  it('sends message only to habitual late payers', async () => {
-    mockHabituals(['c1', 'c1']);
-
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
-      { customerId: 'c2', name: 'Maria', phone: '+5585999990002', dueDate: '2026-06-01', amount: 70, document: '98765432100', pixCode: '00020126xyz' },
+  it('creates a pending job, confirms the invoice is still open, and sends', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '12345678909' },
     ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(true);
+    sendDispatchJob.mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-1' });
 
     await runBillingCadenceD5();
 
-    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(5);
-    expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
-    expect(whatsappService.sendText).toHaveBeenCalledWith(
-      expect.any(String),
-      '+5585999990001',
-      expect.stringContaining('João')
-    );
+    expect(createPendingJob).toHaveBeenCalledWith(expect.objectContaining({ contractId: 'c1', stage: 'd5_habitual' }));
+    expect(hasOpenInvoice).toHaveBeenCalledWith('c1');
+    expect(sendDispatchJob).toHaveBeenCalledWith('j1', 'salesnet-default', '+5585999990001', expect.stringContaining('Maria'));
   });
 
-  it('includes PIX key in the message when present', async () => {
-    mockHabituals(['c1', 'c1']);
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
+  it('skips customers not classified as habitual late payers', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set());
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '12345678909' },
     ]);
 
     await runBillingCadenceD5();
 
-    expect(whatsappService.sendText).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.stringContaining('00020126abc')
-    );
+    expect(createPendingJob).not.toHaveBeenCalled();
   });
 
-  it('omits the PIX line when pixCode is missing (best-effort, never blocks the message)', async () => {
-    mockHabituals(['c1', 'c1']);
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909' },
+  it('marks the job paid and does NOT send when the invoice is no longer open', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '12345678909' },
     ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(false);
 
     await runBillingCadenceD5();
 
-    const [, , msg] = (whatsappService.sendText as jest.Mock).mock.calls[0]!;
-    expect(msg).not.toMatch(/pix/i);
+    expect(markJobPaid).toHaveBeenCalledWith('j1');
+    expect(sendDispatchJob).not.toHaveBeenCalled();
   });
 
-  it('skips and logs when the customer CPF is outside the send allowlist', async () => {
-    mockHabituals(['c1', 'c1']);
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'Fora', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '99999999999' },
+  it('skips (no job, no send) when createPendingJob returns null — already scheduled today (idempotency)', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '12345678909' },
     ]);
-    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    createPendingJob.mockResolvedValue(null);
 
     await runBillingCadenceD5();
 
-    expect(whatsappService.sendText).not.toHaveBeenCalled();
-    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd5_habitual');
+    expect(hasOpenInvoice).not.toHaveBeenCalled();
+    expect(sendDispatchJob).not.toHaveBeenCalled();
+  });
+
+  it('does NOT send when hasOpenInvoice itself fails — never treats an SGP error as confirmed debt', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-20', amount: 90, document: '12345678909' },
+    ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockRejectedValue(new Error('SGP timeout'));
+
+    await runBillingCadenceD5();
+
+    expect(sendDispatchJob).not.toHaveBeenCalled();
   });
 });
 
 describe('runBillingCadenceD2', () => {
-  it('sends D-2 message mentioning 2 dias to habitual late payers', async () => {
-    mockHabituals(['c1', 'c1']);
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
+  it('habitual late payer: creates a pending job with stage d2_habitual, confirms invoice still open, sends with billingRecipientId, and message has urgency language', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-17', amount: 90, document: '12345678909' },
     ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(true);
+    sendDispatchJob.mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-1' });
 
     await runBillingCadenceD2();
 
-    expect(resolveDueSoonCustomers).toHaveBeenCalledWith(2);
-    expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
-    expect(whatsappService.sendText).toHaveBeenCalledWith(
-      expect.any(String),
+    expect(createPendingJob).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRecipientId: 'r1', contractId: 'c1', stage: 'd2_habitual' }),
+    );
+    expect(hasOpenInvoice).toHaveBeenCalledWith('c1');
+    expect(sendDispatchJob).toHaveBeenCalledWith(
+      'j1',
+      'salesnet-default',
       '+5585999990001',
-      expect.stringContaining('2 dias')
+      expect.stringContaining('Evite juros e risco de suspensão'),
     );
   });
 
-  it('sends reminder to non-habitual payers too (different message)', async () => {
-    mockHabituals([]); // no habituals
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'João', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '12345678909', pixCode: '00020126abc' },
+  it('non-habitual (regular) customer: creates a pending job with stage d2_regular and sends the softer reminder text', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set());
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-17', amount: 90, document: '12345678909' },
     ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(true);
+    sendDispatchJob.mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-1' });
 
     await runBillingCadenceD2();
 
-    expect(whatsappService.sendText).toHaveBeenCalledTimes(1);
-    expect(whatsappService.sendText).toHaveBeenCalledWith(
-      expect.any(String),
-      '+5585999990001',
-      expect.stringContaining('2 dias'),
+    expect(createPendingJob).toHaveBeenCalledWith(
+      expect.objectContaining({ billingRecipientId: 'r1', contractId: 'c1', stage: 'd2_regular' }),
     );
-    expect(whatsappService.sendText).not.toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.stringContaining('suspensa'),
+    expect(sendDispatchJob).toHaveBeenCalledWith(
+      'j1',
+      'salesnet-default',
+      '+5585999990001',
+      expect.stringContaining('Só um lembrete rápido'),
     );
   });
 
-  it('skips and logs when the customer CPF is outside the send allowlist', async () => {
-    mockHabituals([]);
-    (resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
-      { customerId: 'c1', name: 'Fora', phone: '+5585999990001', dueDate: '2026-06-01', amount: 90, document: '99999999999' },
+  it('skips when CPF is outside allowlist', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-17', amount: 90, document: '99999999999' },
     ]);
-    (isCpfSendAllowed as jest.Mock).mockReturnValue(false);
+    isCpfSendAllowed.mockReturnValueOnce(false);
 
     await runBillingCadenceD2();
 
-    expect(whatsappService.sendText).not.toHaveBeenCalled();
-    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd2_regular');
+    expect(createPendingJob).not.toHaveBeenCalled();
+    expect(sendDispatchJob).not.toHaveBeenCalled();
+    expect(logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd2_habitual');
+  });
+
+  it('marks the job paid and does NOT send when the invoice is no longer open', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-17', amount: 90, document: '12345678909' },
+    ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(false);
+
+    await runBillingCadenceD2();
+
+    expect(markJobPaid).toHaveBeenCalledWith('j1');
+    expect(sendDispatchJob).not.toHaveBeenCalled();
+  });
+
+  it('skips (no job, no send) when createPendingJob returns null — already scheduled today (idempotency)', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-07-17', amount: 90, document: '12345678909' },
+    ]);
+    createPendingJob.mockResolvedValue(null);
+
+    await runBillingCadenceD2();
+
+    expect(hasOpenInvoice).not.toHaveBeenCalled();
+    expect(sendDispatchJob).not.toHaveBeenCalled();
   });
 });

@@ -81,6 +81,7 @@ export const CustomerSchema = z.object({
   name:   z.string(),
   phone:  z.string(),
   document: z.string().optional(),
+  sgpClienteId: z.string().optional(),
   status: z.enum(['active', 'suspended', 'cancelled']),
   plan: z.object({
     name:        z.string(),
@@ -223,6 +224,7 @@ export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 
 export const OverdueCustomerSchema = z.object({
   customerId:  z.string(),
+  recipientId: z.string(),
   name:        z.string(),
   phone:       z.string(),
   daysOverdue: z.number(),
@@ -234,13 +236,14 @@ export const OverdueCustomerSchema = z.object({
 });
 
 export const DueSoonCustomerSchema = z.object({
-  customerId: z.string(),
-  name:       z.string(),
-  phone:      z.string(),
-  dueDate:    z.string(),
-  amount:     z.number(),
-  document:   z.string().optional(),
-  pixCode:    z.string().optional(),
+  customerId:  z.string(),
+  recipientId: z.string(),
+  name:        z.string(),
+  phone:       z.string(),
+  dueDate:     z.string(),
+  amount:      z.number(),
+  document:    z.string().optional(),
+  pixCode:     z.string().optional(),
 });
 
 export const SuspendReactivateResponseSchema = z.object({
@@ -255,7 +258,7 @@ export type SuspendReactivateResponse = z.infer<typeof SuspendReactivateResponse
 
 // ── Billing status by CPF (targeted allowlist lookup, no bulk endpoint needed) ─
 
-export const BillingStageSchema = z.enum(['d5', 'd2', 'd0', 'd3_overdue', 'd5_overdue']);
+export const BillingStageSchema = z.enum(['d5', 'd3', 'd2', 'd0', 'd3_overdue', 'd5_overdue']);
 export type BillingStage = z.infer<typeof BillingStageSchema>;
 
 export const BillingStatusEntrySchema = z.object({

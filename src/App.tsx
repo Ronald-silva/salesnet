@@ -35,6 +35,7 @@ const SchedulesPage = lazy(() => import("./pages/admin/Schedules"));
 const Leads = lazy(() => import("./pages/admin/Leads"));
 const Tickets = lazy(() => import("./pages/admin/Tickets"));
 const Nps = lazy(() => import("./pages/admin/Nps"));
+const BillingQueue = lazy(() => import("./pages/admin/BillingQueue"));
 
 const queryClient = new QueryClient();
 
@@ -72,6 +73,7 @@ const App = () => {
                 <Route path="chamados" element={<Tickets />} />
                 <Route path="campanhas" element={<CampaignManager />} />
                 <Route path="financeiro" element={<FinanceiroPage />} />
+                <Route path="regua-cobranca" element={<BillingQueue />} />
                 <Route path="rede" element={<RedePage />} />
                 <Route path="configuracoes" element={<ConfiguracoesPage />} />
                 <Route path="churn-risks" element={<ChurnRiskList />} />

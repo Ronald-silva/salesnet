@@ -38,6 +38,7 @@ function contratoToCustomer(c: Contrato, contactHint: string): Customer {
     name:     c.razaoSocial,
     phone:    resolveCustomerPhone(c, contactHint),
     document: c.cpfCnpj,
+    sgpClienteId: String(c.clienteId),
     status,
     plan: {
       name:        c.planointernet ?? '',

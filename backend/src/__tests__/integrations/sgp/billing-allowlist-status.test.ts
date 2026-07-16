@@ -153,4 +153,19 @@ describe('getBillingStatusForAllowlist', () => {
     expect(entry!.dueDate).toBe(nearDate);
     expect(entry!.stage).toBe('d2');
   });
+
+  it('picks stage d3 when due in exactly 3 days (bug found during billing_recipients audit — was previously unmapped, always null)', async () => {
+    (getCustomerByCpf as jest.Mock).mockResolvedValue({ id: '1', name: 'X', phone: '+5585999990009' });
+    const dueDate = isoInDays(3);
+    postSpy.mockResolvedValue({
+      data: {
+        paginacao: { offset: 0, limit: 5, parcial: 1, total: 1 },
+        faturas: [{ id: 7, vencimento: dueDate, valor: 60, valorcorrigido: 60, status: 'Gerado', statusid: 1 }],
+      },
+    });
+
+    const [entry] = await getBillingStatusForAllowlist(['12345678909']);
+
+    expect(entry!.stage).toBe('d3');
+  });
 });
