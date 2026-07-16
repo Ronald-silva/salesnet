@@ -51,7 +51,6 @@ async function resolveScheduleSelectColumns(): Promise<string> {
   const { error } = await supabase
     .from('scheduled_visits')
     .select('type, address, bring_forward_status')
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .limit(1);
 
   if (!error) {
@@ -136,7 +135,6 @@ schedulesRouter.get('/', async (req, res) => {
   let query = supabase
     .from('scheduled_visits')
     .select(columns, { count: 'exact' })
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .order('visit_date', { ascending: false })
     .order('created_at', { ascending: false })
     .range(from, to);
@@ -171,7 +169,6 @@ schedulesRouter.get('/today', async (_req, res) => {
   const { data: todayRows, error: todayError } = await supabase
     .from('scheduled_visits')
     .select(columns)
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .eq('visit_date', today)
     .order('period', { ascending: true })
     .order('created_at', { ascending: false });
@@ -217,7 +214,6 @@ schedulesRouter.patch('/:id', async (req, res) => {
     .from('scheduled_visits')
     .update(extended)
     .eq('id', req.params.id)
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .select('id')
     .single();
 
@@ -226,7 +222,6 @@ schedulesRouter.patch('/:id', async (req, res) => {
       .from('scheduled_visits')
       .update({ status })
       .eq('id', req.params.id)
-      .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .select('id')
       .single());
   }
@@ -259,7 +254,6 @@ schedulesRouter.patch('/:id/reschedule', async (req, res) => {
     .from('scheduled_visits')
     .update({ ...base, updated_at: new Date().toISOString() })
     .eq('id', req.params.id)
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .select('id')
     .single();
 
@@ -268,7 +262,6 @@ schedulesRouter.patch('/:id/reschedule', async (req, res) => {
       .from('scheduled_visits')
       .update(base)
       .eq('id', req.params.id)
-      .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .select('id')
       .single());
   }
@@ -298,7 +291,6 @@ schedulesRouter.delete('/:id', async (req, res) => {
     .from('scheduled_visits')
     .update({ status: 'cancelled', cancelled_at: now, updated_at: now })
     .eq('id', req.params.id)
-    .eq('tenant_id', env.DEFAULT_TENANT_ID)
     .select('id')
     .single();
 
@@ -307,7 +299,6 @@ schedulesRouter.delete('/:id', async (req, res) => {
       .from('scheduled_visits')
       .update({ status: 'cancelled' })
       .eq('id', req.params.id)
-      .eq('tenant_id', env.DEFAULT_TENANT_ID)
       .select('id')
       .single());
   }
