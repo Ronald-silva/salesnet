@@ -51,29 +51,29 @@ function buildApp() {
 beforeEach(() => jest.clearAllMocks());
 
 describe('GET /api/admin/schedules', () => {
-  it('scopes the list query by tenant_id', async () => {
+  it('supports the legacy scheduled_visits schema without tenant_id', async () => {
     const builder = mockVisits({ data: [], error: null, count: 0 });
 
     const res = await request(buildApp()).get('/api/admin/schedules');
 
     expect(res.status).toBe(200);
-    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.eq).not.toHaveBeenCalledWith('tenant_id', 'default');
   });
 });
 
 describe('GET /api/admin/schedules/today', () => {
-  it('scopes the today query by tenant_id', async () => {
+  it('supports the legacy scheduled_visits schema without tenant_id', async () => {
     const builder = mockVisits({ data: [], error: null });
 
     const res = await request(buildApp()).get('/api/admin/schedules/today');
 
     expect(res.status).toBe(200);
-    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.eq).not.toHaveBeenCalledWith('tenant_id', 'default');
   });
 });
 
 describe('PATCH /api/admin/schedules/:id', () => {
-  it('scopes the status update by tenant_id', async () => {
+  it('updates a visit in the legacy scheduled_visits schema without tenant_id', async () => {
     const builder = mockVisits({ data: { id: 'v1' }, error: null });
 
     const res = await request(buildApp())
@@ -81,12 +81,12 @@ describe('PATCH /api/admin/schedules/:id', () => {
       .send({ status: 'done' });
 
     expect(res.status).toBe(200);
-    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.eq).not.toHaveBeenCalledWith('tenant_id', 'default');
   });
 });
 
 describe('PATCH /api/admin/schedules/:id/reschedule', () => {
-  it('scopes the reschedule update by tenant_id', async () => {
+  it('reschedules a visit in the legacy scheduled_visits schema without tenant_id', async () => {
     const builder = mockVisits({ data: { id: 'v1' }, error: null });
 
     const res = await request(buildApp())
@@ -94,18 +94,18 @@ describe('PATCH /api/admin/schedules/:id/reschedule', () => {
       .send({ visit_date: '2026-07-15', period: 'afternoon' });
 
     expect(res.status).toBe(200);
-    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.eq).not.toHaveBeenCalledWith('tenant_id', 'default');
   });
 });
 
 describe('DELETE /api/admin/schedules/:id', () => {
-  it('scopes the cancel update by tenant_id', async () => {
+  it('cancels a visit in the legacy scheduled_visits schema without tenant_id', async () => {
     const builder = mockVisits({ data: { id: 'v1' }, error: null });
 
     const res = await request(buildApp()).delete('/api/admin/schedules/v1');
 
     expect(res.status).toBe(200);
-    expect(builder.eq).toHaveBeenCalledWith('tenant_id', 'default');
+    expect(builder.eq).not.toHaveBeenCalledWith('tenant_id', 'default');
   });
 });
 
