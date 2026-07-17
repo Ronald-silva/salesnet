@@ -681,6 +681,9 @@ export async function processMessage(
         session_mode: 'default',
         tool_calls: [],
         response: faqResponse,
+        // Quick-reply nunca passa pelo vault — não há placeholder a resolver,
+        // então a versão "com placeholder" é idêntica à entregue.
+        response_placeholder: faqResponse,
         processing_ms: Date.now() - startMs,
         delivery_status: delivery.status,
         delivery_error: delivery.error ?? null,
@@ -1026,6 +1029,11 @@ export async function processMessage(
       // Texto realmente entregue (pós-substituição) — obrigatório para reenvio
       // manual quando delivery_status='failed'.
       response:   deliveredText,
+      // Versão com {{PIX_xxxxxxxx}} nunca resolvido — a mesma que saveMessage
+      // grava em conversation_threads. Única fonte segura para qualquer
+      // reuso futuro deste texto fora do turno atual (ex.: few-shot de NPS em
+      // nps-flow.ts) — nunca ler `response` para esse fim.
+      response_placeholder: finalText,
       processing_ms: Date.now() - startMs,
       input_tokens:  llmUsage.inputTokens > 0 ? llmUsage.inputTokens : null,
       output_tokens: llmUsage.outputTokens > 0 ? llmUsage.outputTokens : null,
@@ -1047,6 +1055,8 @@ export async function processMessage(
         session_mode: 'default',
         tool_calls: [],
         response: fallbackText,
+        // Mensagem de erro genérica não passa pelo vault — nada a resolver.
+        response_placeholder: fallbackText,
         processing_ms: Date.now() - startMs,
         delivery_status: delivery.status,
         delivery_error: delivery.error ?? (err instanceof Error ? err.message : String(err)),

@@ -2,6 +2,7 @@ import { supabase } from '../config/supabase';
 import { getCustomerByPhone } from '../integrations/sgp/customers';
 import { markChurnRiskByPhone } from './tools';
 import { sanitizeOutgoingMessage } from '../utils/sanitize-outgoing';
+import { excludePixFragments } from './sanitize';
 
 type NpsPending = {
   sessionId: string;
@@ -119,12 +120,21 @@ function extractToolsUsed(toolCalls: unknown): string[] {
 
 /**
  * Extrai frases-chave curtas da resposta da Sofia para servir de few-shot.
+ *
+ * Recebe SEMPRE `response_placeholder` (a versão com `{{PIX_xxxxxxxx}}`, a
+ * mesma string que `saveMessage` grava em `conversation_threads`) — nunca
+ * `interaction_logs.response`, que é o texto JÁ RESOLVIDO com o código PIX
+ * real embutido. Ler o texto resolvido aqui reabriria exatamente o vazamento
+ * que o PIX Token Vault existe para fechar: este few-shot é servido para
+ * QUALQUER cliente do mesmo tenant/session_mode, não só para quem gerou a
+ * conversa original (ver `buildQualityExamples` em skill/prompt-builder.ts).
+ *
  * Mantém apenas sentenças com conteúdo real (sem emojis/asteriscos) e limita
  * o volume para não inchar o prompt depois.
  */
-function extractKeyPhrases(response: unknown): string[] {
-  if (typeof response !== 'string') return [];
-  return response
+function extractKeyPhrases(responsePlaceholder: unknown): string[] {
+  if (typeof responsePlaceholder !== 'string') return [];
+  return responsePlaceholder
     .split(/(?<=[.!?])\s+|\n+/)
     .map((s) => s.replace(/\s+/g, ' ').trim())
     .filter((s) => s.length >= 15 && s.length <= 200)
@@ -135,8 +145,13 @@ function extractKeyPhrases(response: unknown): string[] {
  * Liga o score do NPS à conversa que o gerou. Best-effort: nunca derruba o
  * fluxo de salvamento do NPS. Score <=2 vira exemplo 'bad', score 5 vira
  * exemplo 'good' — alimentando o feedback loop de qualidade.
+ *
+ * `key_phrases` passa por `excludePixFragments` como defesa em profundidade
+ * — mesmo que `response_placeholder` viesse contaminado com PIX real por
+ * algum caminho não previsto, nenhuma frase com cara de EMV chega a esta
+ * tabela (ver sanitize.ts). Exportada para teste direto do comportamento.
  */
-async function captureConversationQuality(
+export async function captureConversationQuality(
   phone: string,
   tenantId: string,
   score: number,
@@ -144,7 +159,7 @@ async function captureConversationQuality(
 ): Promise<void> {
   const { data: log } = await supabase
     .from('interaction_logs')
-    .select('session_mode, tool_calls, response')
+    .select('session_mode, tool_calls, response_placeholder')
     .eq('phone', phone)
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
@@ -156,7 +171,7 @@ async function captureConversationQuality(
   const entry = log as {
     session_mode: string | null;
     tool_calls: unknown;
-    response: unknown;
+    response_placeholder: unknown;
   };
 
   const { data: thread } = await supabase
@@ -183,7 +198,7 @@ async function captureConversationQuality(
     message_count:          messageCount,
     resolved_without_human: !hadHumanTransfer,
     tools_used:             toolsUsed,
-    key_phrases:            extractKeyPhrases(entry.response),
+    key_phrases:            excludePixFragments(extractKeyPhrases(entry.response_placeholder)),
     marked_as_example:      exampleType !== null,
     example_type:           exampleType,
   });

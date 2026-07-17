@@ -189,3 +189,13 @@ export function containsUnverifiedPix(
 
   return matches.some((match) => !verifiedPixKeys.has(match));
 }
+
+/**
+ * Filtro de exclusão para qualquer texto que vá virar few-shot fora do boundary
+ * tokenizado do vault (ex.: conversation_quality.key_phrases em nps-flow.ts) —
+ * defesa em profundidade independente da fonte já ter sido corrigida para nunca
+ * conter PIX real. Descarta só a frase que bate o padrão, nunca a lista inteira.
+ */
+export function excludePixFragments(phrases: readonly string[]): string[] {
+  return phrases.filter((phrase) => !phrase.match(PIX_EMV_RE));
+}
