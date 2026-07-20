@@ -207,10 +207,12 @@ export async function quickReply(message: string, phone: string, tenantId: strin
         // best-effort — falha ao carregar a thread não deve travar o quick-reply
       }
 
-      // Já mostramos a lista estática nesta thread: reenviar de novo é o loop que
-      // travava prospects na conversão. Deixa o LLM assumir a partir daqui.
-      const lastAssistant = thread ? [...thread.messages].reverse().find((m) => m.role === 'assistant') : undefined;
-      if (lastAssistant?.content === formatPlans()) {
+      // Já mostramos a lista estática em algum ponto desta thread (não só na última
+      // mensagem): reenviar de novo é o loop que travava prospects na conversão — inclusive
+      // quando a pergunta volta no meio da coleta de dados (nome já dado, bairro em
+      // andamento). Deixa o LLM assumir a partir daqui, com o histórico completo.
+      const alreadyShownPlans = thread?.messages.some((m) => m.role === 'assistant' && m.content === formatPlans()) ?? false;
+      if (alreadyShownPlans) {
         console.log('[quick-reply] plans_list → planos já mostrados nesta thread, passa para LLM');
         return null;
       }

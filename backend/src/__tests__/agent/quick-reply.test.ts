@@ -95,6 +95,40 @@ describe('quickReply', () => {
     expect(secondReply).toBeNull();
   });
 
+  it('plans_list: does not repeat the static list when it was shown several messages back, with data-collection messages in between', async () => {
+    const phone = '+5585900000013';
+    const firstReply = await quickReply('quais planos vocês têm?', phone, 'test-tenant');
+    expect(firstReply).toContain('Planos de fibra');
+
+    mockedGetThread.mockResolvedValue({
+      ...EMPTY_THREAD,
+      messages: [
+        { role: 'user', content: 'quais planos vocês têm?', timestamp: 't1' },
+        { role: 'assistant', content: firstReply as string, timestamp: 't2' },
+        { role: 'user', content: 'quero contratar, meu nome é João', timestamp: 't3' },
+        { role: 'assistant', content: 'Show, João! Qual é o seu bairro?', timestamp: 't4' },
+      ],
+    });
+
+    const secondReply = await quickReply('quais planos vocês têm mesmo?', phone, 'test-tenant');
+    expect(secondReply).toBeNull();
+  });
+
+  it('plans_list: still returns the static list when the thread has history but the list was never shown', async () => {
+    const phone = '+5585900000014';
+    mockedGetThread.mockResolvedValue({
+      ...EMPTY_THREAD,
+      messages: [
+        { role: 'user', content: 'oi', timestamp: 't1' },
+        { role: 'assistant', content: 'Olá! Como posso ajudar?', timestamp: 't2' },
+        { role: 'user', content: 'quero saber sobre os planos', timestamp: 't3' },
+      ],
+    });
+
+    const reply = await quickReply('quais planos vocês têm?', phone, 'test-tenant');
+    expect(reply).toContain('Planos de fibra');
+  });
+
   it('plans_list: customer identifiable only by CPF in the message defers to LLM instead of the prospect list', async () => {
     mockedLookupCustomer.mockResolvedValue({
       customer: { id: '123', name: 'Cliente Real', document: '11144477735', plan: '500 Mega' } as any,
