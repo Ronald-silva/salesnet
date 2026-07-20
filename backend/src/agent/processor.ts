@@ -85,7 +85,7 @@ async function sendSequenceWithDeliveryStatus(
   return { status: 'sent' };
 }
 
-type ToolCallLog = { name: string; input: unknown; output: unknown };
+type ToolCallLog = { name: string; input: unknown; output: unknown; source: 'system' | 'llm' };
 
 type LlmUsageTotals = {
   inputTokens: number;
@@ -238,7 +238,7 @@ async function runAnthropicFlow(
       // Payloads PIX são tokenizados aqui ({{PIX_xxxxxxxx}}): o LLM nunca vê o código
       // real — o processor substitui o placeholder pelo payload só depois do LLM.
       const result = vault.tokenize(redactSensitiveFields(rawResult));
-      toolCallLog.push({ name: block.name, input: block.input, output: result });
+      toolCallLog.push({ name: block.name, input: block.input, output: result, source: 'llm' });
       toolResults.push({
         type:        'tool_result',
         tool_use_id: block.id,
@@ -341,7 +341,7 @@ async function runDeepSeekFlow(
       // Payloads PIX são tokenizados aqui ({{PIX_xxxxxxxx}}): o LLM nunca vê o código
       // real — o processor substitui o placeholder pelo payload só depois do LLM.
       const result = vault.tokenize(redactSensitiveFields(rawResult));
-      toolCallLog.push({ name: call.function.name, input: parsedInput, output: result });
+      toolCallLog.push({ name: call.function.name, input: parsedInput, output: result, source: 'llm' });
       messages.push({
         role:         'tool',
         tool_call_id: call.id,
@@ -410,10 +410,11 @@ function simpleTierRunOptions(): RunOptions {
   };
 }
 
-function pickProviderForComplex(): Provider {
-  if (env.ANTHROPIC_API_KEY) return 'anthropic';
-  if (env.DEEPSEEK_API_KEY) return 'deepseek';
-  return env.LLM_PROVIDER;
+function pickProviderForComplex(): { provider: Provider; tierDowngraded: boolean } {
+  if (env.ANTHROPIC_API_KEY) return { provider: 'anthropic', tierDowngraded: false };
+  console.warn('[llm-routing] complex tier requested Anthropic but ANTHROPIC_API_KEY is missing — falling back to deepseek');
+  const provider = env.DEEPSEEK_API_KEY ? 'deepseek' : env.LLM_PROVIDER;
+  return { provider, tierDowngraded: true };
 }
 
 function pickProviderForCheapTier(): Provider {
@@ -422,15 +423,18 @@ function pickProviderForCheapTier(): Provider {
   return env.LLM_PROVIDER;
 }
 
-function resolveTieredRouting(message: string): { provider: Provider; options: RunOptions; tier: string } {
+function resolveTieredRouting(
+  message: string,
+): { provider: Provider; options: RunOptions; tier: string; tierDowngraded: boolean } {
   const tier = classifyMessageComplexity(message);
   if (tier === 'complex') {
-    return { tier, provider: pickProviderForComplex(), options: defaultRunOptions() };
+    const { provider, tierDowngraded } = pickProviderForComplex();
+    return { tier, provider, options: defaultRunOptions(), tierDowngraded };
   }
   if (tier === 'intermediate') {
-    return { tier, provider: pickProviderForCheapTier(), options: defaultRunOptions() };
+    return { tier, provider: pickProviderForCheapTier(), options: defaultRunOptions(), tierDowngraded: false };
   }
-  return { tier, provider: pickProviderForCheapTier(), options: simpleTierRunOptions() };
+  return { tier, provider: pickProviderForCheapTier(), options: simpleTierRunOptions(), tierDowngraded: false };
 }
 
 function isSessionDisambiguationCandidate(baseMode: SessionMode, message: string): boolean {
@@ -802,16 +806,18 @@ export async function processMessage(
             phoneLinked: lookupResult.phoneLinked,
           },
         }),
+        source: 'system',
       },
       {
         name: 'session_classifier',
         input: { message: clean, invoiceStatus: invoiceStatus ?? null },
         output: sessionModeDecision,
+        source: 'system',
       },
     ];
 
     if (invoiceStatus) {
-      initialToolLog.push({ name: 'get_fatura_atual', input: { customer_id: (customerData as { id?: string }).id }, output: { status: invoiceStatus } });
+      initialToolLog.push({ name: 'get_fatura_atual', input: { customer_id: (customerData as { id?: string }).id }, output: { status: invoiceStatus }, source: 'system' });
     }
 
     // Pre-call verificar_cobertura so the LLM never needs to guess neighborhoods
@@ -828,7 +834,7 @@ export async function processMessage(
           phone,
           tenantId,
         );
-        initialToolLog.push({ name: 'verificar_cobertura', input: { neighborhood: '*' }, output: coverageData });
+        initialToolLog.push({ name: 'verificar_cobertura', input: { neighborhood: '*' }, output: coverageData, source: 'system' });
         coverageContext = `\n\n## Bairros atendidos (fonte oficial — use SOMENTE estes)\n${JSON.stringify(coverageData)}`;
       } catch (err) {
         console.warn('[processor] verificar_cobertura pre-call failed:', err);
@@ -860,11 +866,15 @@ export async function processMessage(
 
     let primaryProvider: Provider;
     let runOptions: RunOptions;
+    let currentTier: string | null = null;
+    let tierDowngraded: boolean | null = null;
 
     if (env.LLM_ROUTING_MODE === 'tiered') {
       const routed = resolveTieredRouting(clean);
       primaryProvider = routed.provider;
       runOptions = routed.options;
+      currentTier = routed.tier;
+      tierDowngraded = routed.tierDowngraded;
       console.log(
         `[processor] tier=${routed.tier} provider=${primaryProvider} maxTokens=${runOptions.maxTokens} toolRoundsCap=${runOptions.maxToolIterations}`,
       );
@@ -900,6 +910,14 @@ export async function processMessage(
 
       console.error(`[processor] provider ${primaryProvider} failed, trying fallback ${env.LLM_FALLBACK_PROVIDER}:`, providerErr);
       usedProvider = env.LLM_FALLBACK_PROVIDER;
+      // Mesma marcação do downgrade silencioso de pickProviderForComplex(): aqui a
+      // Anthropic tinha chave configurada mas falhou em runtime — o tier 'complex'
+      // pedia Anthropic e não recebeu, então é o mesmo tipo de degradação para fins
+      // de auditoria em interaction_logs, mesmo com causa raiz diferente (chave
+      // ausente vs. falha de rede/timeout/autenticação).
+      if (currentTier === 'complex' && primaryProvider === 'anthropic') {
+        tierDowngraded = true;
+      }
       result = await runLLMFlow(
         env.LLM_FALLBACK_PROVIDER,
         history,
@@ -934,6 +952,7 @@ export async function processMessage(
         name: 'pix_hallucination_blocked',
         input: {},
         output: { blocked: true },
+        source: 'system',
       });
       return PIX_HALLUCINATION_FALLBACK;
     };
@@ -959,6 +978,7 @@ export async function processMessage(
         name: 'pix_retry_forced',
         input: { unknown_tokens: resolved.unknownTokens, malformed_leftover: resolved.malformedLeftover },
         output: { retried: true },
+        source: 'system',
       });
       try {
         const retryHistory: Anthropic.MessageParam[] = [
@@ -994,6 +1014,7 @@ export async function processMessage(
         name: 'pix_token_blocked',
         input: { unknown_tokens: resolved.unknownTokens, malformed_leftover: resolved.malformedLeftover },
         output: { blocked: true },
+        source: 'system',
       });
       finalText = PIX_HALLUCINATION_FALLBACK;
       deliveredText = PIX_HALLUCINATION_FALLBACK;
@@ -1042,6 +1063,7 @@ export async function processMessage(
       llm_model:     llmUsage.inputTokens > 0 ? llmUsage.model : null,
       delivery_status: delivery.status,
       delivery_error: delivery.error ?? null,
+      tier_downgraded: tierDowngraded,
     });
     if (logError) console.error(`[processor] interaction_logs insert failed for ${phone}:`, logError.message);
 
