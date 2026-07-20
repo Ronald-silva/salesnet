@@ -11,8 +11,10 @@
 
 import { PLANS, BUSINESS_INFO } from './company-data';
 import { getCoveredNeighborhoods } from './coverage-cache';
-import { getCustomerByPhone } from '../integrations/sgp/customers';
 import { maskPhone } from '../lib/phone';
+import { getThread } from './memory';
+import { lookupCustomer } from './customer-lookup';
+import { extractCpfFromText } from '../lib/cpf';
 
 // ─── Intents ──────────────────────────────────────────────────────────────────
 
@@ -33,10 +35,17 @@ const INSTALLATION_CONTEXT_RE =
 const INSTALLATION_FAQ_RE =
   /(?:taxa|valor|quanto\s+custa).{0,25}instala|prazo.{0,20}instala|tempo\s+(?:de\s+)?instala|demora\s+(?:da\s+)?instala|quanto\s+tempo\s+demora/i;
 
+// "contratar"/"assinar" propositalmente FORA deste regex: são vocabulário de conversão
+// (prospect pronto pra avançar cadastro), não de dúvida sobre planos — incluí-los aqui
+// fazia uma frase como "quero contratar, pode fazer meu cadastro?" reabrir a lista
+// estática de planos em vez de deixar o LLM conduzir a coleta de dados. Preferido a uma
+// lista de exclusão (ex.: negar quando aparecer "cadastro"/"meu nome é") porque essa
+// lista nunca cobre todas as frases de progressão possíveis — enumerar exceções é o
+// mesmo tipo de regex whack-a-mole que causou o bug original.
 export function messageAsksForPlans(message: string): boolean {
   const m = message.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   return (
-    /planos?|precos?|valor|quanto custa|velocidade|mbps|mega|pacote|contratar|assinar|internet/.test(m) &&
+    /planos?|precos?|valor|quanto custa|velocidade|mbps|mega|pacote|internet/.test(m) &&
     !/fatura|boleto|segunda via|vencimento|pagar minha|meu plano atual|meu contrato/.test(m)
   );
 }
@@ -112,7 +121,7 @@ function isQuickReplyEnabled(intent: Intent): intent is ActiveQuickReplyIntent {
 function formatPlans(): string {
   const lines = PLANS.map((p) => {
     const tag = p.popular ? ' ← mais popular' : '';
-    return `${p.name}: ${p.downloadMbps} Mbps / R$ ${p.priceMonthly}/mês${tag}`;
+    return `${p.name}: ${p.downloadMbps} Mbps / R$ ${p.priceMonthly.toFixed(2).replace('.', ',')}/mês${tag}`;
   });
 
   return (
@@ -191,11 +200,34 @@ export async function quickReply(message: string, phone: string, tenantId: strin
 
   switch (intent) {
     case 'plans_list': {
-      // Cliente existente: passa para LLM (contexto do contrato atual)
+      let thread: Awaited<ReturnType<typeof getThread>> | null = null;
       try {
-        const customer = await getCustomerByPhone(phone);
-        if (customer && !('error' in customer)) {
-          console.log('[quick-reply] plans_list → cliente existente, passa para LLM');
+        thread = await getThread(phone, tenantId);
+      } catch {
+        // best-effort — falha ao carregar a thread não deve travar o quick-reply
+      }
+
+      // Já mostramos a lista estática nesta thread: reenviar de novo é o loop que
+      // travava prospects na conversão. Deixa o LLM assumir a partir daqui.
+      const lastAssistant = thread ? [...thread.messages].reverse().find((m) => m.role === 'assistant') : undefined;
+      if (lastAssistant?.content === formatPlans()) {
+        console.log('[quick-reply] plans_list → planos já mostrados nesta thread, passa para LLM');
+        return null;
+      }
+
+      // Cascata completa (telefone → CPF na mensagem → CPF salvo na thread), igual ao
+      // fluxo principal do LLM em customer-lookup.ts — um lookup só por telefone deixava
+      // cliente identificável só por CPF (número novo, contato @lid, etc.) cair como
+      // prospect indevidamente.
+      try {
+        const lookup = await lookupCustomer({
+          whatsappPhone: phone,
+          tenantId,
+          cpfFromMessage: extractCpfFromText(message),
+          cpfFromThread: thread?.cpf ?? null,
+        });
+        if (!('error' in lookup.customer)) {
+          console.log(`[quick-reply] plans_list → cliente existente (method=${lookup.method}), passa para LLM`);
           return null;
         }
       } catch {
@@ -206,6 +238,33 @@ export async function quickReply(message: string, phone: string, tenantId: strin
     }
 
     case 'coverage_list': {
+      let thread: Awaited<ReturnType<typeof getThread>> | null = null;
+      try {
+        thread = await getThread(phone, tenantId);
+      } catch {
+        // best-effort — falha ao carregar a thread não deve travar o quick-reply
+      }
+
+      // Mesma cascata completa do plans_list (telefone → CPF na mensagem → CPF
+      // salvo na thread) — cliente existente perguntando sobre cobertura pode
+      // estar falando de mudança de endereço ou segunda ligação, não de
+      // prospecção; um lookup só por telefone deixava cliente identificável só
+      // por CPF (número novo, contato @lid, etc.) cair como prospect indevidamente.
+      try {
+        const lookup = await lookupCustomer({
+          whatsappPhone: phone,
+          tenantId,
+          cpfFromMessage: extractCpfFromText(message),
+          cpfFromThread: thread?.cpf ?? null,
+        });
+        if (!('error' in lookup.customer)) {
+          console.log(`[quick-reply] coverage_list → cliente existente (method=${lookup.method}), passa para LLM`);
+          return null;
+        }
+      } catch {
+        // best-effort — não localizar não é erro crítico
+      }
+
       console.log('[quick-reply] coverage_list → formatCoverageList()');
       const neighborhoods = await getCoveredNeighborhoods(tenantId);
       return formatCoverageList(neighborhoods);
@@ -220,16 +279,34 @@ export async function quickReply(message: string, phone: string, tenantId: strin
 
     case 'coverage_check': {
       if (!neighborhood) return null;
-      // Existing customer: may be asking about relocation or a second address — let LLM handle
+
+      let thread: Awaited<ReturnType<typeof getThread>> | null = null;
       try {
-        const customer = await getCustomerByPhone(phone);
-        if (customer && !('error' in customer)) {
-          console.log('[quick-reply] coverage_check → cliente existente, passa para LLM');
+        thread = await getThread(phone, tenantId);
+      } catch {
+        // best-effort — falha ao carregar a thread não deve travar o quick-reply
+      }
+
+      // Mesma cascata completa do plans_list/coverage_list (telefone → CPF na mensagem →
+      // CPF salvo na thread) — cliente existente perguntando sobre cobertura pode estar
+      // falando de mudança de endereço ou segunda ligação, não de prospecção; um lookup
+      // só por telefone deixava cliente identificável só por CPF (número novo, contato
+      // @lid, etc.) cair como prospect indevidamente.
+      try {
+        const lookup = await lookupCustomer({
+          whatsappPhone: phone,
+          tenantId,
+          cpfFromMessage: extractCpfFromText(message),
+          cpfFromThread: thread?.cpf ?? null,
+        });
+        if (!('error' in lookup.customer)) {
+          console.log(`[quick-reply] coverage_check → cliente existente (method=${lookup.method}), passa para LLM`);
           return null;
         }
       } catch {
-        // best-effort — prospect path on lookup failure
+        // best-effort — não localizar não é erro crítico
       }
+
       console.log(`[quick-reply] coverage_check → ${neighborhood}`);
       const hoods = await getCoveredNeighborhoods(tenantId);
       return formatCoverageCheck(neighborhood, hoods);
