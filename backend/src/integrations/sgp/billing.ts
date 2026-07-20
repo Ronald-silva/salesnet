@@ -147,6 +147,13 @@ function computeBillingStage(daysUntilDue: number): BillingStage | null {
  * SEQUENTIALLY — never in parallel — to avoid bursting the SGP with concurrent calls.
  * A failure on one CPF (invalid checksum, not found, invoice lookup error) is logged
  * and skipped; it never aborts the rest of the list.
+ *
+ * limit=20 (same as hasOpenInvoice/getCustomerInvoices, not the old limit=5): the SGP
+ * returns open invoices in DESCENDING vencimento order, truncated server-side BEFORE
+ * this function sorts ascending to find "nearest" — a limit smaller than the customer's
+ * open-invoice count silently drops the invoice actually nearest to due (confirmed live
+ * in production against contract 103971, which had 6 pre-generated open invoices; the
+ * one due that same day never entered the ascending-sort candidate set under limit=5).
  */
 export async function getBillingStatusForAllowlist(cpfs: string[]): Promise<BillingStatusEntry[]> {
   const results: BillingStatusEntry[] = [];
@@ -168,7 +175,7 @@ export async function getBillingStatusForAllowlist(cpfs: string[]): Promise<Bill
     }
 
     try {
-      const body = systemParams({ contrato: customer.id, status: '1', limit: '5' });
+      const body = systemParams({ contrato: customer.id, status: '1', limit: '20' });
       const { data } = await sgpClient.post('/api/central/titulos/', body.toString());
       const parsed = TitulosResponseSchema.parse(data);
       if (!parsed.faturas.length) continue; // no open invoice — nothing to notify

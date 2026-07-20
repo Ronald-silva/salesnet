@@ -168,4 +168,40 @@ describe('getBillingStatusForAllowlist', () => {
 
     expect(entry!.stage).toBe('d3');
   });
+
+  it('does not lose the true nearest invoice when the customer has more open invoices than the requested limit (SGP returns them in descending vencimento order, truncated server-side — reproduces the contract 103971/Maria audit finding, 2026-07-20)', async () => {
+    (getCustomerByCpf as jest.Mock).mockResolvedValue({ id: '103971', name: 'Maria', phone: '+5585999996859' });
+
+    // 6 open invoices, monthly cadence, most recent generated first — same shape confirmed
+    // live against production SGP for contract 103971 (180/150/120/90/60 days out, plus one
+    // due today). If the client only asks for a handful, SGP truncates AFTER this ordering,
+    // so a too-small limit silently drops the one due today.
+    const dueDatesDescending = [180, 150, 120, 90, 60, 0].map((offset) => isoInDays(offset));
+    const allFaturas = dueDatesDescending.map((vencimento, i) => ({
+      id: 200 + i,
+      vencimento,
+      valor: 74.99,
+      valorcorrigido: 74.99,
+      status: 'Gerado',
+      statusid: 1,
+    }));
+
+    postSpy.mockImplementation(async (_url: unknown, body: unknown) => {
+      const params = new URLSearchParams(body as string);
+      const limit = Number(params.get('limit') ?? allFaturas.length);
+      const faturas = allFaturas.slice(0, limit);
+      return {
+        data: {
+          paginacao: { offset: 0, limit, parcial: faturas.length, total: allFaturas.length },
+          faturas,
+        },
+      };
+    });
+
+    const [entry] = await getBillingStatusForAllowlist(['12345678909']);
+
+    const trueNearestDueDate = dueDatesDescending[dueDatesDescending.length - 1]!; // due today
+    expect(entry!.dueDate).toBe(trueNearestDueDate);
+    expect(entry!.stage).toBe('d0');
+  });
 });
