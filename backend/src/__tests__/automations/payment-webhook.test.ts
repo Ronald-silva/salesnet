@@ -197,6 +197,17 @@ describe('POST /webhook/sgp/payment-confirmed — payment confirmation flow', ()
     expect(whatsappService.sendText).toHaveBeenCalledTimes(2);
   });
 
+  it('formats the confirmed amount with pt-BR comma decimal separator, not a dot', async () => {
+    const body = { customerId: 'cust1', phone: '+5585999990001', amount: 89.9 };
+
+    const res = await signedRequest(buildApp(), body);
+
+    expect(res.status).toBe(200);
+    const calls = (whatsappService.sendText as jest.Mock).mock.calls;
+    expect(calls[1][2]).toContain('R$ 89,90');
+    expect(calls[1][2]).not.toContain('89.90');
+  });
+
   it('returns 400 when customerId or phone is missing', async () => {
     const res = await signedRequest(buildApp(), { customerId: 'cust1' });
 

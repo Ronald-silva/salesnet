@@ -81,7 +81,7 @@ paymentWebhookRouter.post('/payment-confirmed', async (req, res) => {
       ).catch((err: unknown) => console.error('[payment-webhook] admin alert failed:', err));
     }
 
-    const amountStr = amount !== undefined ? `R$ ${Number(amount).toFixed(2)}` : 'seu pagamento';
+    const amountStr = amount !== undefined ? `R$ ${Number(amount).toFixed(2).replace('.', ',')}` : 'seu pagamento';
     await whatsappService.sendText(
       env.DEFAULT_TENANT_ID,
       phone,

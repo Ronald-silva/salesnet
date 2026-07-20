@@ -91,6 +91,21 @@ describe('runBillingCadenceD5', () => {
 
     expect(sendDispatchJob).not.toHaveBeenCalled();
   });
+
+  it('formats the amount with pt-BR comma decimal separator, not a dot', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 89.9, document: '12345678909' },
+    ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(true);
+
+    await runBillingCadenceD5();
+
+    const [, , , msg] = sendDispatchJob.mock.calls[0]!;
+    expect(msg).toContain('R$ 89,90');
+    expect(msg).not.toContain('89.90');
+  });
 });
 
 describe('runBillingCadenceD2', () => {
@@ -178,5 +193,31 @@ describe('runBillingCadenceD2', () => {
 
     expect(hasOpenInvoice).not.toHaveBeenCalled();
     expect(sendDispatchJob).not.toHaveBeenCalled();
+  });
+
+  it('formats the amount with pt-BR comma decimal separator for both habitual and regular payers', async () => {
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set(['c1']));
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'João Silva', phone: '+5585999990001', dueDate: '2026-06-01', amount: 89.9, document: '12345678909' },
+    ]);
+    createPendingJob.mockResolvedValue({ id: 'j1' });
+    hasOpenInvoice.mockResolvedValue(true);
+    await runBillingCadenceD2();
+    const [, , , habitualMsg] = sendDispatchJob.mock.calls[0]!;
+    expect(habitualMsg).toContain('R$ 89,90');
+    expect(habitualMsg).not.toContain('89.90');
+
+    jest.clearAllMocks();
+    isCpfSendAllowed.mockReturnValue(true);
+    getHabitualLatePayerContractIds.mockResolvedValue(new Set());
+    resolveDueSoonCustomers.mockResolvedValue([
+      { customerId: 'c2', recipientId: 'r2', name: 'Maria', phone: '+5585999990002', dueDate: '2026-06-01', amount: 89.9, document: '98765432100' },
+    ]);
+    createPendingJob.mockResolvedValue({ id: 'j2' });
+    hasOpenInvoice.mockResolvedValue(true);
+    await runBillingCadenceD2();
+    const [, , , regularMsg] = sendDispatchJob.mock.calls[0]!;
+    expect(regularMsg).toContain('R$ 89,90');
+    expect(regularMsg).not.toContain('89.90');
   });
 });

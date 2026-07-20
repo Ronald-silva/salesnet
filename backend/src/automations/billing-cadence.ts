@@ -39,7 +39,7 @@ export async function runBillingCadenceD5(): Promise<void> {
 
       const fullName = titleCaseName(customer.name);
       const msg =
-        `Olá, ${fullName}! 👋\n\nSua fatura de R$ ${customer.amount.toFixed(2)} vence em 5 dias (${customer.dueDate}).\n\n` +
+        `Olá, ${fullName}! 👋\n\nSua fatura de R$ ${customer.amount.toFixed(2).replace('.', ',')} vence em 5 dias (${customer.dueDate}).\n\n` +
         pixLine(customer.pixCode ?? '', '💳 Pague via PIX (copia e cola):') +
         `Qualquer dúvida, é só falar! 😊`;
 
@@ -82,10 +82,10 @@ export async function runBillingCadenceD2(): Promise<void> {
 
       const fullName = titleCaseName(customer.name);
       const msg = isHabitualLatePayer
-        ? `Olá, ${fullName}! ⚠️\n\nFaltam 2 dias para o vencimento da sua fatura de R$ ${customer.amount.toFixed(2)}. Evite juros e risco de suspensão futura pagando agora.\n\n` +
+        ? `Olá, ${fullName}! ⚠️\n\nFaltam 2 dias para o vencimento da sua fatura de R$ ${customer.amount.toFixed(2).replace('.', ',')}. Evite juros e risco de suspensão futura pagando agora.\n\n` +
           pixLine(customer.pixCode ?? '', '💳 PIX copia e cola:') +
           `Qualquer dúvida, é só falar! 😊`
-        : `Olá, ${fullName}! 👋\n\nSó um lembrete rápido: sua fatura de R$ ${customer.amount.toFixed(2)} vence em 2 dias.\n\n` +
+        : `Olá, ${fullName}! 👋\n\nSó um lembrete rápido: sua fatura de R$ ${customer.amount.toFixed(2).replace('.', ',')} vence em 2 dias.\n\n` +
           pixLine(customer.pixCode ?? '', '💳 PIX copia e cola:') +
           `Qualquer dúvida, é só falar! 😊`;
 

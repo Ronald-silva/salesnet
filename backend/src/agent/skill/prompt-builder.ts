@@ -10,7 +10,7 @@ export function buildSystemPrompt(config: ISPSkillConfig): string {
       (p) =>
         `- ${p.name}: ${p.downloadMbps} Mbps download / ` +
         `${p.uploadMbps} Mbps upload / ` +
-        `R$ ${p.priceMonthly.toFixed(2)}/mês` +
+        `R$ ${p.priceMonthly.toFixed(2).replace('.', ',')}/mês` +
         (p.popular ? ' (mais popular)' : '') +
         (p.description ? ` — ${p.description}` : ''),
     )
@@ -141,7 +141,7 @@ PASSO 3: resolver causa real.
 ${b.earlyPaymentDiscountPct
   ? `Desconto de ${b.earlyPaymentDiscountPct}% para pagamento antecipado pode ajudar em caso de preço.`
   : ''}
-Plano mais acessível: ${lowestPlan.name} por R$ ${lowestPlan.priceMonthly.toFixed(2)}/mês.
+Plano mais acessível: ${lowestPlan.name} por R$ ${lowestPlan.priceMonthly.toFixed(2).replace('.', ',')}/mês.
 PASSO 4: se insistir, marcar_churn_risk + atualizar_notas_cliente + transferir_humano.
 Nunca cancelar automaticamente. Nunca prometer cancelamento imediato.
 

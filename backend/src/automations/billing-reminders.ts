@@ -38,7 +38,7 @@ async function processStage(
         continue;
       }
 
-      const valor = (customer.amount ?? customer.amountDue ?? 0).toFixed(2);
+      const valor = (customer.amount ?? customer.amountDue ?? 0).toFixed(2).replace('.', ',');
       const msg = resolveTemplate(templateName, {
         nome: titleCaseName(customer.name),
         valor,

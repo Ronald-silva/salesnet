@@ -84,6 +84,21 @@ describe('runBillingJobD3', () => {
     expect(dispatchJobs.createPendingJob).not.toHaveBeenCalled();
     expect(billingAllowlist.logSkippedOutsideAllowlist).toHaveBeenCalledWith('c1', '+5585999990001', 'd3');
   });
+
+  it('formats valor with pt-BR comma decimal separator, not a dot', async () => {
+    (billingAllowlist.resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c1', recipientId: 'r1', name: 'Maria', phone: '+5585999990001', dueDate: '2026-05-10', amount: 89.9, document: '12345678909' },
+    ]);
+    (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j1' });
+    (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+
+    await runBillingJobD3();
+
+    expect(templates.resolveTemplate).toHaveBeenCalledWith(
+      'billing_reminder_d3',
+      expect.objectContaining({ valor: '89,90' })
+    );
+  });
 });
 
 describe('runBillingJobD0', () => {
@@ -113,6 +128,21 @@ describe('runBillingJobD0', () => {
     expect(sgpBilling.hasOpenInvoice).not.toHaveBeenCalled();
     expect(billingSender.sendDispatchJob).not.toHaveBeenCalled();
   });
+
+  it('formats valor with pt-BR comma decimal separator, not a dot', async () => {
+    (billingAllowlist.resolveDueSoonCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c3', recipientId: 'r3', name: 'Ana', phone: '+5585999990003', dueDate: '2026-05-07', amount: 89.9, document: '12345678909' },
+    ]);
+    (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j3' });
+    (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+
+    await runBillingJobD0();
+
+    expect(templates.resolveTemplate).toHaveBeenCalledWith(
+      'billing_reminder_d0',
+      expect.objectContaining({ valor: '89,90' })
+    );
+  });
 });
 
 describe('runBillingJobOverdueD3', () => {
@@ -141,6 +171,21 @@ describe('runBillingJobOverdueD3', () => {
 
     expect(sgpBilling.hasOpenInvoice).not.toHaveBeenCalled();
     expect(billingSender.sendDispatchJob).not.toHaveBeenCalled();
+  });
+
+  it('formats valor with pt-BR comma decimal separator, not a dot', async () => {
+    (billingAllowlist.resolveOverdueCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c4', recipientId: 'r4', name: 'Pedro', phone: '+5585999990004', amountDue: 89.9, document: '12345678909' },
+    ]);
+    (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j4' });
+    (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+
+    await runBillingJobOverdueD3();
+
+    expect(templates.resolveTemplate).toHaveBeenCalledWith(
+      'billing_overdue_d3',
+      expect.objectContaining({ valor: '89,90' })
+    );
   });
 });
 
@@ -201,5 +246,21 @@ describe('runBillingJobSuspendD5', () => {
     expect(billingSender.sendDispatchJob).not.toHaveBeenCalled();
     expect(sgp.suspendCustomer).not.toHaveBeenCalled();
     expect(billingAllowlist.logSkippedOutsideAllowlist).toHaveBeenCalledWith('c4', '+5585999990004', 'suspended_d5');
+  });
+
+  it('formats valor with pt-BR comma decimal separator, not a dot', async () => {
+    (billingAllowlist.resolveOverdueCustomers as jest.Mock).mockResolvedValue([
+      { customerId: 'c5', recipientId: 'r5', name: 'Clara', phone: '+5585999990005', amountDue: 89.9, document: '12345678909' },
+    ]);
+    (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j5' });
+    (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+    (sgp.suspendCustomer as jest.Mock).mockResolvedValue({ customerId: 'c5', status: 'suspended' });
+
+    await runBillingJobSuspendD5();
+
+    expect(templates.resolveTemplate).toHaveBeenCalledWith(
+      'billing_suspended_d5',
+      expect.objectContaining({ valor: '89,90' })
+    );
   });
 });
