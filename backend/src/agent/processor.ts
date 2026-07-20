@@ -675,7 +675,7 @@ export async function processMessage(
       await saveMessage(phone, 'user', clean, tenantId);
       await saveMessage(phone, 'assistant', faqResponse, tenantId);
       const delivery = await sendTextWithDeliveryStatus(tenantId, phone, formatOutgoingWhatsApp(faqResponse));
-      await supabase.from('interaction_logs').insert({
+      const { error: logError } = await supabase.from('interaction_logs').insert({
         phone,
         tenant_id: tenantId,
         session_mode: 'default',
@@ -688,6 +688,7 @@ export async function processMessage(
         delivery_status: delivery.status,
         delivery_error: delivery.error ?? null,
       });
+      if (logError) console.error(`[processor] quick-reply interaction_logs insert failed for ${phone}:`, logError.message);
     } catch (err) {
       console.error(`[processor] quick-reply send error for ${phone}:`, err);
     }
@@ -1021,7 +1022,7 @@ export async function processMessage(
       }
     }
 
-    await supabase.from('interaction_logs').insert({
+    const { error: logError } = await supabase.from('interaction_logs').insert({
       phone,
       tenant_id: tenantId,
       session_mode: sessionMode,
@@ -1042,6 +1043,7 @@ export async function processMessage(
       delivery_status: delivery.status,
       delivery_error: delivery.error ?? null,
     });
+    if (logError) console.error(`[processor] interaction_logs insert failed for ${phone}:`, logError.message);
 
     await warnIfDailyBudgetExceeded();
   } catch (err) {
