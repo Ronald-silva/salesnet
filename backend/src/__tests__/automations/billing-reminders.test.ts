@@ -91,6 +91,7 @@ describe('runBillingJobD3', () => {
     ]);
     (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j1' });
     (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+    (billingSender.sendDispatchJob as jest.Mock).mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-test' });
 
     await runBillingJobD3();
 
@@ -135,6 +136,7 @@ describe('runBillingJobD0', () => {
     ]);
     (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j3' });
     (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+    (billingSender.sendDispatchJob as jest.Mock).mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-test' });
 
     await runBillingJobD0();
 
@@ -179,6 +181,7 @@ describe('runBillingJobOverdueD3', () => {
     ]);
     (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j4' });
     (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+    (billingSender.sendDispatchJob as jest.Mock).mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-test' });
 
     await runBillingJobOverdueD3();
 
@@ -254,6 +257,7 @@ describe('runBillingJobSuspendD5', () => {
     ]);
     (dispatchJobs.createPendingJob as jest.Mock).mockResolvedValue({ id: 'j5' });
     (sgpBilling.hasOpenInvoice as jest.Mock).mockResolvedValue(true);
+    (billingSender.sendDispatchJob as jest.Mock).mockResolvedValue({ status: 'sent', providerMessageId: 'wamid-test' });
     (sgp.suspendCustomer as jest.Mock).mockResolvedValue({ customerId: 'c5', status: 'suspended' });
 
     await runBillingJobSuspendD5();
