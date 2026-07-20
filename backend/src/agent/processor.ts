@@ -8,7 +8,7 @@ import { parseProcessMessageOptions } from './process-message-options';
 import type { ProcessMessageOptions } from './process-message-options';
 import { TOOL_DEFINITIONS, executeTool } from './tools';
 import { getThread, saveMessage, isHumanMode } from './memory';
-import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked, buildIdentificationContext } from './customer-lookup';
+import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked, hasInvalidBareCpfCandidate, buildIdentificationContext } from './customer-lookup';
 import { isValidCpf } from '../lib/cpf';
 import { redactSensitiveFields } from '../integrations/sgp/types';
 import { buildMediaMessageContext } from './media-context';
@@ -708,21 +708,23 @@ export async function processMessage(
       content: m.content,
     }));
 
-    // Bare 11-digit values overlap with BR mobile numbers. Accept them as CPF only
-    // when Sofia asked for CPF, or when the value itself passes CPF checksum.
-    const lastAssistantMsg = [...thread.messages].reverse().find(m => m.role === 'assistant');
-    const sofiaAskedForCpf = lastAssistantMsg != null && /\bcpf\b|\bdocumento\b/i.test(lastAssistantMsg.content);
+    // Bare 11-digit values overlap with BR mobile numbers. extractBareCpfWhenAsked
+    // validates checksum internally, so no message-length gating or "Sofia asked"
+    // context is needed here — the checksum alone is what tells a CPF apart from a
+    // same-length phone number.
     const explicitCpf = extractCpfFromText(clean);
     const bareCpf = extractBareCpfWhenAsked(clean);
-    const extractedCpf = explicitCpf ?? (
-      sofiaAskedForCpf || (bareCpf !== null && isValidCpf(bareCpf))
-        ? bareCpf
-        : null
-    );
+    const extractedCpf = explicitCpf ?? bareCpf;
     // Checksum (not just length) — an invalid CPF must never reach the SGP, where it
     // can coincidentally match an unrelated real customer's dirty data.
     const cpfLooksInvalid = extractedCpf !== null && !isValidCpf(extractedCpf);
     const cpfFromMessage = extractedCpf && !cpfLooksInvalid ? extractedCpf : null;
+    // No explicit/bare CPF was extracted, but the message contains an 11-digit run
+    // shaped like a CPF that failed checksum on every candidate — this is the case
+    // that let the session silently keep answering with a stale thread CPF (a
+    // different customer) instead of surfacing the mismatch. "No CPF-shaped number
+    // at all" is the ordinary continuation-of-conversation case and stays quiet.
+    const cpfLooksAmbiguous = extractedCpf === null && hasInvalidBareCpfCandidate(clean);
 
     // Identify customer: WhatsApp phone first, then CPF (message or thread)
     const [lookupResult, insights, skillConfig, recentModesResult] = await Promise.all([
@@ -848,7 +850,8 @@ export async function processMessage(
       knowledgePromise,
     ]);
     const identificationContext = buildIdentificationContext(lookupResult, phone) +
-      (cpfLooksInvalid ? `\n\nCPF informado pelo cliente parece inválido (dígito verificador não confere) — peça para conferir os números, não trate como "cliente não encontrado".` : '');
+      (cpfLooksInvalid ? `\n\nCPF informado pelo cliente parece inválido (dígito verificador não confere) — peça para conferir os números, não trate como "cliente não encontrado".` : '') +
+      (cpfLooksAmbiguous ? `\n\nHavia uma sequência numérica na mensagem que pode ser um CPF mas não é válida — confirme o CPF correto com o cliente antes de prosseguir com dados financeiros. Não assuma que a identificação atual (baseada em uma sessão anterior) ainda é do cliente certo.` : '');
     const mediaContext = buildMediaMessageContext(clean);
     const systemWithContext =
       `${getFortalezaContext()}\n\n${systemPrompt}` +

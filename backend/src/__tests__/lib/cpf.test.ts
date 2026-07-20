@@ -1,4 +1,4 @@
-import { normalizeCpf, isValidCpfLength, isValidCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../../lib/cpf';
+import { normalizeCpf, isValidCpfLength, isValidCpf, extractCpfFromText, extractBareCpfWhenAsked, hasInvalidBareCpfCandidate } from '../../lib/cpf';
 
 describe('normalizeCpf', () => {
   it('strips formatting', () => {
@@ -98,13 +98,63 @@ describe('extractBareCpfWhenAsked', () => {
     expect(extractBareCpfWhenAsked('04976301338 é meu número de cpf ok')).toBe('04976301338');
   });
 
-  it('returns null for message > 50 chars', () => {
+  it('extracts a checksum-valid bare CPF regardless of message length', () => {
     const long = '04976301338 esse é o meu cpf que você pediu anteriormente';
     expect(long.trim().length).toBeGreaterThan(50);
-    expect(extractBareCpfWhenAsked(long)).toBeNull();
+    expect(extractBareCpfWhenAsked(long)).toBe('04976301338');
   });
 
   it('returns null when digits are not exactly 11', () => {
     expect(extractBareCpfWhenAsked('8599123456')).toBeNull();  // 10 digits
+  });
+
+  it('reproduces the original incident: bare CPF inside a 63-char natural sentence', () => {
+    const message = 'ME DE A DATA EXATA DOS VENCIMENTOS DA FATURA DA:  02284204317';
+    expect(message.trim().length).toBeGreaterThan(50);
+    expect(isValidCpf('02284204317')).toBe(true);
+    expect(extractBareCpfWhenAsked(message)).toBe('02284204317');
+  });
+
+  it('picks the checksum-valid CPF out of a long message that also contains an unrelated 11-digit phone number', () => {
+    // 85991993833 is a plausible BR mobile number (11 digits) and fails the CPF
+    // checksum; 04976301338 is a real, checksum-valid CPF. Both appear in the
+    // same long sentence — only the valid one should be returned.
+    expect(isValidCpf('85991993833')).toBe(false);
+    const message = 'Meu telefone é 85991993833 e meu cpf é 04976301338, pode confirmar os dois please';
+    expect(extractBareCpfWhenAsked(message)).toBe('04976301338');
+  });
+
+  it('returns null for a long message with no checksum-valid 11-digit sequence at all', () => {
+    const message = 'Estou tentando entender minha fatura, pode me ajudar com isso hoje por gentileza';
+    expect(extractBareCpfWhenAsked(message)).toBeNull();
+  });
+
+  it('rejects an 11-digit sequence with a bad checksum even inside a long sentence', () => {
+    expect(isValidCpf('04976301339')).toBe(false); // last digit wrong (see isValidCpf tests above)
+    const message = 'Aqui está meu documento para consulta: 04976301339, por favor verifique';
+    expect(extractBareCpfWhenAsked(message)).toBeNull();
+  });
+});
+
+describe('hasInvalidBareCpfCandidate', () => {
+  it('is true when the message has an 11-digit run that looks like a CPF but fails checksum', () => {
+    const message = 'Aqui está meu documento para consulta: 04976301339, por favor verifique';
+    expect(hasInvalidBareCpfCandidate(message)).toBe(true);
+  });
+
+  it('is false when the message has no 11-digit run at all (ordinary conversation)', () => {
+    const message = 'Estou tentando entender minha fatura, pode me ajudar com isso hoje por gentileza';
+    expect(hasInvalidBareCpfCandidate(message)).toBe(false);
+  });
+
+  it('is false when the 11-digit run is actually a valid CPF', () => {
+    const message = 'ME DE A DATA EXATA DOS VENCIMENTOS DA FATURA DA:  02284204317';
+    expect(hasInvalidBareCpfCandidate(message)).toBe(false);
+  });
+
+  it('is false when every 11-digit run present is a valid CPF, even with multiple candidates', () => {
+    const message = 'Meu telefone é 85991993833 e meu cpf é 04976301338'; // one invalid-checksum run, one valid
+    // At least one candidate is valid, so this is NOT the ambiguous "looks like CPF but wrong" case.
+    expect(hasInvalidBareCpfCandidate(message)).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import * as sgp from '../integrations/sgp';
 import { supabase } from '../config/supabase';
 import { grantTemporaryFinancialAccess, persistThreadCpf } from './memory';
-import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked } from '../lib/cpf';
+import { normalizeCpf, extractCpfFromText, extractBareCpfWhenAsked, hasInvalidBareCpfCandidate } from '../lib/cpf';
 import { isPhoneRegisteredToCpf } from './identity-verification';
 import type { Customer } from '../integrations/sgp/types';
 
@@ -157,4 +157,4 @@ export function buildIdentificationContext(
   );
 }
 
-export { extractCpfFromText, extractBareCpfWhenAsked };
+export { extractCpfFromText, extractBareCpfWhenAsked, hasInvalidBareCpfCandidate };

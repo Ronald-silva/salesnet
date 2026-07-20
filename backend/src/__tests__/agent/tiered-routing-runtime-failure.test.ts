@@ -36,6 +36,7 @@ jest.mock('../../agent/customer-lookup', () => ({
   lookupCustomer: jest.fn(),
   extractCpfFromText: jest.fn().mockReturnValue(null),
   extractBareCpfWhenAsked: jest.fn().mockReturnValue(null),
+  hasInvalidBareCpfCandidate: jest.fn().mockReturnValue(false),
   buildIdentificationContext: jest.fn().mockReturnValue(''),
 }));
 

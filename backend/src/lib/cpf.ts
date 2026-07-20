@@ -50,12 +50,43 @@ export function extractCpfFromText(text: string): string | null {
 }
 
 /**
- * Extracts a bare 11-digit CPF when context indicates Sofia asked for it.
- * Only activates on short messages (≤ 50 chars) to avoid capturing phone numbers
- * embedded in longer sentences. Caller must verify Sofia's prior request.
+ * All maximal digit runs in the text that are exactly 11 characters long — the
+ * shape both a CPF and a BR mobile number (without country code) share. A run
+ * embedded in something longer (a barcode, a protocol number) is deliberately
+ * NOT sliced into an 11-digit candidate; only a standalone run of exactly 11
+ * digits counts.
+ */
+function bareElevenDigitRuns(text: string): string[] {
+  const runs = text.match(/\d+/g) ?? [];
+  return runs.filter((run) => run.length === 11);
+}
+
+/**
+ * Extracts a bare 11-digit CPF from anywhere in the text, validated by checksum.
+ * No "cpf" keyword/formatting and no message-length limit required — the
+ * checksum (isValidCpf) is what distinguishes a real CPF from an equally-long
+ * BR mobile number (a random 11-digit run has roughly a 1-in-121 chance of
+ * coincidentally passing both check digits), so gating on text length is
+ * unnecessary once every candidate is checksum-validated.
+ * If the message contains more than one 11-digit run (e.g. a phone number and
+ * a CPF in the same sentence), returns the first one — in reading order —
+ * that passes the checksum.
  */
 export function extractBareCpfWhenAsked(text: string): string | null {
-  if (text.trim().length > 50) return null;
-  const digits = text.replace(/\D/g, '');
-  return digits.length === 11 ? digits : null;
+  for (const run of bareElevenDigitRuns(text)) {
+    if (isValidCpf(run)) return run;
+  }
+  return null;
+}
+
+/**
+ * True when the text contains an 11-digit run that has CPF *shape* but fails
+ * the checksum on every candidate present — the ambiguous case ("looks like a
+ * CPF, isn't one") worth flagging to the LLM so it doesn't silently fall back
+ * to a stale identity. Distinct from "no CPF-shaped number at all", which is
+ * the ordinary continuation-of-conversation case and should stay quiet.
+ */
+export function hasInvalidBareCpfCandidate(text: string): boolean {
+  const runs = bareElevenDigitRuns(text);
+  return runs.length > 0 && runs.every((run) => !isValidCpf(run));
 }

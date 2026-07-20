@@ -28,6 +28,7 @@ jest.mock('../../agent/customer-lookup', () => ({
   lookupCustomer: jest.fn(),
   extractCpfFromText: jest.fn().mockReturnValue(null),
   extractBareCpfWhenAsked: jest.fn().mockReturnValue(null),
+  hasInvalidBareCpfCandidate: jest.fn().mockReturnValue(false),
   buildIdentificationContext: jest.fn().mockReturnValue(''),
 }));
 
@@ -97,7 +98,7 @@ jest.mock('../../services/whatsapp-service', () => ({
 import { processMessage } from '../../agent/processor';
 import { isHumanMode, getThread, saveMessage } from '../../agent/memory';
 import { executeTool } from '../../agent/tools';
-import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked } from '../../agent/customer-lookup';
+import { lookupCustomer, extractCpfFromText, extractBareCpfWhenAsked, hasInvalidBareCpfCandidate } from '../../agent/customer-lookup';
 import { anthropic } from '../../config/anthropic';
 import { whatsappService } from '../../services/whatsapp-service';
 import { supabase } from '../../config/supabase';
@@ -116,6 +117,20 @@ const TEXT_RESPONSE = {
   content: [{ type: 'text', text: 'Olá João! Posso ajudar?' }],
   usage: { input_tokens: 10, output_tokens: 20 },
 };
+
+/**
+ * The main LLM call's system prompt always includes buildSystemPrompt's mocked
+ * output ('test-prompt') — the session-disambiguation classifier call (which may
+ * or may not fire, depending on the message) uses a separate, unrelated prompt.
+ * Picking the call by content instead of by index keeps assertions correct
+ * regardless of whether disambiguation ran.
+ */
+function findMainCallSystem(createMock: jest.Mock): string | undefined {
+  const call = createMock.mock.calls.find(
+    (c) => typeof c[0]?.system === 'string' && c[0].system.includes('test-prompt'),
+  );
+  return call?.[0]?.system;
+}
 
 describe('processMessage — human_mode ON', () => {
   it('returns early without calling Claude when human_mode is true', async () => {
@@ -440,6 +455,42 @@ describe('processMessage — invalid CPF in the message', () => {
     expect(lookupCustomer).toHaveBeenCalledWith(
       expect.objectContaining({ cpfFromMessage: '04976301338' }),
     );
+  });
+
+  it('tells Sofia when the message has a CPF-shaped number that failed checksum, so a stale thread CPF is not silently reused', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce(null);
+    (extractBareCpfWhenAsked as jest.Mock).mockReturnValueOnce(null);
+    (hasInvalidBareCpfCandidate as jest.Mock).mockReturnValueOnce(true);
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'cpf',
+      cpfUsed: '04976301338',
+      attempts: ['phone', 'cpf'],
+    });
+
+    // Avoids the session-disambiguation trigger words (fatura/pagar/etc — see
+    // isSessionDisambiguationCandidate) so the main LLM call stays predictably
+    // the only call; findMainCallSystem below is robust to it either way.
+    await processMessage(PHONE, 'Confere esse numero de identificação pra mim por favor: 02284204316');
+
+    const mainSystem = findMainCallSystem(anthropic.messages.create as jest.Mock);
+    expect(mainSystem).toContain('pode ser um CPF mas não é válida');
+  });
+
+  it('stays quiet about CPF ambiguity when the message has no CPF-shaped number at all (ordinary continuation)', async () => {
+    (extractCpfFromText as jest.Mock).mockReturnValueOnce(null);
+    (extractBareCpfWhenAsked as jest.Mock).mockReturnValueOnce(null);
+    (hasInvalidBareCpfCandidate as jest.Mock).mockReturnValueOnce(false);
+    (lookupCustomer as jest.Mock).mockResolvedValue({
+      customer: CUSTOMER,
+      method: 'phone',
+      attempts: ['phone'],
+    });
+
+    await processMessage(PHONE, 'Oi, tudo bem?');
+
+    const mainSystem = findMainCallSystem(anthropic.messages.create as jest.Mock);
+    expect(mainSystem).not.toContain('pode ser um CPF mas não é válida');
   });
 });
 
